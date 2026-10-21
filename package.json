@@ -18,7 +18,6 @@
     "typecheck": "npm run build"
   },
   "devDependencies": {
-    "openapi-typescript": "^7.6.1",
     "typescript": "^5.7.3"
   }
 }
