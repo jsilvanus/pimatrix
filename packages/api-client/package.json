@@ -10,13 +10,11 @@
     }
   },
   "scripts": {
-    "generate": "openapi-typescript ../../openapi/openapi.yaml -o src/generated.d.ts",
+    "generate": "openapi --input ../../openapi/openapi.yaml --output src/generated --client fetch",
     "build": "tsc -p tsconfig.json"
   },
-  "dependencies": {
-    "openapi-fetch": "^0.13.4"
-  },
   "devDependencies": {
+    "openapi-typescript-codegen": "^0.29.0",
     "typescript": "^5.7.3"
   }
 }
