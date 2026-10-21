@@ -103,6 +103,39 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Output"
+  /api/v1/outputs/{outputId}/source:
+    put:
+      operationId: setOutputSource
+      tags: [Outputs]
+      summary: Set the desired logical source for an HDMI output
+      description: Records route intent. Observed state remains unavailable until the HDMI display adapter is implemented.
+      parameters:
+        - in: path
+          name: outputId
+          required: true
+          schema:
+            $ref: "#/components/schemas/OutputId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetOutputSourceRequest"
+      responses:
+        "202":
+          description: Desired route accepted; output hardware has not necessarily changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Output"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid source ID or request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   responses:
     NotFound:
@@ -198,6 +231,14 @@ components:
             url:
               type: [string, "null"]
               format: uri
+    SetOutputSourceRequest:
+      type: object
+      required: [sourceId]
+      properties:
+        sourceId:
+          oneOf:
+            - $ref: "#/components/schemas/SourceId"
+            - type: "null"
     Output:
       type: object
       required: [id, label, desiredSource, observedSource, state]
