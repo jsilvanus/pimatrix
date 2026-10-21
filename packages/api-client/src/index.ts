@@ -8,12 +8,8 @@ export type * from "./generated/index.js";
 
 export interface ApiClientOptions {
   baseUrl: string;
-  fetch?: typeof fetch;
 }
 
 export function configureApiClient(options: ApiClientOptions): void {
   OpenAPI.BASE = options.baseUrl.replace(/\/$/, "");
-  if (options.fetch) {
-    OpenAPI.FETCH = options.fetch;
-  }
 }
