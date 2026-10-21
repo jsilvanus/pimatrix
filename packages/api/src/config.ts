@@ -6,6 +6,10 @@ export interface AppConfig {
   mode: RuntimeMode;
   mediaMtxApiUrl?: string;
   previewBaseUrl?: string;
+  fffleetUrl?: string;
+  fffleetToken?: string;
+  fffleetClientId?: string;
+  fffleetClientSecret?: string;
 }
 
 function optionalHttpUrl(value: string | undefined, name: string): string | undefined {
@@ -28,6 +32,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const mode = env.PIMATRIX_MODE ?? "simulation";
   const mediaMtxApiUrl = optionalHttpUrl(env.PIMATRIX_MEDIAMTX_API_URL, "PIMATRIX_MEDIAMTX_API_URL");
   const previewBaseUrl = optionalHttpUrl(env.PIMATRIX_PREVIEW_BASE_URL, "PIMATRIX_PREVIEW_BASE_URL");
+  const fffleetUrl = optionalHttpUrl(env.FFFLEET_URL, "FFFLEET_URL");
+  const fffleetToken = env.FFFLEET_TOKEN?.trim() || undefined;
+  const fffleetClientId = env.FFFLEET_CLIENT_ID?.trim() || undefined;
+  const fffleetClientSecret = env.FFFLEET_CLIENT_SECRET || undefined;
 
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("PIMATRIX_PORT must be an integer between 1 and 65535");
@@ -38,11 +46,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (!host || /\s/.test(host)) {
     throw new Error("PIMATRIX_HOST must be a non-empty hostname or IP address");
   }
+  if (Boolean(fffleetClientId) !== Boolean(fffleetClientSecret)) {
+    throw new Error("FFFLEET_CLIENT_ID and FFFLEET_CLIENT_SECRET must be set together");
+  }
+  if ((fffleetToken || fffleetClientId) && !fffleetUrl) {
+    throw new Error("FFFLEET_URL is required when fffleet credentials are configured");
+  }
   return {
     host,
     port,
     mode,
     ...(mediaMtxApiUrl ? { mediaMtxApiUrl } : {}),
-    ...(previewBaseUrl ? { previewBaseUrl } : {})
+    ...(previewBaseUrl ? { previewBaseUrl } : {}),
+    ...(fffleetUrl ? { fffleetUrl } : {}),
+    ...(fffleetToken ? { fffleetToken } : {}),
+    ...(fffleetClientId ? { fffleetClientId } : {}),
+    ...(fffleetClientSecret ? { fffleetClientSecret } : {})
   };
 }
