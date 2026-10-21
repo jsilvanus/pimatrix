@@ -30,9 +30,7 @@ export function buildHamaCaptureSpec(config: AppConfig, attempt: number): JobSpe
   if (config.hamaFrameRate) args.push("-framerate", String(config.hamaFrameRate));
   if (config.hamaWidth && config.hamaHeight) args.push("-video_size", `${config.hamaWidth}x${config.hamaHeight}`);
 
-  args.push("-i", config.hamaDevice,
-    "-an"
-  ];
+  args.push("-i", config.hamaDevice, "-an");
 
   if (config.hamaVideoCodec === "copy") {
     args.push("-c:v", "copy");
