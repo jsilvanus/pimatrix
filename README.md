@@ -45,6 +45,7 @@ Default URL: `http://127.0.0.1:3000`.
 - `GET /api/v1/sources`
 - `GET /api/v1/sources/{sourceId}`
 - `GET /api/v1/outputs`
+- `PUT /api/v1/outputs/{outputId}/source` (records desired route intent; does not yet drive HDMI hardware)
 
 Environment:
 
@@ -72,6 +73,8 @@ Simulation is the default. `production` is currently only a configuration value 
 npm run dev --workspace @pimatrix/cli -- --server http://127.0.0.1:3000 status
 npm run dev --workspace @pimatrix/cli -- --json sources list
 npm run dev --workspace @pimatrix/cli -- --json outputs list
+npm run dev --workspace @pimatrix/cli -- outputs set hdmi0 hama
+npm run dev --workspace @pimatrix/cli -- outputs set hdmi0 none
 ```
 
 Once built, the `pimatrix` executable is available from the CLI workspace package. It supports `--server`, `PIMATRIX_URL`, and `--json`.
@@ -81,7 +84,7 @@ Once built, the `pimatrix` executable is available from the CLI workspace packag
 1. API and OpenAPI-generated client/CLI
 2. MediaMTX discovery and WebRTC preview status
 3. fffleet capability discovery (implemented), then job lifecycle, managed ingest and supervision
-4. Independent HDMI output adapter and per-output processing
+4. Output route intent API/CLI (implemented), then independent HDMI output adapter and per-output processing
 5. Vite operator UI and deployment hardening
 6. AMX integration last; AMX remains the sole Atlona controller
 
