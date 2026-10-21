@@ -1,0 +1,24 @@
+logLevel: info
+
+api: yes
+apiAddress: :9997
+
+rtsp: yes
+rtspAddress: :8554
+rtspTransports: [tcp]
+
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+webrtcAdditionalHosts:
+  - localhost
+  - 127.0.0.1
+
+# Development-only lab: producers publish arbitrary source paths.
+pathDefaults:
+  source: publisher
+  overridePublisher: yes
+
+paths:
+  all_others:

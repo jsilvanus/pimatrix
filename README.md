@@ -75,9 +75,24 @@ When Hama capture is enabled, FFmpeg opens the configured V4L2 device once and p
 
 The capture path is disabled by default and does not force a pixel format, resolution, frame rate or codec. On the Pi, install `v4l-utils`, then run `v4l2-ctl --list-devices` and `v4l2-ctl --list-formats-ext -d /dev/videoN` (replace `/dev/videoN` with the node associated with Hama). Set explicit `PIMATRIX_HAMA_*` overrides only from those results. The advertised 1080p/60 output is a vendor maximum, not proof Linux exposes that exact mode. Linux compatibility and capture behavior remain to be verified on the actual Pi.
 
-MediaMTX path matching is currently by exact source ID (`hama`, `rtmp1`, `rtmp2`, `cam1`, `cam2`, `cam3`, `PiPGM1`, `PiPGM2`). PiMatrix does not yet launch or supervise ingest processes, and this adapter does not claim to prove that a physical capture device is configured correctly.
+MediaMTX path matching is currently by exact source ID (`hama`, `rtmp1`, `rtmp2`, `cam1`, `cam2`, `cam3`, `PiPGM1`, `PiPGM2`). The Hama capture publisher is supervised locally; broader RTMP, camera, and renderer ingest ownership remains future work. The adapter does not prove that a physical capture device is configured correctly.
 
 Simulation is the default. `production` is currently only a configuration value and does not activate capture or display hardware. API liveness remains healthy when MediaMTX is unavailable; the integration status reports the failure separately.
+
+## Local Windows/WSL streaming lab
+
+A Docker Compose development lab runs MediaMTX and synthetic FFmpeg sources without
+the Raspberry Pi or capture hardware. See [the lab guide](dev/streaming-lab/README.md).
+Quick start:
+
+```sh
+npm run lab:up
+npm run lab:logs
+npm run lab:down
+```
+
+The `hama` path in this lab is a synthetic test pattern, not the physical Hama stick.
+The lab does not emulate a V4L2 device, HDMI output, or AMX.
 
 ## Use the CLI
 

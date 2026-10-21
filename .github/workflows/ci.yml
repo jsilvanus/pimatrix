@@ -19,3 +19,7 @@ jobs:
       - run: npm run generate:api
       - run: npm run build
       - run: npm test
+      - name: Validate local streaming lab
+        run: |
+          docker compose -f dev/streaming-lab/compose.yaml config --quiet
+          sh -n dev/streaming-lab/publish-patterns.sh
