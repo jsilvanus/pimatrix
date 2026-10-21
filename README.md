@@ -58,6 +58,9 @@ Default URL: `http://127.0.0.1:3000`.
 - `POST /api/v1/cameras/{cameraId}/smartframe` (controls SmartFrame AI auto-framing: enable, disable, trigger)
 - `POST /api/v1/cameras/{cameraId}/stream/start` (commands camera to push RTMP feed or activates RTSP pull)
 - `POST /api/v1/cameras/{cameraId}/stream/stop` (stops camera streaming feed)
+- `GET /multiview` (responsive browser/phone WebRTC 8-way multiview: automatically 4x2 in landscape, 2x4 in portrait)
+- `GET /api/v1/outputs/multiview` (get 8-way multiview configuration and live tile metadata)
+- `PUT /api/v1/outputs/multiview/layout` (set layout mode: auto, landscape, or portrait)
 
 Environment:
 
@@ -126,6 +129,23 @@ PiMatrix controls the two installed AVer PTZ330 cameras (`cam1` and `cam2`) over
 - **Streaming Feed Control:** Command the camera to start/stop RTMP push streaming to MediaMTX via CGI (`vdo_rtmp_enable`), or coordinate RTSP pull (`rtsp://<ip>:554/live_st1`).
 - **Simulated Mode:** When `PIMATRIX_CAMERA_MODE=simulated`, camera positions, presets, and streaming states are fully simulated in memory for offline testing.
 
+## 8-Way Multiview Output (`multiview`)
+
+PiMatrix provides an automatic 8-way multiview aggregating all logical sources in fixed order:
+1. `cam1` (Camera 1)
+2. `cam2` (Camera 2)
+3. `cam3` (Camera 3)
+4. `hama` (Hama capture)
+5. `rtmp1` (RTMP 1)
+6. `rtmp2` (RTMP 2)
+7. `PiPGM1` (Pi Programme 1)
+8. `PiPGM2` (Pi Programme 2)
+
+- **Automatic Orientation:** When accessed directly on a mobile phone or desktop browser (`http://<host>:3000/multiview`), CSS Grid automatically adjusts:
+  - **Horizontal / Landscape:** 4 columns × 2 rows (4x2).
+  - **Vertical / Portrait (Phone):** 2 columns × 4 rows (2x4).
+- **WebRTC Streaming:** Live video tiles load via WebRTC and automatically update status via Server-Sent Events.
+
 ## Local Windows/WSL streaming lab
 
 A Docker Compose development lab runs MediaMTX and synthetic FFmpeg sources without
@@ -157,6 +177,8 @@ npm run dev --workspace @pimatrix/cli -- cameras preset save cam1 7 --name "Choi
 npm run dev --workspace @pimatrix/cli -- cameras smartframe cam1 trigger
 npm run dev --workspace @pimatrix/cli -- cameras stream start cam1
 npm run dev --workspace @pimatrix/cli -- cameras stream stop cam1
+npm run dev --workspace @pimatrix/cli -- multiview show
+npm run dev --workspace @pimatrix/cli -- multiview layout portrait
 ```
 
 Once built, the `pimatrix` executable is available from the CLI workspace package. It supports `--server`, `PIMATRIX_URL`, and `--json`.

@@ -29,4 +29,10 @@ test("parses camera commands and options", () => {
 
   const streamOpts = parseArgs(["cameras", "stream", "start", "cam1"], {});
   assert.deepEqual(streamOpts.command, ["cameras", "stream", "start", "cam1"]);
+
+  const mvShowOpts = parseArgs(["multiview", "show"], {});
+  assert.deepEqual(mvShowOpts.command, ["multiview", "show"]);
+
+  const mvLayoutOpts = parseArgs(["multiview", "layout", "landscape"], {});
+  assert.deepEqual(mvLayoutOpts.command, ["multiview", "layout", "landscape"]);
 });

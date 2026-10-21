@@ -137,6 +137,48 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/v1/outputs/multiview:
+    get:
+      operationId: getMultiview
+      tags: [Outputs]
+      summary: Get 8-way multiview configuration and live tiles
+      description: Returns the 8-way multiview tile layout (cam1, cam2, cam3, hama, rtmp1, rtmp2, pipgm1, pipgm2) with WebRTC preview URLs and automatic 4x2 / 2x4 orientation.
+      responses:
+        "200":
+          description: Multiview layout and tiles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MultiviewSnapshot"
+  /api/v1/outputs/multiview/layout:
+    put:
+      operationId: setMultiviewLayout
+      tags: [Outputs]
+      summary: Set preferred multiview layout mode
+      description: Configures layout mode to auto (responsive based on client orientation), landscape (4x2), or portrait (2x4).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [layout]
+              properties:
+                layout:
+                  $ref: "#/components/schemas/MultiviewLayoutMode"
+      responses:
+        "200":
+          description: Updated multiview layout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MultiviewSnapshot"
+        "422":
+          description: Invalid layout mode
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/v1/events:
     get:
       operationId: getEvents
@@ -461,7 +503,7 @@ components:
       enum: [hama, rtmp1, rtmp2, cam1, cam2, cam3, PiPGM1, PiPGM2]
     OutputId:
       type: string
-      enum: [hdmi0, hdmi1]
+      enum: [hdmi0, hdmi1, multiview]
     Health:
       type: object
       required: [status, service]
@@ -537,8 +579,16 @@ components:
           type: object
           required: [sources, outputs]
           properties:
-            sources: { type: integer, const: 8 }
-            outputs: { type: integer, const: 2 }
+            sources: { type: integer }
+            outputs: { type: integer }
+    SourcePreview:
+      type: object
+      required: [available, url]
+      properties:
+        available: { type: boolean }
+        url:
+          type: [string, "null"]
+          format: uri
     Source:
       type: object
       required: [id, label, kind, state, preview]
@@ -721,3 +771,53 @@ components:
           type: [string, "null"]
         message:
           type: string
+    MultiviewLayoutMode:
+      type: string
+      enum: [auto, landscape, portrait]
+    MultiviewTile:
+      type: object
+      required: [index, sourceId, label, kind, state, preview]
+      properties:
+        index:
+          type: integer
+        sourceId:
+          $ref: "#/components/schemas/SourceId"
+        label:
+          type: string
+        kind:
+          type: string
+        state:
+          type: string
+        preview:
+          $ref: "#/components/schemas/SourcePreview"
+    MultiviewSnapshot:
+      type: object
+      required: [id, label, layout, landscape, portrait, tiles]
+      properties:
+        id:
+          type: string
+          enum: [multiview]
+        label:
+          type: string
+        layout:
+          $ref: "#/components/schemas/MultiviewLayoutMode"
+        landscape:
+          type: object
+          required: [columns, rows]
+          properties:
+            columns:
+              type: integer
+            rows:
+              type: integer
+        portrait:
+          type: object
+          required: [columns, rows]
+          properties:
+            columns:
+              type: integer
+            rows:
+              type: integer
+        tiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/MultiviewTile"

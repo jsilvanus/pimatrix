@@ -31,7 +31,7 @@ test("source and output inventory does not claim live hardware", async () => {
       source.state === "unavailable" && !source.preview.available
     ));
     const outputs = (await app.inject("/api/v1/outputs")).json().items;
-    assert.deepEqual(outputs.map((output: { id: string }) => output.id), ["hdmi0", "hdmi1"]);
+    assert.deepEqual(outputs.map((output: { id: string }) => output.id), ["hdmi0", "hdmi1", "multiview"]);
     assert.ok(outputs.every((output: { observedSource: string | null; desiredSource: string | null }) =>
       output.observedSource === null && output.desiredSource === null
     ));

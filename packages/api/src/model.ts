@@ -11,8 +11,70 @@ export const sourceDefinitions = [
 
 export const outputDefinitions = [
   { id: "hdmi0", label: "Pi 1" },
-  { id: "hdmi1", label: "Pi 2" }
+  { id: "hdmi1", label: "Pi 2" },
+  { id: "multiview", label: "Multiview" }
 ] as const;
+
+export const multiviewSourceOrder: SourceId[] = [
+  "cam1",
+  "cam2",
+  "cam3",
+  "hama",
+  "rtmp1",
+  "rtmp2",
+  "PiPGM1",
+  "PiPGM2"
+];
+
+export type MultiviewLayoutMode = "auto" | "landscape" | "portrait";
+
+export interface MultiviewTile {
+  index: number;
+  sourceId: SourceId;
+  label: string;
+  kind: string;
+  state: SourceState;
+  preview: {
+    available: boolean;
+    url: string | null;
+  };
+}
+
+export interface MultiviewSnapshot {
+  id: "multiview";
+  label: string;
+  layout: MultiviewLayoutMode;
+  landscape: { columns: number; rows: number };
+  portrait: { columns: number; rows: number };
+  tiles: MultiviewTile[];
+}
+
+export function getMultiview(
+  sources: Array<{ id: SourceId; label: string; kind: string; state: SourceState; preview: { available: boolean; url: string | null } }>,
+  layout: MultiviewLayoutMode = "auto"
+): MultiviewSnapshot {
+  const sourceMap = new Map(sources.map((s) => [s.id, s]));
+  const tiles: MultiviewTile[] = multiviewSourceOrder.map((id, index) => {
+    const s = sourceMap.get(id);
+    return {
+      index,
+      sourceId: id,
+      label: s?.label ?? id,
+      kind: s?.kind ?? "unknown",
+      state: s?.state ?? "unavailable",
+      preview: s?.preview ?? { available: false, url: null }
+    };
+  });
+
+  return {
+    id: "multiview",
+    label: "Multiview",
+    layout,
+    landscape: { columns: 4, rows: 2 },
+    portrait: { columns: 2, rows: 4 },
+    tiles
+  };
+}
 
 export type SourceId = typeof sourceDefinitions[number]["id"];
 export type OutputId = typeof outputDefinitions[number]["id"];
@@ -43,7 +105,12 @@ export function getSources(readyMediaPaths: ReadonlySet<string> = new Set(), pre
 export function createOutputStore() {
   const outputs = new Map<OutputId, OutputSnapshot>(outputDefinitions.map((output) => [
     output.id,
-    { ...output, desiredSource: null, observedSource: null, state: "unavailable" }
+    {
+      ...output,
+      desiredSource: null,
+      observedSource: null,
+      state: output.id === "multiview" ? "active" : "unavailable"
+    }
   ]));
 
   return {

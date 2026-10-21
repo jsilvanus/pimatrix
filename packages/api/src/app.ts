@@ -8,7 +8,16 @@ import type { AppConfig } from "./config.js";
 import { createDisplayAdapter, type DisplayAdapter } from "./display-adapter.js";
 import { PiMatrixEventBroker } from "./events.js";
 import { inspectMediaMtx } from "./media-mtx.js";
-import { createOutputStore, getSources, sourceDefinitions, type OutputId, type SourceId } from "./model.js";
+import {
+  createOutputStore,
+  getMultiview,
+  getSources,
+  sourceDefinitions,
+  type MultiviewLayoutMode,
+  type OutputId,
+  type SourceId
+} from "./model.js";
+import { renderMultiviewHtml } from "./multiview-html.js";
 import { buildHamaCaptureSpec, StreamSupervisor } from "./stream-supervisor.js";
 
 export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): FastifyInstance {
@@ -22,6 +31,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   const outputStore = createOutputStore();
   const displayAdapter: DisplayAdapter = createDisplayAdapter(config.displayMode);
   const eventBroker = new PiMatrixEventBroker();
+  let multiviewLayout: MultiviewLayoutMode = "auto";
 
   const cameraService = new CameraService({
     mode: config.mode,
@@ -170,7 +180,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       amx: await amxClient.getStatus()
     },
     managedStreams: { hama: captureSupervisor.snapshot() },
-    counts: { sources: 8, outputs: 2, cameras: cameraService.list().length }
+    counts: { sources: 8, outputs: outputStore.list().length, cameras: cameraService.list().length }
   }));
 
   app.get("/api/v1/sources", async () => ({ items: await listSources() }));
@@ -229,6 +239,33 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       });
 
       return reply.code(202).send(current);
+    }
+  );
+
+  app.get("/multiview", async (_request, reply) => {
+    const sources = await listSources();
+    const mv = getMultiview(sources, multiviewLayout);
+    const html = renderMultiviewHtml(mv, config.previewBaseUrl);
+    return reply.type("text/html; charset=utf-8").send(html);
+  });
+
+  app.get("/api/v1/outputs/multiview", async () => {
+    const sources = await listSources();
+    return getMultiview(sources, multiviewLayout);
+  });
+
+  app.put<{ Body: { layout?: unknown } }>(
+    "/api/v1/outputs/multiview/layout",
+    async (request, reply) => {
+      const layout = String(request.body?.layout ?? "");
+      if (!["auto", "landscape", "portrait"].includes(layout)) {
+        return reply.code(422).send({
+          error: { code: "INVALID_LAYOUT", message: "layout must be 'auto', 'landscape', or 'portrait'" }
+        });
+      }
+      multiviewLayout = layout as MultiviewLayoutMode;
+      const sources = await listSources();
+      return getMultiview(sources, multiviewLayout);
     }
   );
 

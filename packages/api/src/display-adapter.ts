@@ -19,7 +19,8 @@ export interface DisplayAdapter {
 export class SimulatedDisplayAdapter implements DisplayAdapter {
   private readonly outputs = new Map<OutputId, DisplayOutputState>([
     ["hdmi0", { id: "hdmi0", observedSource: null, state: "unavailable", mode: "1920x1080@60" }],
-    ["hdmi1", { id: "hdmi1", observedSource: null, state: "unavailable", mode: "1920x1080@60" }]
+    ["hdmi1", { id: "hdmi1", observedSource: null, state: "unavailable", mode: "1920x1080@60" }],
+    ["multiview", { id: "multiview", observedSource: null, state: "active", mode: "multiview-8way" }]
   ]);
 
   getOutputState(outputId: OutputId): DisplayOutputState {
@@ -51,11 +52,11 @@ export class SimulatedDisplayAdapter implements DisplayAdapter {
 
 export class DisabledDisplayAdapter implements DisplayAdapter {
   getOutputState(outputId: OutputId): DisplayOutputState {
-    return { id: outputId, observedSource: null, state: "unavailable" };
+    return { id: outputId, observedSource: null, state: outputId === "multiview" ? "active" : "unavailable" };
   }
 
   async applyRoute(outputId: OutputId): Promise<DisplayOutputState> {
-    return { id: outputId, observedSource: null, state: "unavailable" };
+    return { id: outputId, observedSource: null, state: outputId === "multiview" ? "active" : "unavailable" };
   }
 
   getStatus(): DisplayAdapterState {

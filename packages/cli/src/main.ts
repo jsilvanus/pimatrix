@@ -12,12 +12,13 @@ import type {
   CameraMoveRequest,
   CameraSmartFrameRequest,
   CameraZoomRequest,
+  MultiviewLayoutMode,
   OutputId,
   SourceId
 } from "@pimatrix/api-client";
 import { parseArgs, type CliOptions } from "./options.js";
 
-const outputIds = ["hdmi0", "hdmi1"] as const;
+const outputIds = ["hdmi0", "hdmi1", "multiview"] as const;
 const sourceIds = ["hama", "rtmp1", "rtmp2", "cam1", "cam2", "cam3", "PiPGM1", "PiPGM2"] as const;
 const cameraIds = ["cam1", "cam2", "cam3"] as const;
 
@@ -45,6 +46,8 @@ async function run(options: CliOptions): Promise<void> {
       "  sources show <sourceId>\n" +
       "  outputs list\n" +
       "  outputs set <outputId> <sourceId|none>\n" +
+      "  multiview show\n" +
+      "  multiview layout <auto|landscape|portrait>\n" +
       "  matrix route <input> <output>\n" +
       "  cameras list\n" +
       "  cameras show <cameraId>\n" +
@@ -119,6 +122,40 @@ async function run(options: CliOptions): Promise<void> {
       console.log(`Output state: ${data.state}`);
       if (data.state === "unavailable") console.log("Note: route intent is saved; HDMI hardware output is not implemented yet.");
     }
+    return;
+  }
+
+  if (group === "multiview" && action === "show" && options.command.length === 2) {
+    const data = await OutputsService.getMultiview();
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else {
+      console.log(`Multiview: ${data.label} (Layout: ${data.layout})`);
+      console.log(`Grid: Landscape ${data.landscape.columns}x${data.landscape.rows}, Portrait ${data.portrait.columns}x${data.portrait.rows}`);
+      printTable(
+        ["#", "SOURCE", "LABEL", "KIND", "STATE", "PREVIEW"],
+        data.tiles.map((t) => [
+          String(t.index + 1),
+          t.sourceId,
+          t.label,
+          t.kind,
+          t.state,
+          t.preview.available ? `available (${t.preview.url})` : "unavailable"
+        ])
+      );
+    }
+    return;
+  }
+
+  if (group === "multiview" && action === "layout" && options.command.length === 3) {
+    const layout = arg1 as "auto" | "landscape" | "portrait";
+    if (!["auto", "landscape", "portrait"].includes(layout)) {
+      throw new Error("Layout must be 'auto', 'landscape', or 'portrait'");
+    }
+    const data = await OutputsService.setMultiviewLayout({
+      layout: layout as unknown as MultiviewLayoutMode
+    });
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Multiview layout updated to: ${data.layout}`);
     return;
   }
 
