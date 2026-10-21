@@ -169,4 +169,11 @@ test("invalid configuration is rejected", () => {
   assert.throws(() => loadConfig({ PIMATRIX_MEDIAMTX_API_URL: "ftp://media" }), /HTTP or HTTPS/);
   assert.throws(() => loadConfig({ FFFLEET_CLIENT_ID: "pimatrix" }), /must be set together/);
   assert.throws(() => loadConfig({ FFFLEET_TOKEN: "secret" }), /FFFLEET_URL is required/);
+  assert.throws(() => loadConfig({ PIMATRIX_HAMA_ENABLED: "true" }), /PIMATRIX_HAMA_RTSP_URL is required/);
+  assert.throws(() => loadConfig({ PIMATRIX_HAMA_WIDTH: "0" }), /PIMATRIX_HAMA_WIDTH/);
+  assert.throws(() => loadConfig({ PIMATRIX_HAMA_VIDEO_CODEC: "unknown" }), /PIMATRIX_HAMA_VIDEO_CODEC/);
+  assert.throws(() => loadConfig({
+    PIMATRIX_STREAM_RESTART_MIN_MS: "5000",
+    PIMATRIX_STREAM_RESTART_MAX_MS: "1000"
+  }), /PIMATRIX_STREAM_RESTART_MAX_MS/);
 });
