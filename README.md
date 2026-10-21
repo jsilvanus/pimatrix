@@ -2,7 +2,7 @@
 
 PiMatrix is the Raspberry Pi-side video routing and processing control plane for the Keskuskirkko AV system.
 
-The implementation provides a simulation-first HTTP API and standalone CLI, MediaMTX path discovery, fffleet job supervision, and an opt-in local Hama USB capture publisher. The Hama job is executed by a local fffleet runner on the Pi so a remote fleet can never be handed the Pi's `/dev/video*` device.
+The implementation provides a simulation-first HTTP API and standalone CLI, MediaMTX path discovery, fffleet job supervision, and an opt-in local Hama USB capture publisher. The supported capture model is Hama Video Recording/Streaming Stick, article no. 00074257. The Hama job is executed by a local fffleet runner on the Pi so a remote fleet can never be handed the Pi's `/dev/video*` device.
 
 ## Architecture
 
@@ -59,9 +59,9 @@ Environment:
 - `FFFLEET_CLIENT_ID` and `FFFLEET_CLIENT_SECRET`: optional client credentials; set both together instead of `FFFLEET_TOKEN`.
 - `PIMATRIX_HAMA_ENABLED`: set to `true` to start the local Hama capture stream; default `false` so simulation never tries to open hardware.
 - `PIMATRIX_HAMA_DEVICE`: V4L2 device path; defaults to `/dev/video0`.
-- `PIMATRIX_HAMA_INPUT_FORMAT`: V4L2 input format; defaults to `mjpeg`.
-- `PIMATRIX_HAMA_WIDTH`, `PIMATRIX_HAMA_HEIGHT`, `PIMATRIX_HAMA_FRAME_RATE`: capture mode; defaults to `1920`, `1080`, `30`.
-- `PIMATRIX_HAMA_VIDEO_CODEC`: `copy` (default, avoids re-encoding MJPEG) or `libx264` (ultrafast/zerolatency encoding for devices configured to emit raw video).
+- `PIMATRIX_HAMA_INPUT_FORMAT`: optional V4L2 input format (for example `mjpeg`), only set after checking the device formats.
+- `PIMATRIX_HAMA_WIDTH`, `PIMATRIX_HAMA_HEIGHT`, `PIMATRIX_HAMA_FRAME_RATE`: optional capture-mode overrides. Width and height must be supplied together; omitted values leave mode selection to FFmpeg/V4L2.
+- `PIMATRIX_HAMA_VIDEO_CODEC`: optional `copy` or `libx264`; omitted by default because the manual does not identify the Linux capture pixel format.
 - `PIMATRIX_HAMA_RTSP_URL`: required when Hama capture is enabled; the RTSP publish URL for MediaMTX, e.g. `rtsp://127.0.0.1:8554/hama` when API and MediaMTX share the host network, or `rtsp://mediamtx:8554/hama` on a shared container network.
 - `PIMATRIX_STREAM_RESTART_MIN_MS`: initial retry delay, default `1000`.
 - `PIMATRIX_STREAM_RESTART_MAX_MS`: maximum retry delay, default `30000` (maximum accepted: 5 minutes).
@@ -71,7 +71,9 @@ When MediaMTX is configured, PiMatrix checks `/v3/paths/list`. Ready paths whose
 
 PiMatrix now submits the Hama capture stream to its local fffleet runner with application-owned IDs (`pimatrix-hama-capture-<attempt>`). It monitors job state/stderr, cancels the job during shutdown, and retries failed or unexpectedly ended streams with bounded exponential backoff. The separate optional remote fffleet client remains capability-discovery only; PiMatrix does not yet submit remote jobs.
 
-When Hama capture is enabled, FFmpeg opens the configured V4L2 device once and publishes it to the configured MediaMTX RTSP path. The default is intentionally disabled until the real capture device's supported format/mode is confirmed. `copy` is suitable for a compressed format such as MJPEG; choose `libx264` only when re-encoding is required and the Pi can sustain the selected mode. Check the Hama adapter's actual modes with `v4l2-ctl --list-formats-ext` before enabling it.
+When Hama capture is enabled, FFmpeg opens the configured V4L2 device once and publishes it to the configured MediaMTX RTSP path. The supported model is Hama Video Recording/Streaming Stick (article 00074257). The [official Hama product page](https://ae.hama.com/00074257/hama-video-recording-stick-usb-plug-hdmi-socket-4k) and [manual (PDF)](https://support.hama.com/webresources/article-documents/00074/man/00074257man_bg_cs_de_el_en_es_fi_fr_hu_it_nl_pl_pt_ro_ru_sk_sv_tr.pdf) advertise 4K/30 input, 1080p/60 output and USB 3.0 / USB 3.2 Gen 1. The manual lists Windows and macOS requirements but does not specify Linux support, V4L2 pixel formats or enumerated capture modes.
+
+The capture path is disabled by default and does not force a pixel format, resolution, frame rate or codec. On the Pi, install `v4l-utils`, then run `v4l2-ctl --list-devices` and `v4l2-ctl --list-formats-ext -d /dev/videoN` (replace `/dev/videoN` with the node associated with Hama). Set explicit `PIMATRIX_HAMA_*` overrides only from those results. The advertised 1080p/60 output is a vendor maximum, not proof Linux exposes that exact mode. Linux compatibility and capture behavior remain to be verified on the actual Pi.
 
 MediaMTX path matching is currently by exact source ID (`hama`, `rtmp1`, `rtmp2`, `cam1`, `cam2`, `cam3`, `PiPGM1`, `PiPGM2`). PiMatrix does not yet launch or supervise ingest processes, and this adapter does not claim to prove that a physical capture device is configured correctly.
 
