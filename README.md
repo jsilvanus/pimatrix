@@ -53,9 +53,14 @@ Environment:
 - `PIMATRIX_MODE`: `simulation` (default) or `production`.
 - `PIMATRIX_MEDIAMTX_API_URL`: optional MediaMTX HTTP API base URL, e.g. `http://127.0.0.1:9997`.
 - `PIMATRIX_PREVIEW_BASE_URL`: optional browser-reachable WebRTC base URL, e.g. `http://pi.local:8889`.
+- `FFFLEET_URL`: optional fffleet orchestrator URL. If configured, PiMatrix probes its capabilities and reports the connection state.
+- `FFFLEET_TOKEN`: optional static bearer token for fffleet.
+- `FFFLEET_CLIENT_ID` and `FFFLEET_CLIENT_SECRET`: optional client credentials; set both together instead of `FFFLEET_TOKEN`.
 - `LOG_LEVEL`: Fastify log level; defaults to `info`.
 
 When MediaMTX is configured, PiMatrix checks `/v3/paths/list`. Ready paths whose names match the logical source IDs are reported as live. A preview URL is returned only when the matching path is ready and `PIMATRIX_PREVIEW_BASE_URL` is set. The base URL must be reachable from the operator's browser; it must not be a container-only hostname.
+
+fffleet is currently capability-discovered only; PiMatrix has not yet submitted or supervised jobs. This avoids starting unconfigured capture/relay processes. The future stream supervisor will use stable application-owned job IDs and explicitly cancel/restart jobs as needed.
 
 MediaMTX path matching is currently by exact source ID (`hama`, `rtmp1`, `rtmp2`, `cam1`, `cam2`, `cam3`, `PiPGM1`, `PiPGM2`). PiMatrix does not yet launch or supervise ingest processes, and this adapter does not claim to prove that a physical capture device is configured correctly.
 
@@ -75,7 +80,7 @@ Once built, the `pimatrix` executable is available from the CLI workspace packag
 
 1. API and OpenAPI-generated client/CLI
 2. MediaMTX discovery and WebRTC preview status
-3. fffleet job lifecycle, managed ingest and supervision
+3. fffleet capability discovery (implemented), then job lifecycle, managed ingest and supervision
 4. Independent HDMI output adapter and per-output processing
 5. Vite operator UI and deployment hardening
 6. AMX integration last; AMX remains the sole Atlona controller
