@@ -1,0 +1,229 @@
+openapi: 3.1.0
+info:
+  title: PiMatrix API
+  version: 0.1.0
+  description: PiMatrix control-plane API. Hardware and media integrations are introduced incrementally.
+servers:
+  - url: http://127.0.0.1:3000
+    description: Local development default
+tags:
+  - name: System
+  - name: Sources
+  - name: Outputs
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags: [System]
+      summary: Process liveness
+      responses:
+        "200":
+          description: Process is running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /ready:
+    get:
+      operationId: getReadiness
+      tags: [System]
+      summary: API readiness and dependency checks
+      responses:
+        "200":
+          description: API can accept requests; media integrations may not be configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+  /api/v1/status:
+    get:
+      operationId: getStatus
+      tags: [System]
+      summary: Overall PiMatrix runtime status
+      responses:
+        "200":
+          description: Runtime status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+  /api/v1/sources:
+    get:
+      operationId: listSources
+      tags: [Sources]
+      summary: List configured logical sources
+      responses:
+        "200":
+          description: Source list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Source"
+  /api/v1/sources/{sourceId}:
+    get:
+      operationId: getSource
+      tags: [Sources]
+      summary: Get one configured source
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            $ref: "#/components/schemas/SourceId"
+      responses:
+        "200":
+          description: Source details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Source"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/outputs:
+    get:
+      operationId: listOutputs
+      tags: [Outputs]
+      summary: List physical outputs
+      responses:
+        "200":
+          description: Output list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Output"
+components:
+  responses:
+    NotFound:
+      description: Requested resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    SourceId:
+      type: string
+      enum: [hama, rtmp1, rtmp2, cam1, cam2, cam3, PiPGM1, PiPGM2]
+    OutputId:
+      type: string
+      enum: [hdmi0, hdmi1]
+    Health:
+      type: object
+      required: [status, service]
+      properties:
+        status:
+          type: string
+          const: ok
+        service:
+          type: string
+          const: pimatrix
+    Readiness:
+      type: object
+      required: [ready, mode, checks]
+      properties:
+        ready:
+          type: boolean
+        mode:
+          type: string
+          enum: [simulation, production]
+        checks:
+          type: object
+          required: [api, media, capture, display]
+          properties:
+            api: { type: string }
+            media: { type: string }
+            capture: { type: string }
+            display: { type: string }
+    Status:
+      type: object
+      required: [apiVersion, service, mode, status, integrations, counts]
+      properties:
+        apiVersion:
+          type: string
+          const: v1
+        service:
+          type: string
+          const: pimatrix
+        mode:
+          type: string
+          enum: [simulation, production]
+        status:
+          type: string
+          const: running
+        integrations:
+          type: object
+          required: [mediaMtx, fffleet, capture, display, amx]
+          properties:
+            mediaMtx: { type: string }
+            fffleet: { type: string }
+            capture: { type: string }
+            display: { type: string }
+            amx: { type: string }
+        counts:
+          type: object
+          required: [sources, outputs]
+          properties:
+            sources: { type: integer, const: 8 }
+            outputs: { type: integer, const: 2 }
+    Source:
+      type: object
+      required: [id, label, kind, state, preview]
+      properties:
+        id:
+          $ref: "#/components/schemas/SourceId"
+        label:
+          type: string
+        kind:
+          type: string
+          enum: [capture, rtmp, camera, renderer]
+        state:
+          type: string
+          enum: [unavailable, starting, live, degraded, failed]
+        preview:
+          type: object
+          required: [available, url]
+          properties:
+            available: { type: boolean }
+            url:
+              type: [string, "null"]
+              format: uri
+    Output:
+      type: object
+      required: [id, label, desiredSource, observedSource, state]
+      properties:
+        id:
+          $ref: "#/components/schemas/OutputId"
+        label:
+          type: string
+        desiredSource:
+          oneOf:
+            - $ref: "#/components/schemas/SourceId"
+            - type: "null"
+        observedSource:
+          oneOf:
+            - $ref: "#/components/schemas/SourceId"
+            - type: "null"
+        state:
+          type: string
+          enum: [unavailable, starting, active, failed]
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
