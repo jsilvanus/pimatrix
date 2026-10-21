@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 
-import { createApiClient } from "@pimatrix/api-client";
+import {
+  configureApiClient,
+  SourcesService,
+  SystemService,
+  OutputsService
+} from "@pimatrix/api-client";
 import { parseArgs, type CliOptions } from "./options.js";
 
 function printTable(headers: string[], rows: string[][]): void {
@@ -15,7 +20,7 @@ function printTable(headers: string[], rows: string[][]): void {
 }
 
 async function run(options: CliOptions): Promise<void> {
-  const client = createApiClient({ baseUrl: options.server });
+  configureApiClient({ baseUrl: options.server });
   const [group, action] = options.command;
 
   if (group === "help" || options.command.length === 0) {
@@ -24,8 +29,7 @@ async function run(options: CliOptions): Promise<void> {
   }
 
   if (group === "status" && options.command.length === 1) {
-    const { data, error, response } = await client.GET("/api/v1/status");
-    if (error || !data) throw new Error(`PiMatrix API request failed (${response.status})`);
+    const data = await SystemService.getStatus();
     if (options.json) console.log(JSON.stringify(data, null, 2));
     else {
       console.log(`PiMatrix: ${data.status}`);
@@ -40,8 +44,7 @@ async function run(options: CliOptions): Promise<void> {
   }
 
   if (group === "sources" && action === "list" && options.command.length === 2) {
-    const { data, error, response } = await client.GET("/api/v1/sources");
-    if (error || !data) throw new Error(`PiMatrix API request failed (${response.status})`);
+    const data = await SourcesService.listSources();
     if (options.json) console.log(JSON.stringify(data.items, null, 2));
     else printTable(["ID", "LABEL", "KIND", "STATE", "PREVIEW"], data.items.map((source) => [
       source.id, source.label, source.kind, source.state,
@@ -51,8 +54,7 @@ async function run(options: CliOptions): Promise<void> {
   }
 
   if (group === "outputs" && action === "list" && options.command.length === 2) {
-    const { data, error, response } = await client.GET("/api/v1/outputs");
-    if (error || !data) throw new Error(`PiMatrix API request failed (${response.status})`);
+    const data = await OutputsService.listOutputs();
     if (options.json) console.log(JSON.stringify(data.items, null, 2));
     else printTable(["ID", "LABEL", "DESIRED SOURCE", "OBSERVED SOURCE", "STATE"], data.items.map((output) => [
       output.id, output.label, output.desiredSource ?? "-", output.observedSource ?? "-", output.state
