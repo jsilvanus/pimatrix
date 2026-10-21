@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import type { EffectsPipeline } from "./effects/effects-model.js";
 import type { OutputSnapshot, SourceId, SourceState } from "./model.js";
 
 export interface SourceEventPayload {
@@ -32,11 +33,17 @@ export interface CameraEventPayload {
   position?: { pan: number; tilt: number; zoom: number };
 }
 
+export interface EffectsEventPayload {
+  sourceId: SourceId;
+  effects: EffectsPipeline;
+}
+
 export type PiMatrixEvent =
   | { type: "source"; data: SourceEventPayload }
   | { type: "output"; data: OutputEventPayload }
   | { type: "stream"; data: StreamEventPayload }
   | { type: "camera"; data: CameraEventPayload }
+  | { type: "effects"; data: EffectsEventPayload }
   | { type: "ready"; data: { status: string; time: string } };
 
 export class PiMatrixEventBroker {

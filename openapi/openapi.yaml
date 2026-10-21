@@ -11,6 +11,7 @@ tags:
   - name: Sources
   - name: Outputs
   - name: Cameras
+  - name: Effects
 paths:
   /health:
     get:
@@ -489,6 +490,267 @@ paths:
                 $ref: "#/components/schemas/CameraStreamResponse"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/v1/effects:
+    get:
+      operationId: listAllEffects
+      tags: [Effects]
+      summary: List effects pipelines for all logical sources
+      description: Returns current crop, position, rotation, and FFmpeg filter specifications for all 8 inputs.
+      responses:
+        "200":
+          description: List of source effects pipelines
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EffectsPipeline"
+  /api/v1/sources/{sourceId}/effects:
+    get:
+      operationId: getSourceEffects
+      tags: [Effects]
+      summary: Get effects pipeline configuration for an input source
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            $ref: "#/components/schemas/SourceId"
+      responses:
+        "200":
+          description: Source effects pipeline
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EffectsPipeline"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/sources/{sourceId}/effects/crop:
+    put:
+      operationId: updateSourceCrop
+      tags: [Effects]
+      summary: Update crop bounds and aspect ratio for an input source
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            $ref: "#/components/schemas/SourceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCropRequest"
+      responses:
+        "200":
+          description: Updated effects pipeline
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EffectsPipeline"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid crop bounds or properties
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/sources/{sourceId}/effects/crop/preset:
+    post:
+      operationId: applySourceCropPreset
+      tags: [Effects]
+      summary: Apply aspect ratio preset to source crop (e.g. 9:16 vertical or 10:16 Epson projector)
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            $ref: "#/components/schemas/SourceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CropPresetRequest"
+      responses:
+        "200":
+          description: Preset applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EffectsPipeline"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid preset action
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/sources/{sourceId}/effects/crop/move:
+    post:
+      operationId: moveSourceCrop
+      tags: [Effects]
+      summary: Move or pan crop window in a cardinal direction or center
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            $ref: "#/components/schemas/SourceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MoveCropRequest"
+      responses:
+        "200":
+          description: Crop moved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EffectsPipeline"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid direction or delta
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/sources/{sourceId}/effects/crop/resize:
+    post:
+      operationId: resizeSourceCrop
+      tags: [Effects]
+      summary: Resize crop window in or out (zoom) preserving center and aspect ratio
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            $ref: "#/components/schemas/SourceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResizeCropRequest"
+      responses:
+        "200":
+          description: Crop resized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EffectsPipeline"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid action or factor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/sources/{sourceId}/effects/rotation:
+    post:
+      operationId: setSourceRotation
+      tags: [Effects]
+      summary: Set video rotation (0, 90, 180, 270 degrees)
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            $ref: "#/components/schemas/SourceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetRotationRequest"
+      responses:
+        "200":
+          description: Rotation updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EffectsPipeline"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid rotation degrees
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/outputs/{outputId}/effects:
+    get:
+      operationId: getOutputEffects
+      tags: [Effects]
+      summary: Get active effects pipeline for an output (inherited from its routed source)
+      parameters:
+        - in: path
+          name: outputId
+          required: true
+          schema:
+            $ref: "#/components/schemas/OutputId"
+      responses:
+        "200":
+          description: Output effects
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [outputId]
+                properties:
+                  outputId:
+                    $ref: "#/components/schemas/OutputId"
+                  sourceId:
+                    type: [string, "null"]
+                  effects:
+                    anyOf:
+                      - $ref: "#/components/schemas/EffectsPipeline"
+                      - type: "null"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/outputs/{outputId}/effects/crop:
+    put:
+      operationId: updateOutputCrop
+      tags: [Effects]
+      summary: Update crop bounds on the source routed to this output
+      parameters:
+        - in: path
+          name: outputId
+          required: true
+          schema:
+            $ref: "#/components/schemas/OutputId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCropRequest"
+      responses:
+        "200":
+          description: Updated effects pipeline
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EffectsPipeline"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Output is not routed or invalid crop
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   responses:
     NotFound:
@@ -821,3 +1083,109 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/MultiviewTile"
+    AspectRatioPreset:
+      type: string
+      enum: ["16:9", "9:16", "16:10", "10:16", "4:3", "1:1", "free"]
+    CropPresetAction:
+      type: string
+      enum:
+        - force-vertical-9-16
+        - force-vertical-10-16
+        - force-landscape-16-9
+        - force-landscape-16-10
+        - center
+        - reset
+    MoveDirection:
+      type: string
+      enum: [left, right, up, down, center]
+    CropSettings:
+      type: object
+      required:
+        - enabled
+        - x
+        - y
+        - width
+        - height
+        - sourceWidth
+        - sourceHeight
+        - aspectRatio
+        - lockedAspectRatio
+      properties:
+        enabled:
+          type: boolean
+        x:
+          type: number
+        y:
+          type: number
+        width:
+          type: number
+        height:
+          type: number
+        sourceWidth:
+          type: number
+        sourceHeight:
+          type: number
+        aspectRatio:
+          $ref: "#/components/schemas/AspectRatioPreset"
+        lockedAspectRatio:
+          type: boolean
+    EffectsPipeline:
+      type: object
+      required: [sourceId, crop, rotation, ffmpegFilter]
+      properties:
+        sourceId:
+          $ref: "#/components/schemas/SourceId"
+        crop:
+          $ref: "#/components/schemas/CropSettings"
+        rotation:
+          type: integer
+          enum: [0, 90, 180, 270]
+        ffmpegFilter:
+          type: string
+    UpdateCropRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        x:
+          type: number
+        y:
+          type: number
+        width:
+          type: number
+        height:
+          type: number
+        aspectRatio:
+          $ref: "#/components/schemas/AspectRatioPreset"
+        lockedAspectRatio:
+          type: boolean
+    CropPresetRequest:
+      type: object
+      required: [preset]
+      properties:
+        preset:
+          $ref: "#/components/schemas/CropPresetAction"
+    MoveCropRequest:
+      type: object
+      required: [direction]
+      properties:
+        direction:
+          $ref: "#/components/schemas/MoveDirection"
+        delta:
+          type: number
+    ResizeCropRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [in, out]
+        factor:
+          type: number
+    SetRotationRequest:
+      type: object
+      required: [rotation]
+      properties:
+        rotation:
+          type: integer
+          enum: [0, 90, 180, 270]

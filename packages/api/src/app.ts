@@ -7,6 +7,14 @@ import type { PanTiltDirection, SmartFrameMode, ZoomAction } from "./camera/visc
 import type { AppConfig } from "./config.js";
 import { createDisplayAdapter, type DisplayAdapter } from "./display-adapter.js";
 import { PiMatrixEventBroker } from "./events.js";
+import {
+  EffectsStore,
+  type AspectRatioPreset,
+  type CropPresetAction,
+  type CropSettings,
+  type MoveDirection,
+  type RotationDegrees
+} from "./effects/effects-model.js";
 import { inspectMediaMtx } from "./media-mtx.js";
 import {
   createOutputStore,
@@ -29,6 +37,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   });
 
   const outputStore = createOutputStore();
+  const effectsStore = new EffectsStore(sourceDefinitions.map((s) => s.id));
   const displayAdapter: DisplayAdapter = createDisplayAdapter(config.displayMode);
   const eventBroker = new PiMatrixEventBroker();
   let multiviewLayout: MultiviewLayoutMode = "auto";
@@ -73,7 +82,11 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
 
   const captureSupervisor = new StreamSupervisor(
     localCaptureFleet,
-    (attempt) => buildHamaCaptureSpec(config, attempt),
+    (attempt) => {
+      const hamaEffects = effectsStore.get("hama");
+      const filter = hamaEffects?.crop.enabled ? hamaEffects.ffmpegFilter : undefined;
+      return buildHamaCaptureSpec(config, attempt, filter);
+    },
     config.hamaEnabled,
     config.streamRestartMinMs,
     config.streamRestartMaxMs
@@ -150,6 +163,8 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   (app as unknown as { amxListener?: AmxTcpListener | null }).amxListener = amxListener;
   (app as unknown as { eventBroker: PiMatrixEventBroker }).eventBroker = eventBroker;
   (app as unknown as { cameraService: CameraService }).cameraService = cameraService;
+  (app as unknown as { effectsStore: EffectsStore }).effectsStore = effectsStore;
+  (app as unknown as { captureSupervisor: StreamSupervisor }).captureSupervisor = captureSupervisor;
 
   app.get("/health", async () => ({ status: "ok", service: "pimatrix" }));
 
@@ -245,7 +260,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   app.get("/multiview", async (_request, reply) => {
     const sources = await listSources();
     const mv = getMultiview(sources, multiviewLayout);
-    const html = renderMultiviewHtml(mv, config.previewBaseUrl);
+    const html = renderMultiviewHtml(mv, config.previewBaseUrl, effectsStore.list());
     return reply.type("text/html; charset=utf-8").send(html);
   });
 
@@ -574,6 +589,377 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       });
     }
   );
+
+  // Effects Pipelines
+  app.get("/api/v1/effects", async () => ({ items: effectsStore.list() }));
+
+  app.get<{ Params: { sourceId: string } }>("/api/v1/sources/:sourceId/effects", async (request, reply) => {
+    const sourceId = request.params.sourceId as SourceId;
+    if (!sourceDefinitions.some((s) => s.id === sourceId)) {
+      return reply.code(404).send({
+        error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
+      });
+    }
+    const effects = effectsStore.get(sourceId);
+    return reply.code(200).send(effects);
+  });
+
+  const validAspectRatios = new Set(["16:9", "9:16", "16:10", "10:16", "4:3", "1:1", "free"]);
+
+  app.put<{
+    Params: { sourceId: string };
+    Body: {
+      enabled?: unknown;
+      x?: unknown;
+      y?: unknown;
+      width?: unknown;
+      height?: unknown;
+      aspectRatio?: unknown;
+      lockedAspectRatio?: unknown;
+    };
+  }>("/api/v1/sources/:sourceId/effects/crop", async (request, reply) => {
+    const sourceId = request.params.sourceId as SourceId;
+    if (!sourceDefinitions.some((s) => s.id === sourceId)) {
+      return reply.code(404).send({
+        error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
+      });
+    }
+
+    const body = request.body ?? {};
+    const updates: Partial<CropSettings> = {};
+
+    if (body.enabled !== undefined) {
+      if (typeof body.enabled !== "boolean") {
+        return reply.code(422).send({
+          error: { code: "INVALID_CROP_PROPERTY", message: "enabled must be a boolean" }
+        });
+      }
+      updates.enabled = body.enabled;
+    }
+
+    if (body.x !== undefined) {
+      const x = Number(body.x);
+      if (!Number.isFinite(x) || x < 0) {
+        return reply.code(422).send({
+          error: { code: "INVALID_CROP_BOUNDS", message: "x must be a non-negative number" }
+        });
+      }
+      updates.x = x;
+    }
+
+    if (body.y !== undefined) {
+      const y = Number(body.y);
+      if (!Number.isFinite(y) || y < 0) {
+        return reply.code(422).send({
+          error: { code: "INVALID_CROP_BOUNDS", message: "y must be a non-negative number" }
+        });
+      }
+      updates.y = y;
+    }
+
+    if (body.width !== undefined) {
+      const width = Number(body.width);
+      if (!Number.isFinite(width) || width <= 0) {
+        return reply.code(422).send({
+          error: { code: "INVALID_CROP_BOUNDS", message: "width must be a positive number" }
+        });
+      }
+      updates.width = width;
+    }
+
+    if (body.height !== undefined) {
+      const height = Number(body.height);
+      if (!Number.isFinite(height) || height <= 0) {
+        return reply.code(422).send({
+          error: { code: "INVALID_CROP_BOUNDS", message: "height must be a positive number" }
+        });
+      }
+      updates.height = height;
+    }
+
+    if (body.aspectRatio !== undefined) {
+      const ar = String(body.aspectRatio);
+      if (!validAspectRatios.has(ar)) {
+        return reply.code(422).send({
+          error: {
+            code: "INVALID_ASPECT_RATIO",
+            message: `aspectRatio must be one of: ${[...validAspectRatios].join(", ")}`
+          }
+        });
+      }
+      updates.aspectRatio = ar as AspectRatioPreset;
+    }
+
+    if (body.lockedAspectRatio !== undefined) {
+      if (typeof body.lockedAspectRatio !== "boolean") {
+        return reply.code(422).send({
+          error: { code: "INVALID_CROP_PROPERTY", message: "lockedAspectRatio must be a boolean" }
+        });
+      }
+      updates.lockedAspectRatio = body.lockedAspectRatio;
+    }
+
+    const updated = effectsStore.updateCrop(sourceId, updates);
+    if (!updated) {
+      return reply.code(404).send({
+        error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
+      });
+    }
+
+    eventBroker.emit({
+      type: "effects",
+      data: { sourceId, effects: updated }
+    });
+
+    if (sourceId === "hama" && captureSupervisor.snapshot().state === "running") {
+      void captureSupervisor.restart().catch(() => undefined);
+    }
+
+    return reply.code(200).send(updated);
+  });
+
+  const validPresets = new Set([
+    "force-vertical-9-16",
+    "force-vertical-10-16",
+    "force-landscape-16-9",
+    "force-landscape-16-10",
+    "center",
+    "reset"
+  ]);
+
+  app.post<{
+    Params: { sourceId: string };
+    Body: { preset?: unknown };
+  }>("/api/v1/sources/:sourceId/effects/crop/preset", async (request, reply) => {
+    const sourceId = request.params.sourceId as SourceId;
+    if (!sourceDefinitions.some((s) => s.id === sourceId)) {
+      return reply.code(404).send({
+        error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
+      });
+    }
+
+    const preset = String(request.body?.preset ?? "");
+    if (!validPresets.has(preset)) {
+      return reply.code(422).send({
+        error: {
+          code: "INVALID_PRESET",
+          message: `preset must be one of: ${[...validPresets].join(", ")}`
+        }
+      });
+    }
+
+    const updated = effectsStore.applyPreset(sourceId, preset as CropPresetAction);
+    if (!updated) {
+      return reply.code(404).send({
+        error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
+      });
+    }
+
+    eventBroker.emit({
+      type: "effects",
+      data: { sourceId, effects: updated }
+    });
+
+    if (sourceId === "hama" && captureSupervisor.snapshot().state === "running") {
+      void captureSupervisor.restart().catch(() => undefined);
+    }
+
+    return reply.code(200).send(updated);
+  });
+
+  const validMoveDirections = new Set(["left", "right", "up", "down", "center"]);
+
+  app.post<{
+    Params: { sourceId: string };
+    Body: { direction?: unknown; delta?: unknown };
+  }>("/api/v1/sources/:sourceId/effects/crop/move", async (request, reply) => {
+    const sourceId = request.params.sourceId as SourceId;
+    if (!sourceDefinitions.some((s) => s.id === sourceId)) {
+      return reply.code(404).send({
+        error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
+      });
+    }
+
+    const direction = String(request.body?.direction ?? "");
+    if (!validMoveDirections.has(direction)) {
+      return reply.code(422).send({
+        error: {
+          code: "INVALID_DIRECTION",
+          message: `direction must be one of: ${[...validMoveDirections].join(", ")}`
+        }
+      });
+    }
+
+    const delta = request.body?.delta !== undefined ? Number(request.body.delta) : undefined;
+    if (delta !== undefined && (!Number.isFinite(delta) || delta <= 0)) {
+      return reply.code(422).send({
+        error: { code: "INVALID_DELTA", message: "delta must be a positive number" }
+      });
+    }
+
+    const updated = effectsStore.moveCrop(sourceId, direction as MoveDirection, delta);
+    if (!updated) {
+      return reply.code(404).send({
+        error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
+      });
+    }
+
+    eventBroker.emit({
+      type: "effects",
+      data: { sourceId, effects: updated }
+    });
+
+    if (sourceId === "hama" && captureSupervisor.snapshot().state === "running") {
+      void captureSupervisor.restart().catch(() => undefined);
+    }
+
+    return reply.code(200).send(updated);
+  });
+
+  const validResizeActions = new Set(["in", "out"]);
+
+  app.post<{
+    Params: { sourceId: string };
+    Body: { action?: unknown; factor?: unknown };
+  }>("/api/v1/sources/:sourceId/effects/crop/resize", async (request, reply) => {
+    const sourceId = request.params.sourceId as SourceId;
+    if (!sourceDefinitions.some((s) => s.id === sourceId)) {
+      return reply.code(404).send({
+        error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
+      });
+    }
+
+    const action = String(request.body?.action ?? "");
+    if (!validResizeActions.has(action)) {
+      return reply.code(422).send({
+        error: { code: "INVALID_ACTION", message: "action must be 'in' or 'out'" }
+      });
+    }
+
+    const factor = request.body?.factor !== undefined ? Number(request.body.factor) : undefined;
+    if (factor !== undefined && (!Number.isFinite(factor) || factor <= 0 || factor >= 1)) {
+      return reply.code(422).send({
+        error: { code: "INVALID_FACTOR", message: "factor must be a number between 0 and 1" }
+      });
+    }
+
+    const updated = effectsStore.resizeCrop(sourceId, action as "in" | "out", factor);
+    if (!updated) {
+      return reply.code(404).send({
+        error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
+      });
+    }
+
+    eventBroker.emit({
+      type: "effects",
+      data: { sourceId, effects: updated }
+    });
+
+    if (sourceId === "hama" && captureSupervisor.snapshot().state === "running") {
+      void captureSupervisor.restart().catch(() => undefined);
+    }
+
+    return reply.code(200).send(updated);
+  });
+
+  const validRotations = new Set([0, 90, 180, 270]);
+
+  app.post<{
+    Params: { sourceId: string };
+    Body: { rotation?: unknown };
+  }>("/api/v1/sources/:sourceId/effects/rotation", async (request, reply) => {
+    const sourceId = request.params.sourceId as SourceId;
+    if (!sourceDefinitions.some((s) => s.id === sourceId)) {
+      return reply.code(404).send({
+        error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
+      });
+    }
+
+    const rotation = Number(request.body?.rotation);
+    if (!validRotations.has(rotation)) {
+      return reply.code(422).send({
+        error: { code: "INVALID_ROTATION", message: "rotation must be 0, 90, 180, or 270" }
+      });
+    }
+
+    const updated = effectsStore.setRotation(sourceId, rotation as RotationDegrees);
+    if (!updated) {
+      return reply.code(404).send({
+        error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
+      });
+    }
+
+    eventBroker.emit({
+      type: "effects",
+      data: { sourceId, effects: updated }
+    });
+
+    if (sourceId === "hama" && captureSupervisor.snapshot().state === "running") {
+      void captureSupervisor.restart().catch(() => undefined);
+    }
+
+    return reply.code(200).send(updated);
+  });
+
+  // Output effects mapping
+  app.get<{ Params: { outputId: string } }>("/api/v1/outputs/:outputId/effects", async (request, reply) => {
+    const output = outputStore.get(request.params.outputId as OutputId);
+    if (!output) {
+      return reply.code(404).send({
+        error: { code: "OUTPUT_NOT_FOUND", message: `Unknown output ID: ${request.params.outputId}` }
+      });
+    }
+
+    const activeSource = output.observedSource ?? output.desiredSource;
+    if (!activeSource) {
+      return reply.code(200).send({
+        outputId: output.id,
+        sourceId: null,
+        effects: null,
+        message: "No source currently routed to this output"
+      });
+    }
+
+    const effects = effectsStore.get(activeSource);
+    return reply.code(200).send({
+      outputId: output.id,
+      sourceId: activeSource,
+      effects
+    });
+  });
+
+  app.put<{
+    Params: { outputId: string };
+    Body: {
+      enabled?: unknown;
+      x?: unknown;
+      y?: unknown;
+      width?: unknown;
+      height?: unknown;
+      aspectRatio?: unknown;
+      lockedAspectRatio?: unknown;
+    };
+  }>("/api/v1/outputs/:outputId/effects/crop", async (request, reply) => {
+    const output = outputStore.get(request.params.outputId as OutputId);
+    if (!output) {
+      return reply.code(404).send({
+        error: { code: "OUTPUT_NOT_FOUND", message: `Unknown output ID: ${request.params.outputId}` }
+      });
+    }
+
+    const activeSource = output.observedSource ?? output.desiredSource;
+    if (!activeSource) {
+      return reply.code(422).send({
+        error: { code: "OUTPUT_NOT_ROUTED", message: "Output is not routed to any source" }
+      });
+    }
+
+    return app.inject({
+      method: "PUT",
+      url: `/api/v1/sources/${activeSource}/effects/crop`,
+      payload: request.body
+    }).then((res) => reply.code(res.statusCode).send(JSON.parse(res.payload)));
+  });
 
   app.setNotFoundHandler(async (request, reply) =>
     reply.code(404).send({

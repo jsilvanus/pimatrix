@@ -13,7 +13,7 @@ export interface ManagedStreamSnapshot {
 
 type StreamJobFactory = (attempt: number) => JobSpecInput;
 
-export function buildHamaCaptureSpec(config: AppConfig, attempt: number): JobSpecInput {
+export function buildHamaCaptureSpec(config: AppConfig, attempt: number, filter?: string): JobSpecInput {
   if (!config.hamaRtspUrl) {
     throw new Error("Hama capture requires PIMATRIX_HAMA_RTSP_URL");
   }
@@ -32,7 +32,10 @@ export function buildHamaCaptureSpec(config: AppConfig, attempt: number): JobSpe
 
   args.push("-i", config.hamaDevice, "-an");
 
-  if (config.hamaVideoCodec === "copy") {
+  if (filter && filter !== "null") {
+    args.push("-vf", filter);
+    args.push("-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p");
+  } else if (config.hamaVideoCodec === "copy") {
     args.push("-c:v", "copy");
   } else if (config.hamaVideoCodec === "libx264") {
     args.push("-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p");
@@ -165,6 +168,20 @@ export class StreamSupervisor {
       this.launchPromise = this.launch();
     }, delay);
     this.retryTimer.unref?.();
+  }
+
+  async restart(): Promise<void> {
+    if (!this.enabled || this.stopping) return;
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    const job = this.activeJob;
+    this.activeJob = null;
+    if (job) await job.cancel().catch(() => undefined);
+    this.currentState = "starting";
+    this.launchPromise = this.launch();
+    await this.launchPromise;
   }
 
   async stop(): Promise<void> {
