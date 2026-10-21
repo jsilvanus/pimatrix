@@ -14,6 +14,17 @@ export const outputDefinitions = [
   { id: "hdmi1", label: "Pi 2" }
 ] as const;
 
+export type SourceId = typeof sourceDefinitions[number]["id"];
+export type OutputId = typeof outputDefinitions[number]["id"];
+
+export interface OutputSnapshot {
+  id: OutputId;
+  label: string;
+  desiredSource: SourceId | null;
+  observedSource: SourceId | null;
+  state: "unavailable" | "starting" | "active" | "failed";
+}
+
 export function getSources(readyMediaPaths: ReadonlySet<string> = new Set(), previewBaseUrl?: string) {
   return sourceDefinitions.map((source) => {
     const live = readyMediaPaths.has(source.id);
@@ -28,11 +39,22 @@ export function getSources(readyMediaPaths: ReadonlySet<string> = new Set(), pre
   });
 }
 
-export function getOutputs() {
-  return outputDefinitions.map((output) => ({
-    ...output,
-    desiredSource: null,
-    observedSource: null,
-    state: "unavailable" as const
-  }));
+export function createOutputStore() {
+  const outputs = new Map<OutputId, OutputSnapshot>(outputDefinitions.map((output) => [
+    output.id,
+    { ...output, desiredSource: null, observedSource: null, state: "unavailable" }
+  ]));
+
+  return {
+    list(): OutputSnapshot[] {
+      return [...outputs.values()].map((output) => ({ ...output }));
+    },
+    setDesiredSource(outputId: string, sourceId: SourceId | null): OutputSnapshot | undefined {
+      if (!outputs.has(outputId as OutputId)) return undefined;
+      const current = outputs.get(outputId as OutputId)!;
+      const updated: OutputSnapshot = { ...current, desiredSource: sourceId };
+      outputs.set(updated.id, updated);
+      return { ...updated };
+    }
+  };
 }
