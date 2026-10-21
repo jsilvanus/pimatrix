@@ -1,4 +1,6 @@
-export { OpenAPI } from "./generated/core/OpenAPI.js";
+import { OpenAPI } from "./generated/core/OpenAPI.js";
+
+export { OpenAPI };
 export { SystemService } from "./generated/services/SystemService.js";
 export { SourcesService } from "./generated/services/SourcesService.js";
 export { OutputsService } from "./generated/services/OutputsService.js";
