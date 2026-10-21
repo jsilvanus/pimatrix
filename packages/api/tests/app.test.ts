@@ -13,6 +13,7 @@ test("health, readiness and status respond in simulation mode", async () => {
     const status = (await app.inject("/api/v1/status")).json();
     assert.equal(status.mode, "simulation");
     assert.equal(status.integrations.amx, "not-configured");
+    assert.equal(status.integrations.mediaMtx, "not-configured");
   } finally {
     await app.close();
   }
@@ -36,6 +37,46 @@ test("source and output inventory does not claim live hardware", async () => {
   }
 });
 
+test("MediaMTX ready paths are reflected as live sources with browser preview URLs", async () => {
+  const config = loadConfig({
+    PIMATRIX_MEDIAMTX_API_URL: "http://mediamtx:9997",
+    PIMATRIX_PREVIEW_BASE_URL: "http://pi.local:8889"
+  });
+  const fakeFetch: typeof fetch = async () => new Response(JSON.stringify({
+    itemCount: 2,
+    pageCount: 1,
+    items: [
+      { name: "hama", ready: true },
+      { name: "cam1", ready: false }
+    ]
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  const app = buildApp(config, fakeFetch);
+  try {
+    const sources = (await app.inject("/api/v1/sources")).json().items;
+    assert.equal(sources.find((source: { id: string }) => source.id === "hama").state, "live");
+    assert.deepEqual(sources.find((source: { id: string }) => source.id === "hama").preview, {
+      available: true,
+      url: "http://pi.local:8889/hama"
+    });
+    assert.equal(sources.find((source: { id: string }) => source.id === "cam1").state, "unavailable");
+  } finally {
+    await app.close();
+  }
+});
+
+test("MediaMTX failure is reported without making API health unavailable", async () => {
+  const config = loadConfig({ PIMATRIX_MEDIAMTX_API_URL: "http://mediamtx:9997" });
+  const app = buildApp(config, async () => new Response("unavailable", { status: 503 }));
+  try {
+    const status = (await app.inject("/api/v1/status")).json();
+    assert.equal(status.status, "running");
+    assert.equal(status.integrations.mediaMtx, "unavailable");
+    assert.equal((await app.inject("/health")).statusCode, 200);
+  } finally {
+    await app.close();
+  }
+});
+
 test("unknown source returns a structured 404", async () => {
   const app = buildApp(loadConfig({}));
   try {
@@ -50,4 +91,5 @@ test("unknown source returns a structured 404", async () => {
 test("invalid configuration is rejected", () => {
   assert.throws(() => loadConfig({ PIMATRIX_PORT: "70000" }), /PIMATRIX_PORT/);
   assert.throws(() => loadConfig({ PIMATRIX_MODE: "other" }), /PIMATRIX_MODE/);
+  assert.throws(() => loadConfig({ PIMATRIX_MEDIAMTX_API_URL: "ftp://media" }), /HTTP or HTTPS/);
 });
