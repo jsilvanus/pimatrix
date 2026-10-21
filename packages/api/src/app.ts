@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import type { AppConfig } from "./config.js";
 import { inspectMediaMtx } from "./media-mtx.js";
 import { createOutputStore, getSources, sourceDefinitions } from "./model.js";
+import { buildHamaCaptureSpec, StreamSupervisor } from "./stream-supervisor.js";
 
 export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): FastifyInstance {
   const app = Fastify({
@@ -17,15 +18,34 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     url: config.fffleetUrl,
     ...(config.fffleetToken ? { token: config.fffleetToken } : {}),
     ...(config.fffleetClientId && config.fffleetClientSecret
-      ? { clientId: config.fffleetClientId, clientSecret: config.fffleetClientSecret, scope: "jobs" }
-      : {}),
+      ? { clientId: config.fffleetClientId, clientSecret: config.fffleetClientSecret, scope: "jobs"
+      } : {}),
     fallback: "none",
     fetch: fetchImpl,
     requestTimeoutMs: 1500
   }) : null;
 
+  // Capture must stay on the Pi that owns the USB device; never send /dev/video0 to a remote fleet.
+  const localCaptureFleet = config.hamaEnabled ? createFleet({
+    fallback: "none",
+    local: { slots: { stream: 1 }, kinds: ["stream"] }
+  }) : null;
+  const captureSupervisor = new StreamSupervisor(
+    localCaptureFleet,
+    (attempt) => buildHamaCaptureSpec(config, attempt),
+    config.hamaEnabled,
+    config.streamRestartMinMs,
+    config.streamRestartMaxMs
+  );
+
+  app.addHook("onReady", async () => {
+    captureSupervisor.start();
+  });
   app.addHook("onClose", async () => {
-    await fleet?.close();
+    await Promise.all([
+      captureSupervisor.stop(),
+      fleet?.close() ?? Promise.resolve()
+    ]);
   });
 
   const mediaSnapshot = () => inspectMediaMtx(config.mediaMtxApiUrl, fetchImpl);
@@ -42,6 +62,26 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       return "unavailable";
     }
   };
+  const captureStatus = () => {
+    const state = captureSupervisor.snapshot().state;
+    if (state === "disabled") return "not-configured";
+    if (state === "starting") return "starting";
+    if (state === "running") return "running";
+    if (state === "stopping") return "stopping";
+    return state;
+  };
+  const listSources = async () => {
+    const media = await mediaSnapshot();
+    const items = getSources(media.readyPaths, config.previewBaseUrl);
+    const capture = captureSupervisor.snapshot();
+    const hama = items.find((source) => source.id === "hama");
+    if (hama && !media.readyPaths.has("hama") && capture.state !== "disabled") {
+      if (capture.state === "starting") hama.state = "starting";
+      else if (capture.state === "degraded") hama.state = "degraded";
+      else if (capture.state === "failed") hama.state = "failed";
+    }
+    return items;
+  };
 
   app.get("/health", async () => ({ status: "ok", service: "pimatrix" }));
 
@@ -53,7 +93,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       checks: {
         api: "ready",
         media,
-        capture: "not-configured",
+        capture: captureStatus(),
         display: "not-configured"
       }
     });
@@ -67,22 +107,18 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     integrations: {
       mediaMtx: await mediaStatus(),
       fffleet: await fleetStatus(),
-      capture: "not-configured",
+      capture: captureStatus(),
       display: "not-configured",
       amx: "not-configured"
     },
+    managedStreams: { hama: captureSupervisor.snapshot() },
     counts: { sources: 8, outputs: 2 }
   }));
 
-  app.get("/api/v1/sources", async () => {
-    const snapshot = await mediaSnapshot();
-    return { items: getSources(snapshot.readyPaths, config.previewBaseUrl) };
-  });
+  app.get("/api/v1/sources", async () => ({ items: await listSources() }));
 
   app.get<{ Params: { sourceId: string } }>("/api/v1/sources/:sourceId", async (request, reply) => {
-    const snapshot = await mediaSnapshot();
-    const source = getSources(snapshot.readyPaths, config.previewBaseUrl)
-      .find((item) => item.id === request.params.sourceId);
+    const source = (await listSources()).find((item) => item.id === request.params.sourceId);
     if (!source) {
       return reply.code(404).send({
         error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
