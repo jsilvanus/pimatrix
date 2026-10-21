@@ -4,3 +4,5 @@ coverage/
 .env
 .env.*
 !.env.example
+
+packages/api-client/src/generated.d.ts
