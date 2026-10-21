@@ -10,7 +10,7 @@
     }
   },
   "scripts": {
-    "generate": "openapi --input ../../openapi/openapi.yaml --output src/generated --client fetch",
+    "generate": "openapi --input ../../openapi/openapi.yaml --output src/generated --client fetch && node scripts/fix-generated-imports.mjs",
     "build": "tsc -p tsconfig.json"
   },
   "devDependencies": {
