@@ -51,10 +51,10 @@ function optionalRtspUrl(value: string | undefined, name: string): string | unde
   return parsed.toString();
 }
 
-function positiveInteger(value: string | undefined, fallback: number, name: string): number {
+function positiveInteger(value: string | undefined, fallback: number, name: string, max = 10000): number {
   const result = Number(value ?? fallback);
-  if (!Number.isInteger(result) || result < 1 || result > 10000) {
-    throw new Error(`${name} must be an integer between 1 and 10000`);
+  if (!Number.isInteger(result) || result < 1 || result > max) {
+    throw new Error(`${name} must be an integer between 1 and ${max}`);
   }
   return result;
 }
@@ -77,8 +77,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const hamaFrameRate = positiveInteger(env.PIMATRIX_HAMA_FRAME_RATE, 30, "PIMATRIX_HAMA_FRAME_RATE");
   const hamaVideoCodec = env.PIMATRIX_HAMA_VIDEO_CODEC ?? "copy";
   const hamaRtspUrl = optionalRtspUrl(env.PIMATRIX_HAMA_RTSP_URL, "PIMATRIX_HAMA_RTSP_URL");
-  const streamRestartMinMs = positiveInteger(env.PIMATRIX_STREAM_RESTART_MIN_MS, 1000, "PIMATRIX_STREAM_RESTART_MIN_MS");
-  const streamRestartMaxMs = positiveInteger(env.PIMATRIX_STREAM_RESTART_MAX_MS, 30000, "PIMATRIX_STREAM_RESTART_MAX_MS");
+  const streamRestartMinMs = positiveInteger(env.PIMATRIX_STREAM_RESTART_MIN_MS, 1000, "PIMATRIX_STREAM_RESTART_MIN_MS", 300000);
+  const streamRestartMaxMs = positiveInteger(env.PIMATRIX_STREAM_RESTART_MAX_MS, 30000, "PIMATRIX_STREAM_RESTART_MAX_MS", 300000);
 
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("PIMATRIX_PORT must be an integer between 1 and 65535");
