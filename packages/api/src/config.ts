@@ -110,9 +110,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
 
   return {
-    host, port, mode, hamaEnabled, hamaDevice, hamaInputFormat,
-    hamaWidth, hamaHeight, hamaFrameRate,
-    hamaVideoCodec, streamRestartMinMs, streamRestartMaxMs,
+    host, port, mode, hamaEnabled, hamaDevice,
+    streamRestartMinMs, streamRestartMaxMs,
+    ...(hamaInputFormat ? { hamaInputFormat } : {}),
+    ...(hamaWidth !== undefined ? { hamaWidth } : {}),
+    ...(hamaHeight !== undefined ? { hamaHeight } : {}),
+    ...(hamaFrameRate !== undefined ? { hamaFrameRate } : {}),
+    ...(hamaVideoCodec ? { hamaVideoCodec } : {}),
     ...(mediaMtxApiUrl ? { mediaMtxApiUrl } : {}),
     ...(previewBaseUrl ? { previewBaseUrl } : {}),
     ...(fffleetUrl ? { fffleetUrl } : {}),
