@@ -14,12 +14,18 @@ export const outputDefinitions = [
   { id: "hdmi1", label: "Pi 2" }
 ] as const;
 
-export function getSources() {
-  return sourceDefinitions.map((source) => ({
-    ...source,
-    state: "unavailable" as const,
-    preview: { available: false, url: null }
-  }));
+export function getSources(readyMediaPaths: ReadonlySet<string> = new Set(), previewBaseUrl?: string) {
+  return sourceDefinitions.map((source) => {
+    const live = readyMediaPaths.has(source.id);
+    return {
+      ...source,
+      state: live ? "live" as const : "unavailable" as const,
+      preview: {
+        available: live && Boolean(previewBaseUrl),
+        url: live && previewBaseUrl ? `${previewBaseUrl}/${encodeURIComponent(source.id)}` : null
+      }
+    };
+  });
 }
 
 export function getOutputs() {
