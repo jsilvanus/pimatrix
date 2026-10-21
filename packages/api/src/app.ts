@@ -1,3 +1,4 @@
+import { createFleet } from "fffleet";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { AppConfig } from "./config.js";
 import { inspectMediaMtx } from "./media-mtx.js";
@@ -11,10 +12,34 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     }
   });
 
+  const fleet = config.fffleetUrl ? createFleet({
+    url: config.fffleetUrl,
+    ...(config.fffleetToken ? { token: config.fffleetToken } : {}),
+    ...(config.fffleetClientId && config.fffleetClientSecret
+      ? { clientId: config.fffleetClientId, clientSecret: config.fffleetClientSecret, scope: "jobs" }
+      : {}),
+    fallback: "none",
+    fetch: fetchImpl,
+    requestTimeoutMs: 1500
+  }) : null;
+
+  app.addHook("onClose", async () => {
+    await fleet?.close();
+  });
+
   const mediaSnapshot = () => inspectMediaMtx(config.mediaMtxApiUrl, fetchImpl);
   const mediaStatus = async () => {
     const snapshot = await mediaSnapshot();
     return !snapshot.configured ? "not-configured" : snapshot.connected ? "connected" : "unavailable";
+  };
+  const fleetStatus = async () => {
+    if (!fleet) return "not-configured";
+    try {
+      await fleet.capabilities();
+      return "connected";
+    } catch {
+      return "unavailable";
+    }
   };
 
   app.get("/health", async () => ({ status: "ok", service: "pimatrix" }));
@@ -40,7 +65,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     status: "running",
     integrations: {
       mediaMtx: await mediaStatus(),
-      fffleet: "not-configured",
+      fffleet: await fleetStatus(),
       capture: "not-configured",
       display: "not-configured",
       amx: "not-configured"
