@@ -1,0 +1,25 @@
+{
+  "name": "pimatrix",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Raspberry Pi video routing and processing control plane",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/api-client",
+    "packages/api",
+    "packages/cli"
+  ],
+  "scripts": {
+    "generate:api": "npm run generate --workspace @pimatrix/api-client",
+    "build": "npm run generate:api && npm run build --workspace @pimatrix/api-client && npm run build --workspace @pimatrix/api && npm run build --workspace @pimatrix/cli",
+    "test": "npm run test --workspace @pimatrix/api && npm run test --workspace @pimatrix/cli",
+    "typecheck": "npm run build",
+    "check:generated": "npm run generate:api && git diff --exit-code -- packages/api-client/src/generated.d.ts"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.6.1",
+    "typescript": "^5.7.3"
+  }
+}
