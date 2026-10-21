@@ -99,6 +99,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (hamaEnabled && !hamaRtspUrl) {
     throw new Error("PIMATRIX_HAMA_RTSP_URL is required when PIMATRIX_HAMA_ENABLED=true");
   }
+  if (Boolean(hamaWidth) !== Boolean(hamaHeight)) {
+    throw new Error("PIMATRIX_HAMA_WIDTH and PIMATRIX_HAMA_HEIGHT must be set together");
+  }
   if (hamaVideoCodec !== undefined && hamaVideoCodec !== "copy" && hamaVideoCodec !== "libx264") {
     throw new Error('PIMATRIX_HAMA_VIDEO_CODEC must be "copy" or "libx264"');
   }
