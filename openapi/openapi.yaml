@@ -10,6 +10,7 @@ tags:
   - name: System
   - name: Sources
   - name: Outputs
+  - name: Cameras
 paths:
   /health:
     get:
@@ -190,6 +191,262 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/v1/cameras:
+    get:
+      operationId: listCameras
+      tags: [Cameras]
+      summary: List configured cameras
+      description: Returns all configured PTZ cameras with their current connection, streaming, and position state.
+      responses:
+        "200":
+          description: List of cameras
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Camera"
+  /api/v1/cameras/{cameraId}:
+    get:
+      operationId: getCamera
+      tags: [Cameras]
+      summary: Get details and status for a specific camera
+      parameters:
+        - in: path
+          name: cameraId
+          required: true
+          schema:
+            $ref: "#/components/schemas/CameraId"
+      responses:
+        "200":
+          description: Camera details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Camera"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/cameras/{cameraId}/move:
+    post:
+      operationId: moveCamera
+      tags: [Cameras]
+      summary: Move camera pan/tilt
+      description: Drives pan/tilt continuously or stops motion using VISCA over IP.
+      parameters:
+        - in: path
+          name: cameraId
+          required: true
+          schema:
+            $ref: "#/components/schemas/CameraId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CameraMoveRequest"
+      responses:
+        "200":
+          description: Motion command sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CameraActionResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid direction or speed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/cameras/{cameraId}/zoom:
+    post:
+      operationId: zoomCamera
+      tags: [Cameras]
+      summary: Zoom camera in or out
+      description: Drives optical zoom tele/wide or stops zoom using VISCA over IP.
+      parameters:
+        - in: path
+          name: cameraId
+          required: true
+          schema:
+            $ref: "#/components/schemas/CameraId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CameraZoomRequest"
+      responses:
+        "200":
+          description: Zoom command sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CameraActionResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid zoom action or speed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/cameras/{cameraId}/presets/{presetId}/recall:
+    post:
+      operationId: recallCameraPreset
+      tags: [Cameras]
+      summary: Recall camera preset
+      description: Recalls a saved preset (0-254) on the camera via VISCA CAM_Memory.
+      parameters:
+        - in: path
+          name: cameraId
+          required: true
+          schema:
+            $ref: "#/components/schemas/CameraId"
+        - in: path
+          name: presetId
+          required: true
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 254
+      responses:
+        "200":
+          description: Preset recall command sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CameraActionResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid preset ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/cameras/{cameraId}/presets/{presetId}/save:
+    post:
+      operationId: saveCameraPreset
+      tags: [Cameras]
+      summary: Save current camera position to preset
+      description: Saves the current position, zoom, and image state to a preset (0-254) via VISCA CAM_Memory Set.
+      parameters:
+        - in: path
+          name: cameraId
+          required: true
+          schema:
+            $ref: "#/components/schemas/CameraId"
+        - in: path
+          name: presetId
+          required: true
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 254
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        "200":
+          description: Preset saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CameraActionResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid preset ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/cameras/{cameraId}/smartframe:
+    post:
+      operationId: setCameraSmartFrame
+      tags: [Cameras]
+      summary: Control SmartFrame AI auto-framing
+      description: Enables, disables, or triggers one-shot SmartFrame auto framing.
+      parameters:
+        - in: path
+          name: cameraId
+          required: true
+          schema:
+            $ref: "#/components/schemas/CameraId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CameraSmartFrameRequest"
+      responses:
+        "200":
+          description: SmartFrame mode updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CameraActionResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid SmartFrame mode
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/cameras/{cameraId}/stream/start:
+    post:
+      operationId: startCameraStream
+      tags: [Cameras]
+      summary: Start video streaming from camera to MediaMTX
+      description: Commands the camera to push its RTMP feed to MediaMTX or ensures MediaMTX is pulling RTSP.
+      parameters:
+        - in: path
+          name: cameraId
+          required: true
+          schema:
+            $ref: "#/components/schemas/CameraId"
+      responses:
+        "200":
+          description: Camera stream started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CameraStreamResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/cameras/{cameraId}/stream/stop:
+    post:
+      operationId: stopCameraStream
+      tags: [Cameras]
+      summary: Stop video streaming from camera
+      parameters:
+        - in: path
+          name: cameraId
+          required: true
+          schema:
+            $ref: "#/components/schemas/CameraId"
+      responses:
+        "200":
+          description: Camera stream stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CameraStreamResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
 components:
   responses:
     NotFound:
@@ -357,3 +614,110 @@ components:
           properties:
             code: { type: string }
             message: { type: string }
+    CameraId:
+      type: string
+      enum: [cam1, cam2, cam3]
+    CameraMoveRequest:
+      type: object
+      required: [direction]
+      properties:
+        direction:
+          type: string
+          enum: [up, down, left, right, upleft, upright, downleft, downright, stop, home, reset]
+        panSpeed:
+          type: integer
+          minimum: 1
+          maximum: 24
+          default: 10
+        tiltSpeed:
+          type: integer
+          minimum: 1
+          maximum: 23
+          default: 10
+    CameraZoomRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [in, out, stop]
+        speed:
+          type: integer
+          minimum: 0
+          maximum: 7
+          default: 4
+    CameraSmartFrameRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [enable, disable, trigger]
+    CameraPreset:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+    CameraPosition:
+      type: object
+      required: [pan, tilt, zoom]
+      properties:
+        pan:
+          type: integer
+        tilt:
+          type: integer
+        zoom:
+          type: integer
+    Camera:
+      type: object
+      required: [id, label, model, connection, streaming, smartFrame, position, presets]
+      properties:
+        id:
+          $ref: "#/components/schemas/CameraId"
+        label:
+          type: string
+        model:
+          type: string
+        connection:
+          type: string
+          enum: [connected, disconnected, simulated]
+        streaming:
+          type: boolean
+        streamUrl:
+          type: [string, "null"]
+        smartFrame:
+          type: string
+          enum: [enabled, disabled, triggered, unsupported]
+        position:
+          $ref: "#/components/schemas/CameraPosition"
+        presets:
+          type: array
+          items:
+            $ref: "#/components/schemas/CameraPreset"
+    CameraActionResponse:
+      type: object
+      required: [cameraId, success, action]
+      properties:
+        cameraId:
+          $ref: "#/components/schemas/CameraId"
+        success:
+          type: boolean
+        action:
+          type: string
+        message:
+          type: string
+    CameraStreamResponse:
+      type: object
+      required: [cameraId, streaming]
+      properties:
+        cameraId:
+          $ref: "#/components/schemas/CameraId"
+        streaming:
+          type: boolean
+        streamUrl:
+          type: [string, "null"]
+        message:
+          type: string

@@ -1,0 +1,238 @@
+import type { FastifyBaseLogger } from "fastify";
+import type { PiMatrixEventBroker } from "../events.js";
+import {
+  type CameraAdapter,
+  type CameraSnapshot,
+  SimulatedCameraAdapter,
+  UdpViscaCameraAdapter
+} from "./camera-adapter.js";
+import type { PanTiltDirection, SmartFrameMode, ZoomAction } from "./visca-protocol.js";
+
+export interface CameraServiceOptions {
+  mode: "simulation" | "production";
+  eventBroker?: PiMatrixEventBroker | undefined;
+  logger?: FastifyBaseLogger | undefined;
+  cam1Host?: string | undefined;
+  cam1ViscaPort?: number | undefined;
+  cam1CgiPort?: number | undefined;
+  cam2Host?: string | undefined;
+  cam2ViscaPort?: number | undefined;
+  cam2CgiPort?: number | undefined;
+  mediaMtxRtspBaseUrl?: string | undefined;
+  mediaMtxRtmpBaseUrl?: string | undefined;
+}
+
+export class CameraService {
+  private readonly cameras = new Map<string, CameraAdapter>();
+  private readonly eventBroker?: PiMatrixEventBroker | undefined;
+  private readonly logger?: FastifyBaseLogger | undefined;
+
+  constructor(options: CameraServiceOptions) {
+    this.eventBroker = options.eventBroker;
+    this.logger = options.logger;
+
+    if (options.mode === "production" && options.cam1Host) {
+      this.cameras.set(
+        "cam1",
+        new UdpViscaCameraAdapter({
+          id: "cam1",
+          label: "Camera 1",
+          host: options.cam1Host,
+          viscaPort: options.cam1ViscaPort,
+          cgiPort: options.cam1CgiPort,
+          rtspUrl: options.mediaMtxRtspBaseUrl ? `${options.mediaMtxRtspBaseUrl}/cam1` : undefined,
+          rtmpTargetUrl: options.mediaMtxRtmpBaseUrl ? `${options.mediaMtxRtmpBaseUrl}/cam1` : undefined,
+          logger: options.logger
+        })
+      );
+    } else {
+      this.cameras.set("cam1", new SimulatedCameraAdapter("cam1", "Camera 1"));
+    }
+
+    if (options.mode === "production" && options.cam2Host) {
+      this.cameras.set(
+        "cam2",
+        new UdpViscaCameraAdapter({
+          id: "cam2",
+          label: "Camera 2",
+          host: options.cam2Host,
+          viscaPort: options.cam2ViscaPort,
+          cgiPort: options.cam2CgiPort,
+          rtspUrl: options.mediaMtxRtspBaseUrl ? `${options.mediaMtxRtspBaseUrl}/cam2` : undefined,
+          rtmpTargetUrl: options.mediaMtxRtmpBaseUrl ? `${options.mediaMtxRtmpBaseUrl}/cam2` : undefined,
+          logger: options.logger
+        })
+      );
+    } else {
+      this.cameras.set("cam2", new SimulatedCameraAdapter("cam2", "Camera 2"));
+    }
+  }
+
+  list(): CameraSnapshot[] {
+    return [...this.cameras.values()].map((cam) => cam.getSnapshot());
+  }
+
+  get(id: string): CameraSnapshot | undefined {
+    return this.cameras.get(id)?.getSnapshot();
+  }
+
+  async move(
+    id: string,
+    direction: PanTiltDirection,
+    panSpeed?: number,
+    tiltSpeed?: number
+  ): Promise<CameraSnapshot> {
+    const cam = this.cameras.get(id);
+    if (!cam) {
+      throw new Error(`Camera '${id}' not found`);
+    }
+
+    await cam.move(direction, panSpeed, tiltSpeed);
+    const snapshot = cam.getSnapshot();
+
+    this.eventBroker?.emit({
+      type: "camera",
+      data: {
+        id,
+        action: `move:${direction}`,
+        position: snapshot.position
+      }
+    });
+
+    return snapshot;
+  }
+
+  async zoom(id: string, action: ZoomAction, speed?: number): Promise<CameraSnapshot> {
+    const cam = this.cameras.get(id);
+    if (!cam) {
+      throw new Error(`Camera '${id}' not found`);
+    }
+
+    await cam.zoom(action, speed);
+    const snapshot = cam.getSnapshot();
+
+    this.eventBroker?.emit({
+      type: "camera",
+      data: {
+        id,
+        action: `zoom:${action}`,
+        position: snapshot.position
+      }
+    });
+
+    return snapshot;
+  }
+
+  async recallPreset(id: string, presetId: number): Promise<CameraSnapshot> {
+    const cam = this.cameras.get(id);
+    if (!cam) {
+      throw new Error(`Camera '${id}' not found`);
+    }
+
+    await cam.recallPreset(presetId);
+    const snapshot = cam.getSnapshot();
+
+    this.eventBroker?.emit({
+      type: "camera",
+      data: {
+        id,
+        action: "preset:recall",
+        presetId,
+        position: snapshot.position
+      }
+    });
+
+    return snapshot;
+  }
+
+  async savePreset(id: string, presetId: number, name?: string): Promise<CameraSnapshot> {
+    const cam = this.cameras.get(id);
+    if (!cam) {
+      throw new Error(`Camera '${id}' not found`);
+    }
+
+    await cam.savePreset(presetId, name);
+    const snapshot = cam.getSnapshot();
+
+    this.eventBroker?.emit({
+      type: "camera",
+      data: {
+        id,
+        action: "preset:save",
+        presetId,
+        position: snapshot.position
+      }
+    });
+
+    return snapshot;
+  }
+
+  async setSmartFrame(id: string, mode: SmartFrameMode): Promise<CameraSnapshot> {
+    const cam = this.cameras.get(id);
+    if (!cam) {
+      throw new Error(`Camera '${id}' not found`);
+    }
+
+    await cam.setSmartFrame(mode);
+    const snapshot = cam.getSnapshot();
+
+    this.eventBroker?.emit({
+      type: "camera",
+      data: {
+        id,
+        action: `smartframe:${mode}`,
+        smartFrame: snapshot.smartFrame
+      }
+    });
+
+    return snapshot;
+  }
+
+  async startStream(id: string): Promise<{ snapshot: CameraSnapshot; streamUrl: string | null }> {
+    const cam = this.cameras.get(id);
+    if (!cam) {
+      throw new Error(`Camera '${id}' not found`);
+    }
+
+    const streamUrl = await cam.startStream();
+    const snapshot = cam.getSnapshot();
+
+    this.eventBroker?.emit({
+      type: "camera",
+      data: {
+        id,
+        action: "stream:start",
+        streaming: true
+      }
+    });
+
+    return { snapshot, streamUrl };
+  }
+
+  async stopStream(id: string): Promise<CameraSnapshot> {
+    const cam = this.cameras.get(id);
+    if (!cam) {
+      throw new Error(`Camera '${id}' not found`);
+    }
+
+    await cam.stopStream();
+    const snapshot = cam.getSnapshot();
+
+    this.eventBroker?.emit({
+      type: "camera",
+      data: {
+        id,
+        action: "stream:stop",
+        streaming: false
+      }
+    });
+
+    return snapshot;
+  }
+
+  async close(): Promise<void> {
+    for (const cam of this.cameras.values()) {
+      await cam.close();
+    }
+  }
+}

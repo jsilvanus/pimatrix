@@ -49,6 +49,15 @@ Default URL: `http://127.0.0.1:3000`.
 - `PUT /api/v1/outputs/{outputId}/source` (sets route intent and applies to display adapter)
 - `GET /api/v1/events` (Server-Sent Events stream for real-time status, source, and output changes)
 - `POST /api/v1/matrix/route` (requests Atlona matrix routing through AMX NetLinx master)
+- `GET /api/v1/cameras` (lists configured PTZ cameras with connection, streaming, and position state)
+- `GET /api/v1/cameras/{cameraId}` (get details, position, and saved presets)
+- `POST /api/v1/cameras/{cameraId}/move` (pan/tilt direction, panSpeed 1-24, tiltSpeed 1-23)
+- `POST /api/v1/cameras/{cameraId}/zoom` (action: in, out, stop; speed 0-7)
+- `POST /api/v1/cameras/{cameraId}/presets/{presetId}/recall` (recalls preset 0-254)
+- `POST /api/v1/cameras/{cameraId}/presets/{presetId}/save` (saves current position to preset 0-254)
+- `POST /api/v1/cameras/{cameraId}/smartframe` (controls SmartFrame AI auto-framing: enable, disable, trigger)
+- `POST /api/v1/cameras/{cameraId}/stream/start` (commands camera to push RTMP feed or activates RTSP pull)
+- `POST /api/v1/cameras/{cameraId}/stream/stop` (stops camera streaming feed)
 
 Environment:
 
@@ -76,6 +85,9 @@ Environment:
 - `PIMATRIX_AMX_SIMULATED`: set to `true` to simulate outbound AMX NetLinx master interactions.
 - `PIMATRIX_AMX_MASTER_HOST`: target AMX NetLinx master IP/hostname for outbound matrix requests.
 - `PIMATRIX_AMX_MASTER_PORT`: target AMX NetLinx master port; defaults to `6501`.
+- `PIMATRIX_CAMERA_MODE`: `simulated` (default) or `hardware`.
+- `PIMATRIX_CAM1_HOST`, `PIMATRIX_CAM1_VISCA_PORT` (default 52381), `PIMATRIX_CAM1_CGI_PORT` (default 80): Cam1 AVer PTZ330 network target.
+- `PIMATRIX_CAM2_HOST`, `PIMATRIX_CAM2_VISCA_PORT` (default 52381), `PIMATRIX_CAM2_CGI_PORT` (default 80): Cam2 AVer PTZ330 network target.
 - `LOG_LEVEL`: Fastify log level; defaults to `info`.
 
 When MediaMTX is configured, PiMatrix checks `/v3/paths/list`. Ready paths whose names match the logical source IDs are reported as live. A preview URL is returned only when the matching path is ready and `PIMATRIX_PREVIEW_BASE_URL` is set. The base URL must be reachable from the operator's browser; it must not be a container-only hostname.
@@ -104,6 +116,16 @@ Supports optional message IDs (e.g. `REQ01:PING;` &rarr; `REQ01:PONG;`).
 When an Atlona route change is requested (`POST /api/v1/matrix/route` or `pimatrix matrix route <in> <out>`), PiMatrix sends:
 `ATLONA:ROUTE:<requestId>:<input>:<output>;` to the AMX NetLinx master on port 6501. AMX remains the sole controller of the Atlona matrix.
 
+## Camera Control (VISCA over IP & CGI)
+
+PiMatrix controls the two installed AVer PTZ330 cameras (`cam1` and `cam2`) over the AV network using standard **VISCA over IP** (UDP port 52381) and camera HTTP CGI (port 80):
+
+- **Movement & Zoom:** Continuous pan/tilt drive (`up`, `down`, `left`, `right`, `upleft`, `upright`, `downleft`, `downright`, `stop`, `home`, `reset`) with pan speed (1–24) and tilt speed (1–23); optical zoom (`in`, `out`, `stop`) with speed (0–7).
+- **Presets:** 255 addressable preset memory slots (`0`–`254`) supporting recall and save (replacing the 6-preset cap of the legacy AMX IR remote).
+- **SmartFrame AI Auto-Framing:** Trigger or toggle AVer SmartFrame via VISCA memory codes (`enable` = 0x5A, `disable` = 0x5B, `trigger` = 0x5C).
+- **Streaming Feed Control:** Command the camera to start/stop RTMP push streaming to MediaMTX via CGI (`vdo_rtmp_enable`), or coordinate RTSP pull (`rtsp://<ip>:554/live_st1`).
+- **Simulated Mode:** When `PIMATRIX_CAMERA_MODE=simulated`, camera positions, presets, and streaming states are fully simulated in memory for offline testing.
+
 ## Local Windows/WSL streaming lab
 
 A Docker Compose development lab runs MediaMTX and synthetic FFmpeg sources without
@@ -126,6 +148,15 @@ npm run dev --workspace @pimatrix/cli -- --json outputs list
 npm run dev --workspace @pimatrix/cli -- outputs set hdmi0 hama
 npm run dev --workspace @pimatrix/cli -- outputs set hdmi0 none
 npm run dev --workspace @pimatrix/cli -- matrix route 2 4
+npm run dev --workspace @pimatrix/cli -- cameras list
+npm run dev --workspace @pimatrix/cli -- cameras show cam1
+npm run dev --workspace @pimatrix/cli -- cameras move cam1 up --speed 12
+npm run dev --workspace @pimatrix/cli -- cameras zoom cam1 in --speed 4
+npm run dev --workspace @pimatrix/cli -- cameras preset recall cam1 2
+npm run dev --workspace @pimatrix/cli -- cameras preset save cam1 7 --name "Choir Back"
+npm run dev --workspace @pimatrix/cli -- cameras smartframe cam1 trigger
+npm run dev --workspace @pimatrix/cli -- cameras stream start cam1
+npm run dev --workspace @pimatrix/cli -- cameras stream stop cam1
 ```
 
 Once built, the `pimatrix` executable is available from the CLI workspace package. It supports `--server`, `PIMATRIX_URL`, and `--json`.

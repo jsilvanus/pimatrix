@@ -2,6 +2,8 @@ import { createFleet } from "fffleet";
 import Fastify, { type FastifyInstance } from "fastify";
 import { createAmxClient, type AmxClient } from "./amx/amx-client.js";
 import { AmxTcpListener } from "./amx/amx-listener.js";
+import { CameraService } from "./camera/camera-service.js";
+import type { PanTiltDirection, SmartFrameMode, ZoomAction } from "./camera/visca-protocol.js";
 import type { AppConfig } from "./config.js";
 import { createDisplayAdapter, type DisplayAdapter } from "./display-adapter.js";
 import { PiMatrixEventBroker } from "./events.js";
@@ -20,6 +22,20 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   const outputStore = createOutputStore();
   const displayAdapter: DisplayAdapter = createDisplayAdapter(config.displayMode);
   const eventBroker = new PiMatrixEventBroker();
+
+  const cameraService = new CameraService({
+    mode: config.mode,
+    eventBroker,
+    logger: app.log,
+    cam1Host: config.cam1Host,
+    cam1ViscaPort: config.cam1ViscaPort,
+    cam1CgiPort: config.cam1CgiPort,
+    cam2Host: config.cam2Host,
+    cam2ViscaPort: config.cam2ViscaPort,
+    cam2CgiPort: config.cam2CgiPort,
+    mediaMtxRtspBaseUrl: config.previewBaseUrl?.replace(/^http/, "rtsp"),
+    mediaMtxRtmpBaseUrl: config.previewBaseUrl?.replace(/^http/, "rtmp")
+  });
 
   const amxClient: AmxClient = createAmxClient(
     config.amxSimulated,
@@ -112,6 +128,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   app.addHook("onClose", async () => {
     await Promise.all([
       captureSupervisor.stop(),
+      cameraService.close(),
       amxListener ? amxListener.stop() : Promise.resolve(),
       amxClient.close(),
       displayAdapter.close(),
@@ -122,6 +139,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   // Expose services on Fastify instance for test inspections if needed
   (app as unknown as { amxListener?: AmxTcpListener | null }).amxListener = amxListener;
   (app as unknown as { eventBroker: PiMatrixEventBroker }).eventBroker = eventBroker;
+  (app as unknown as { cameraService: CameraService }).cameraService = cameraService;
 
   app.get("/health", async () => ({ status: "ok", service: "pimatrix" }));
 
@@ -152,7 +170,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       amx: await amxClient.getStatus()
     },
     managedStreams: { hama: captureSupervisor.snapshot() },
-    counts: { sources: 8, outputs: 2 }
+    counts: { sources: 8, outputs: 2, cameras: cameraService.list().length }
   }));
 
   app.get("/api/v1/sources", async () => ({ items: await listSources() }));
@@ -278,6 +296,245 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
           error: { code: "AMX_UNAVAILABLE", message }
         });
       }
+    }
+  );
+
+  // Cameras
+  app.get("/api/v1/cameras", async () => ({ items: cameraService.list() }));
+
+  app.get<{ Params: { cameraId: string } }>("/api/v1/cameras/:cameraId", async (request, reply) => {
+    const camera = cameraService.get(request.params.cameraId);
+    if (!camera) {
+      return reply.code(404).send({
+        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+      });
+    }
+    return reply.code(200).send(camera);
+  });
+
+  const validDirections = new Set([
+    "up",
+    "down",
+    "left",
+    "right",
+    "upleft",
+    "upright",
+    "downleft",
+    "downright",
+    "stop",
+    "home",
+    "reset"
+  ]);
+
+  app.post<{
+    Params: { cameraId: string };
+    Body: { direction?: unknown; panSpeed?: unknown; tiltSpeed?: unknown };
+  }>("/api/v1/cameras/:cameraId/move", async (request, reply) => {
+    const camera = cameraService.get(request.params.cameraId);
+    if (!camera) {
+      return reply.code(404).send({
+        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+      });
+    }
+
+    const direction = String(request.body?.direction ?? "");
+    if (!validDirections.has(direction)) {
+      return reply.code(422).send({
+        error: {
+          code: "INVALID_DIRECTION",
+          message: `direction must be one of: ${[...validDirections].join(", ")}`
+        }
+      });
+    }
+
+    const panSpeed = request.body?.panSpeed !== undefined ? Number(request.body.panSpeed) : undefined;
+    if (panSpeed !== undefined && (!Number.isInteger(panSpeed) || panSpeed < 1 || panSpeed > 24)) {
+      return reply.code(422).send({
+        error: { code: "INVALID_PAN_SPEED", message: "panSpeed must be an integer between 1 and 24" }
+      });
+    }
+
+    const tiltSpeed = request.body?.tiltSpeed !== undefined ? Number(request.body.tiltSpeed) : undefined;
+    if (tiltSpeed !== undefined && (!Number.isInteger(tiltSpeed) || tiltSpeed < 1 || tiltSpeed > 23)) {
+      return reply.code(422).send({
+        error: { code: "INVALID_TILT_SPEED", message: "tiltSpeed must be an integer between 1 and 23" }
+      });
+    }
+
+    await cameraService.move(
+      request.params.cameraId,
+      direction as PanTiltDirection,
+      panSpeed,
+      tiltSpeed
+    );
+
+    return reply.code(200).send({
+      cameraId: request.params.cameraId,
+      success: true,
+      action: `move:${direction}`
+    });
+  });
+
+  const validZoomActions = new Set(["in", "out", "stop"]);
+
+  app.post<{
+    Params: { cameraId: string };
+    Body: { action?: unknown; speed?: unknown };
+  }>("/api/v1/cameras/:cameraId/zoom", async (request, reply) => {
+    const camera = cameraService.get(request.params.cameraId);
+    if (!camera) {
+      return reply.code(404).send({
+        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+      });
+    }
+
+    const action = String(request.body?.action ?? "");
+    if (!validZoomActions.has(action)) {
+      return reply.code(422).send({
+        error: { code: "INVALID_ZOOM_ACTION", message: "action must be 'in', 'out', or 'stop'" }
+      });
+    }
+
+    const speed = request.body?.speed !== undefined ? Number(request.body.speed) : undefined;
+    if (speed !== undefined && (!Number.isInteger(speed) || speed < 0 || speed > 7)) {
+      return reply.code(422).send({
+        error: { code: "INVALID_ZOOM_SPEED", message: "speed must be an integer between 0 and 7" }
+      });
+    }
+
+    await cameraService.zoom(request.params.cameraId, action as ZoomAction, speed);
+
+    return reply.code(200).send({
+      cameraId: request.params.cameraId,
+      success: true,
+      action: `zoom:${action}`
+    });
+  });
+
+  app.post<{ Params: { cameraId: string; presetId: string } }>(
+    "/api/v1/cameras/:cameraId/presets/:presetId/recall",
+    async (request, reply) => {
+      const camera = cameraService.get(request.params.cameraId);
+      if (!camera) {
+        return reply.code(404).send({
+          error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+        });
+      }
+
+      const presetId = Number(request.params.presetId);
+      if (!Number.isInteger(presetId) || presetId < 0 || presetId > 254) {
+        return reply.code(422).send({
+          error: { code: "INVALID_PRESET_ID", message: "presetId must be an integer between 0 and 254" }
+        });
+      }
+
+      await cameraService.recallPreset(request.params.cameraId, presetId);
+
+      return reply.code(200).send({
+        cameraId: request.params.cameraId,
+        success: true,
+        action: `preset:recall:${presetId}`
+      });
+    }
+  );
+
+  app.post<{
+    Params: { cameraId: string; presetId: string };
+    Body: { name?: unknown };
+  }>("/api/v1/cameras/:cameraId/presets/:presetId/save", async (request, reply) => {
+    const camera = cameraService.get(request.params.cameraId);
+    if (!camera) {
+      return reply.code(404).send({
+        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+      });
+    }
+
+    const presetId = Number(request.params.presetId);
+    if (!Number.isInteger(presetId) || presetId < 0 || presetId > 254) {
+      return reply.code(422).send({
+        error: { code: "INVALID_PRESET_ID", message: "presetId must be an integer between 0 and 254" }
+      });
+    }
+
+    const name = typeof request.body?.name === "string" ? request.body.name.trim() : undefined;
+
+    await cameraService.savePreset(request.params.cameraId, presetId, name);
+
+    return reply.code(200).send({
+      cameraId: request.params.cameraId,
+      success: true,
+      action: `preset:save:${presetId}`
+    });
+  });
+
+  const validSmartFrameModes = new Set(["enable", "disable", "trigger"]);
+
+  app.post<{
+    Params: { cameraId: string };
+    Body: { mode?: unknown };
+  }>("/api/v1/cameras/:cameraId/smartframe", async (request, reply) => {
+    const camera = cameraService.get(request.params.cameraId);
+    if (!camera) {
+      return reply.code(404).send({
+        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+      });
+    }
+
+    const mode = String(request.body?.mode ?? "");
+    if (!validSmartFrameModes.has(mode)) {
+      return reply.code(422).send({
+        error: { code: "INVALID_SMARTFRAME_MODE", message: "mode must be 'enable', 'disable', or 'trigger'" }
+      });
+    }
+
+    await cameraService.setSmartFrame(request.params.cameraId, mode as SmartFrameMode);
+
+    return reply.code(200).send({
+      cameraId: request.params.cameraId,
+      success: true,
+      action: `smartframe:${mode}`
+    });
+  });
+
+  app.post<{ Params: { cameraId: string } }>(
+    "/api/v1/cameras/:cameraId/stream/start",
+    async (request, reply) => {
+      const camera = cameraService.get(request.params.cameraId);
+      if (!camera) {
+        return reply.code(404).send({
+          error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+        });
+      }
+
+      const { streamUrl } = await cameraService.startStream(request.params.cameraId);
+
+      return reply.code(200).send({
+        cameraId: request.params.cameraId,
+        streaming: true,
+        streamUrl,
+        message: "Camera stream started"
+      });
+    }
+  );
+
+  app.post<{ Params: { cameraId: string } }>(
+    "/api/v1/cameras/:cameraId/stream/stop",
+    async (request, reply) => {
+      const camera = cameraService.get(request.params.cameraId);
+      if (!camera) {
+        return reply.code(404).send({
+          error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+        });
+      }
+
+      await cameraService.stopStream(request.params.cameraId);
+
+      return reply.code(200).send({
+        cameraId: request.params.cameraId,
+        streaming: false,
+        streamUrl: null,
+        message: "Camera stream stopped"
+      });
     }
   );
 

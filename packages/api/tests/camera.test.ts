@@ -1,0 +1,226 @@
+import assert from "node:assert/strict";
+import dgram from "node:dgram";
+import test from "node:test";
+import { buildApp } from "../src/app.js";
+import {
+  SimulatedCameraAdapter,
+  UdpViscaCameraAdapter
+} from "../src/camera/camera-adapter.js";
+import {
+  buildPanTiltDrive,
+  buildPresetRecall,
+  buildPresetSave,
+  buildSmartFrame,
+  buildZoom,
+  createViscaPacket,
+  parseViscaResponse
+} from "../src/camera/visca-protocol.js";
+import { loadConfig } from "../src/config.js";
+
+test("VISCA packet builder and parser encode correct binary frames", () => {
+  const panDrive = buildPanTiltDrive("up", 12, 10);
+  assert.deepEqual(panDrive, [0x81, 0x01, 0x06, 0x01, 12, 10, 0x03, 0x01, 0xff]);
+
+  const packet = createViscaPacket(panDrive, 42);
+  assert.equal(packet.readUInt16BE(0), 0x0100);
+  assert.equal(packet.readUInt16BE(2), 9);
+  assert.equal(packet.readUInt32BE(4), 42);
+  assert.equal(packet[8], 0x81);
+  assert.equal(packet[16], 0xff);
+
+  const smartFramePacket = buildSmartFrame("enable");
+  assert.deepEqual(smartFramePacket, [0x81, 0x01, 0x04, 0x3f, 0x02, 0x5a, 0xff]);
+
+  const smartFrameTrigger = buildSmartFrame("trigger");
+  assert.deepEqual(smartFrameTrigger, [0x81, 0x01, 0x04, 0x3f, 0x02, 0x5c, 0xff]);
+
+  const presetRecall = buildPresetRecall(5);
+  assert.deepEqual(presetRecall, [0x81, 0x01, 0x04, 0x3f, 0x02, 0x05, 0xff]);
+
+  const presetSave = buildPresetSave(12);
+  assert.deepEqual(presetSave, [0x81, 0x01, 0x04, 0x3f, 0x01, 0x0c, 0xff]);
+
+  const zoomIn = buildZoom("in", 5);
+  assert.deepEqual(zoomIn, [0x81, 0x01, 0x04, 0x07, 0x25, 0xff]);
+
+  // Reply parsing
+  const ackBuffer = Buffer.from([0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x90, 0x41, 0xff]);
+  const parsedAck = parseViscaResponse(ackBuffer);
+  assert.ok(parsedAck);
+  assert.equal(parsedAck.isAck, true);
+  assert.equal(parsedAck.isCompletion, false);
+});
+
+test("SimulatedCameraAdapter moves, zooms, stores presets, and updates SmartFrame", async () => {
+  const adapter = new SimulatedCameraAdapter("cam1", "Camera 1");
+  const initial = adapter.getSnapshot();
+  assert.equal(initial.id, "cam1");
+  assert.equal(initial.position.pan, 0);
+  assert.equal(initial.smartFrame, "disabled");
+
+  await adapter.move("right", 10, 10);
+  assert.equal(adapter.getSnapshot().position.pan, 50);
+
+  await adapter.zoom("in", 4);
+  assert.ok(adapter.getSnapshot().position.zoom > 0);
+
+  await adapter.savePreset(10, "Custom 10");
+  assert.ok(adapter.getSnapshot().presets.some((p) => p.id === 10 && p.name === "Custom 10"));
+
+  await adapter.recallPreset(1);
+  assert.equal(adapter.getSnapshot().position.pan, 100);
+
+  await adapter.setSmartFrame("enable");
+  assert.equal(adapter.getSnapshot().smartFrame, "enabled");
+
+  const streamUrl = await adapter.startStream();
+  assert.equal(adapter.getSnapshot().streaming, true);
+  assert.ok(streamUrl?.includes("cam1"));
+
+  await adapter.stopStream();
+  assert.equal(adapter.getSnapshot().streaming, false);
+  await adapter.close();
+});
+
+test("Camera REST API endpoints handle listing, control, presets, smartframe, and stream toggle", async () => {
+  const config = loadConfig({ PIMATRIX_MODE: "simulation" });
+  const app = buildApp(config);
+
+  // List cameras
+  const listRes = await app.inject({ method: "GET", url: "/api/v1/cameras" });
+  assert.equal(listRes.statusCode, 200);
+  const listJson = listRes.json();
+  assert.equal(listJson.items.length, 2);
+  assert.equal(listJson.items[0].id, "cam1");
+  assert.equal(listJson.items[1].id, "cam2");
+
+  // Get single camera
+  const getRes = await app.inject({ method: "GET", url: "/api/v1/cameras/cam1" });
+  assert.equal(getRes.statusCode, 200);
+  assert.equal(getRes.json().id, "cam1");
+
+  // 404 for unknown camera
+  const notFoundRes = await app.inject({ method: "GET", url: "/api/v1/cameras/unknown-cam" });
+  assert.equal(notFoundRes.statusCode, 404);
+
+  // Move camera
+  const moveRes = await app.inject({
+    method: "POST",
+    url: "/api/v1/cameras/cam1/move",
+    payload: { direction: "up", panSpeed: 10, tiltSpeed: 15 }
+  });
+  assert.equal(moveRes.statusCode, 200);
+  assert.equal(moveRes.json().success, true);
+  assert.equal(moveRes.json().action, "move:up");
+
+  // Invalid direction
+  const badMoveRes = await app.inject({
+    method: "POST",
+    url: "/api/v1/cameras/cam1/move",
+    payload: { direction: "sideways" }
+  });
+  assert.equal(badMoveRes.statusCode, 422);
+
+  // Zoom camera
+  const zoomRes = await app.inject({
+    method: "POST",
+    url: "/api/v1/cameras/cam1/zoom",
+    payload: { action: "in", speed: 5 }
+  });
+  assert.equal(zoomRes.statusCode, 200);
+  assert.equal(zoomRes.json().action, "zoom:in");
+
+  // Recall preset
+  const recallRes = await app.inject({
+    method: "POST",
+    url: "/api/v1/cameras/cam1/presets/1/recall"
+  });
+  assert.equal(recallRes.statusCode, 200);
+  assert.equal(recallRes.json().action, "preset:recall:1");
+
+  // Save preset
+  const saveRes = await app.inject({
+    method: "POST",
+    url: "/api/v1/cameras/cam1/presets/7/save",
+    payload: { name: "Choir Back" }
+  });
+  assert.equal(saveRes.statusCode, 200);
+  assert.equal(saveRes.json().action, "preset:save:7");
+
+  // SmartFrame
+  const sfRes = await app.inject({
+    method: "POST",
+    url: "/api/v1/cameras/cam1/smartframe",
+    payload: { mode: "enable" }
+  });
+  assert.equal(sfRes.statusCode, 200);
+  assert.equal(sfRes.json().action, "smartframe:enable");
+
+  // Stream start & stop
+  const streamStartRes = await app.inject({
+    method: "POST",
+    url: "/api/v1/cameras/cam1/stream/start"
+  });
+  assert.equal(streamStartRes.statusCode, 200);
+  assert.equal(streamStartRes.json().streaming, true);
+
+  const streamStopRes = await app.inject({
+    method: "POST",
+    url: "/api/v1/cameras/cam1/stream/stop"
+  });
+  assert.equal(streamStopRes.statusCode, 200);
+  assert.equal(streamStopRes.json().streaming, false);
+
+  await app.close();
+});
+
+test("UdpViscaCameraAdapter transmits valid VISCA packets over UDP to mock target", async () => {
+  const server = dgram.createSocket("udp4");
+  const receivedPackets: Buffer[] = [];
+
+  await new Promise<void>((resolve) => {
+    server.bind(0, "127.0.0.1", () => resolve());
+  });
+
+  server.on("message", (msg) => {
+    receivedPackets.push(msg);
+  });
+
+  const port = server.address().port;
+
+  const adapter = new UdpViscaCameraAdapter({
+    id: "cam1",
+    label: "Camera 1",
+    host: "127.0.0.1",
+    viscaPort: port
+  });
+
+  await adapter.move("down", 8, 9);
+  await adapter.setSmartFrame("trigger");
+  await adapter.recallPreset(3);
+
+  // Wait briefly for UDP delivery
+  await new Promise((r) => setTimeout(r, 80));
+
+  assert.equal(receivedPackets.length, 3);
+
+  // First packet: PanTilt down
+  const p1 = receivedPackets[0]!;
+  assert.equal(p1.readUInt16BE(0), 0x0100);
+  assert.equal(p1[8], 0x81);
+  assert.equal(p1[14], 0x03); // Down
+  assert.equal(p1[15], 0x02);
+
+  // Second packet: SmartFrame trigger (0x5C)
+  const p2 = receivedPackets[1]!;
+  assert.equal(p2[11], 0x3f);
+  assert.equal(p2[12], 0x02);
+  assert.equal(p2[13], 0x5c);
+
+  // Third packet: Recall preset 3
+  const p3 = receivedPackets[2]!;
+  assert.equal(p3[13], 0x03);
+
+  await adapter.close();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+});

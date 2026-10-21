@@ -29,6 +29,13 @@ export interface AppConfig {
   amxSimulated: boolean;
   amxMasterHost?: string;
   amxMasterPort: number;
+  cameraMode: "simulated" | "hardware";
+  cam1Host?: string;
+  cam1ViscaPort: number;
+  cam1CgiPort: number;
+  cam2Host?: string;
+  cam2ViscaPort: number;
+  cam2CgiPort: number;
 }
 
 function optionalHttpUrl(value: string | undefined, name: string): string | undefined {
@@ -111,6 +118,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const amxMasterHost = env.PIMATRIX_AMX_MASTER_HOST?.trim() || undefined;
   const amxMasterPort = validPort(env.PIMATRIX_AMX_MASTER_PORT, 6501, "PIMATRIX_AMX_MASTER_PORT");
 
+  const rawCameraMode = env.PIMATRIX_CAMERA_MODE?.trim() || "simulated";
+  if (!["simulated", "hardware"].includes(rawCameraMode)) {
+    throw new Error('PIMATRIX_CAMERA_MODE must be "simulated" or "hardware"');
+  }
+  const cameraMode = rawCameraMode as "simulated" | "hardware";
+  const cam1Host = env.PIMATRIX_CAM1_HOST?.trim() || undefined;
+  const cam1ViscaPort = validPort(env.PIMATRIX_CAM1_VISCA_PORT, 52381, "PIMATRIX_CAM1_VISCA_PORT");
+  const cam1CgiPort = validPort(env.PIMATRIX_CAM1_CGI_PORT, 80, "PIMATRIX_CAM1_CGI_PORT");
+  const cam2Host = env.PIMATRIX_CAM2_HOST?.trim() || undefined;
+  const cam2ViscaPort = validPort(env.PIMATRIX_CAM2_VISCA_PORT, 52381, "PIMATRIX_CAM2_VISCA_PORT");
+  const cam2CgiPort = validPort(env.PIMATRIX_CAM2_CGI_PORT, 80, "PIMATRIX_CAM2_CGI_PORT");
+
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("PIMATRIX_PORT must be an integer between 1 and 65535");
   }
@@ -147,6 +166,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     amxSimulated,
     ...(amxMasterHost ? { amxMasterHost } : {}),
     amxMasterPort,
+    cameraMode,
+    cam1ViscaPort,
+    cam1CgiPort,
+    cam2ViscaPort,
+    cam2CgiPort,
+    ...(cam1Host ? { cam1Host } : {}),
+    ...(cam2Host ? { cam2Host } : {}),
     ...(hamaInputFormat ? { hamaInputFormat } : {}),
     ...(hamaWidth !== undefined ? { hamaWidth } : {}),
     ...(hamaHeight !== undefined ? { hamaHeight } : {}),

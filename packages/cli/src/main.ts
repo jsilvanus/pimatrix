@@ -1,16 +1,25 @@
 #!/usr/bin/env node
 
 import {
+  CamerasService,
   configureApiClient,
+  OutputsService,
   SourcesService,
-  SystemService,
-  OutputsService
+  SystemService
 } from "@pimatrix/api-client";
-import type { OutputId, SourceId } from "@pimatrix/api-client";
+import type {
+  CameraId,
+  CameraMoveRequest,
+  CameraSmartFrameRequest,
+  CameraZoomRequest,
+  OutputId,
+  SourceId
+} from "@pimatrix/api-client";
 import { parseArgs, type CliOptions } from "./options.js";
 
 const outputIds = ["hdmi0", "hdmi1"] as const;
 const sourceIds = ["hama", "rtmp1", "rtmp2", "cam1", "cam2", "cam3", "PiPGM1", "PiPGM2"] as const;
+const cameraIds = ["cam1", "cam2", "cam3"] as const;
 
 function printTable(headers: string[], rows: string[][]): void {
   const widths = headers.map((header, index) =>
@@ -25,11 +34,27 @@ function printTable(headers: string[], rows: string[][]): void {
 
 async function run(options: CliOptions): Promise<void> {
   configureApiClient({ baseUrl: options.server });
-  const [group, action, arg1, arg2] = options.command;
+  const [group, action, arg1, arg2, arg3] = options.command;
 
   if (group === "help" || options.command.length === 0) {
     console.log(
-      "Usage: pimatrix [--server <url>] [--json] <status|sources list|sources show <sourceId>|outputs list|outputs set <outputId> <sourceId|none>|matrix route <input> <output>>"
+      "Usage: pimatrix [--server <url>] [--json] <command>\n\n" +
+      "Commands:\n" +
+      "  status\n" +
+      "  sources list\n" +
+      "  sources show <sourceId>\n" +
+      "  outputs list\n" +
+      "  outputs set <outputId> <sourceId|none>\n" +
+      "  matrix route <input> <output>\n" +
+      "  cameras list\n" +
+      "  cameras show <cameraId>\n" +
+      "  cameras move <cameraId> <direction> [--speed <1-24>] [--pan-speed <1-24>] [--tilt-speed <1-23>]\n" +
+      "  cameras zoom <cameraId> <in|out|stop> [--speed <0-7>]\n" +
+      "  cameras preset recall <cameraId> <presetId>\n" +
+      "  cameras preset save <cameraId> <presetId> [--name <label>]\n" +
+      "  cameras smartframe <cameraId> <enable|disable|trigger>\n" +
+      "  cameras stream start <cameraId>\n" +
+      "  cameras stream stop <cameraId>"
     );
     return;
   }
@@ -109,6 +134,127 @@ async function run(options: CliOptions): Promise<void> {
       console.log(`Status: ${data.confirmed ? "confirmed" : "sent"}`);
       if (data.message) console.log(`AMX reply: ${data.message}`);
     }
+    return;
+  }
+
+  // Camera commands
+  if (group === "cameras" && action === "list" && options.command.length === 2) {
+    const data = await CamerasService.listCameras();
+    if (options.json) console.log(JSON.stringify(data.items, null, 2));
+    else {
+      printTable(
+        ["ID", "LABEL", "MODEL", "CONNECTION", "STREAMING", "SMARTFRAME", "PAN", "TILT", "ZOOM", "PRESETS"],
+        data.items.map((cam) => [
+          cam.id,
+          cam.label,
+          cam.model,
+          cam.connection,
+          cam.streaming ? "streaming" : "idle",
+          cam.smartFrame,
+          String(cam.position.pan),
+          String(cam.position.tilt),
+          String(cam.position.zoom),
+          String(cam.presets.length)
+        ])
+      );
+    }
+    return;
+  }
+
+  if (group === "cameras" && action === "show" && options.command.length === 3) {
+    if (!cameraIds.includes(arg1 as CameraId)) throw new Error(`Unknown camera ID: ${arg1}`);
+    const cam = await CamerasService.getCamera(arg1 as CameraId);
+    if (options.json) console.log(JSON.stringify(cam, null, 2));
+    else {
+      console.log(`Camera:      ${cam.id} (${cam.label})`);
+      console.log(`Model:       ${cam.model}`);
+      console.log(`Connection:  ${cam.connection}`);
+      console.log(`Streaming:   ${cam.streaming ? `yes (${cam.streamUrl ?? "no url"})` : "no"}`);
+      console.log(`SmartFrame:  ${cam.smartFrame}`);
+      console.log(`Position:    Pan=${cam.position.pan}, Tilt=${cam.position.tilt}, Zoom=${cam.position.zoom}`);
+      console.log(`Presets (${cam.presets.length}):`);
+      for (const p of cam.presets) {
+        console.log(`  [${p.id}] ${p.name ?? "(unnamed)"}`);
+      }
+    }
+    return;
+  }
+
+  if (group === "cameras" && action === "move" && options.command.length === 4) {
+    if (!cameraIds.includes(arg1 as CameraId)) throw new Error(`Unknown camera ID: ${arg1}`);
+    const direction = arg2 as unknown as CameraMoveRequest.direction;
+    const panSpeed = options.panSpeed ?? options.speed;
+    const tiltSpeed = options.tiltSpeed ?? options.speed;
+    const data = await CamerasService.moveCamera(arg1 as CameraId, {
+      direction,
+      ...(panSpeed !== undefined ? { panSpeed } : {}),
+      ...(tiltSpeed !== undefined ? { tiltSpeed } : {})
+    });
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Camera ${data.cameraId}: ${data.action} (${data.success ? "success" : "failed"})`);
+    return;
+  }
+
+  if (group === "cameras" && action === "zoom" && options.command.length === 4) {
+    if (!cameraIds.includes(arg1 as CameraId)) throw new Error(`Unknown camera ID: ${arg1}`);
+    const zoomAction = arg2 as unknown as CameraZoomRequest.action;
+    const data = await CamerasService.zoomCamera(arg1 as CameraId, {
+      action: zoomAction,
+      ...(options.speed !== undefined ? { speed: options.speed } : {})
+    });
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Camera ${data.cameraId}: ${data.action} (${data.success ? "success" : "failed"})`);
+    return;
+  }
+
+  if (group === "cameras" && action === "preset" && arg1 === "recall" && options.command.length === 5) {
+    const cameraId = arg2 as CameraId;
+    if (!cameraIds.includes(cameraId)) throw new Error(`Unknown camera ID: ${arg2}`);
+    const presetId = Number(arg3);
+    if (!Number.isInteger(presetId) || presetId < 0 || presetId > 254) throw new Error("Preset ID must be 0-254");
+    const data = await CamerasService.recallCameraPreset(cameraId, presetId);
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Camera ${data.cameraId}: recalled preset ${presetId}`);
+    return;
+  }
+
+  if (group === "cameras" && action === "preset" && arg1 === "save" && options.command.length === 5) {
+    const cameraId = arg2 as CameraId;
+    if (!cameraIds.includes(cameraId)) throw new Error(`Unknown camera ID: ${arg2}`);
+    const presetId = Number(arg3);
+    if (!Number.isInteger(presetId) || presetId < 0 || presetId > 254) throw new Error("Preset ID must be 0-254");
+    const data = await CamerasService.saveCameraPreset(cameraId, presetId, options.name ? { name: options.name } : undefined);
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Camera ${data.cameraId}: saved preset ${presetId}${options.name ? ` as "${options.name}"` : ""}`);
+    return;
+  }
+
+  if (group === "cameras" && action === "smartframe" && options.command.length === 4) {
+    const cameraId = arg1 as CameraId;
+    if (!cameraIds.includes(cameraId)) throw new Error(`Unknown camera ID: ${arg1}`);
+    const mode = arg2 as unknown as CameraSmartFrameRequest.mode;
+    if (!["enable", "disable", "trigger"].includes(arg2 ?? "")) throw new Error("SmartFrame mode must be 'enable', 'disable', or 'trigger'");
+    const data = await CamerasService.setCameraSmartFrame(cameraId, { mode });
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Camera ${data.cameraId}: SmartFrame ${arg2}`);
+    return;
+  }
+
+  if (group === "cameras" && action === "stream" && arg1 === "start" && options.command.length === 4) {
+    const cameraId = arg2 as CameraId;
+    if (!cameraIds.includes(cameraId)) throw new Error(`Unknown camera ID: ${arg2}`);
+    const data = await CamerasService.startCameraStream(cameraId);
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Camera ${data.cameraId}: streaming started (${data.streamUrl ?? "no url"})`);
+    return;
+  }
+
+  if (group === "cameras" && action === "stream" && arg1 === "stop" && options.command.length === 4) {
+    const cameraId = arg2 as CameraId;
+    if (!cameraIds.includes(cameraId)) throw new Error(`Unknown camera ID: ${arg2}`);
+    const data = await CamerasService.stopCameraStream(cameraId);
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Camera ${data.cameraId}: streaming stopped`);
     return;
   }
 

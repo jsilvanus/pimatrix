@@ -23,10 +23,20 @@ export interface StreamEventPayload {
   attempt: number;
 }
 
+export interface CameraEventPayload {
+  id: string;
+  action: string;
+  streaming?: boolean;
+  presetId?: number;
+  smartFrame?: string;
+  position?: { pan: number; tilt: number; zoom: number };
+}
+
 export type PiMatrixEvent =
   | { type: "source"; data: SourceEventPayload }
   | { type: "output"; data: OutputEventPayload }
   | { type: "stream"; data: StreamEventPayload }
+  | { type: "camera"; data: CameraEventPayload }
   | { type: "ready"; data: { status: string; time: string } };
 
 export class PiMatrixEventBroker {
