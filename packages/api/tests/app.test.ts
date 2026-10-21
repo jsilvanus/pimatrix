@@ -14,6 +14,7 @@ test("health, readiness and status respond in simulation mode", async () => {
     assert.equal(status.mode, "simulation");
     assert.equal(status.integrations.amx, "not-configured");
     assert.equal(status.integrations.mediaMtx, "not-configured");
+    assert.equal(status.integrations.fffleet, "not-configured");
   } finally {
     await app.close();
   }
@@ -77,6 +78,28 @@ test("MediaMTX failure is reported without making API health unavailable", async
   }
 });
 
+test("fffleet connection state is surfaced without breaking API health", async () => {
+  const config = loadConfig({
+    FFFLEET_URL: "http://fffleet:5000",
+    FFFLEET_TOKEN: "test-token"
+  });
+  const fakeFetch: typeof fetch = async (input) => {
+    assert.equal(String(input), "http://fffleet:5000/v1/capabilities");
+    return new Response(JSON.stringify({ slots: {}, capabilities: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+  const app = buildApp(config, fakeFetch);
+  try {
+    const status = (await app.inject("/api/v1/status")).json();
+    assert.equal(status.integrations.fffleet, "connected");
+    assert.equal((await app.inject("/health")).statusCode, 200);
+  } finally {
+    await app.close();
+  }
+});
+
 test("unknown source returns a structured 404", async () => {
   const app = buildApp(loadConfig({}));
   try {
@@ -92,4 +115,6 @@ test("invalid configuration is rejected", () => {
   assert.throws(() => loadConfig({ PIMATRIX_PORT: "70000" }), /PIMATRIX_PORT/);
   assert.throws(() => loadConfig({ PIMATRIX_MODE: "other" }), /PIMATRIX_MODE/);
   assert.throws(() => loadConfig({ PIMATRIX_MEDIAMTX_API_URL: "ftp://media" }), /HTTP or HTTPS/);
+  assert.throws(() => loadConfig({ FFFLEET_CLIENT_ID: "pimatrix" }), /must be set together/);
+  assert.throws(() => loadConfig({ FFFLEET_TOKEN: "secret" }), /FFFLEET_URL is required/);
 });
