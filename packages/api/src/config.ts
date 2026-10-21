@@ -1,5 +1,6 @@
 export type RuntimeMode = "simulation" | "production";
 export type HamaVideoCodec = "copy" | "libx264";
+export type DisplayMode = "simulated" | "hardware" | "disabled";
 
 export interface AppConfig {
   host: string;
@@ -21,6 +22,13 @@ export interface AppConfig {
   hamaRtspUrl?: string;
   streamRestartMinMs: number;
   streamRestartMaxMs: number;
+  displayMode: DisplayMode;
+  amxTcpEnabled: boolean;
+  amxTcpHost: string;
+  amxTcpPort: number;
+  amxSimulated: boolean;
+  amxMasterHost?: string;
+  amxMasterPort: number;
 }
 
 function optionalHttpUrl(value: string | undefined, name: string): string | undefined {
@@ -59,6 +67,15 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
   return result;
 }
 
+function validPort(value: string | undefined, fallback: number, name: string, allowZero = false): number {
+  const result = Number(value ?? fallback);
+  const min = allowZero ? 0 : 1;
+  if (!Number.isInteger(result) || result < min || result > 65535) {
+    throw new Error(`${name} must be an integer between ${min} and 65535`);
+  }
+  return result;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const host = env.PIMATRIX_HOST?.trim() || "127.0.0.1";
   const port = Number(env.PIMATRIX_PORT ?? "3000");
@@ -80,6 +97,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const hamaRtspUrl = optionalRtspUrl(env.PIMATRIX_HAMA_RTSP_URL, "PIMATRIX_HAMA_RTSP_URL");
   const streamRestartMinMs = positiveInteger(env.PIMATRIX_STREAM_RESTART_MIN_MS, 1000, "PIMATRIX_STREAM_RESTART_MIN_MS", 300000);
   const streamRestartMaxMs = positiveInteger(env.PIMATRIX_STREAM_RESTART_MAX_MS, 30000, "PIMATRIX_STREAM_RESTART_MAX_MS", 300000);
+
+  const rawDisplayMode = env.PIMATRIX_DISPLAY_MODE?.trim() || (env.PIMATRIX_DISPLAY_SIMULATED === "true" ? "simulated" : "disabled");
+  if (!["simulated", "hardware", "disabled"].includes(rawDisplayMode)) {
+    throw new Error('PIMATRIX_DISPLAY_MODE must be "simulated", "hardware", or "disabled"');
+  }
+  const displayMode = rawDisplayMode as DisplayMode;
+
+  const amxTcpEnabled = env.PIMATRIX_AMX_TCP_ENABLED === "true" || env.PIMATRIX_AMX_TCP_PORT !== undefined;
+  const amxTcpHost = env.PIMATRIX_AMX_TCP_HOST?.trim() || "127.0.0.1";
+  const amxTcpPort = validPort(env.PIMATRIX_AMX_TCP_PORT, 6600, "PIMATRIX_AMX_TCP_PORT", true);
+  const amxSimulated = env.PIMATRIX_AMX_SIMULATED === "true";
+  const amxMasterHost = env.PIMATRIX_AMX_MASTER_HOST?.trim() || undefined;
+  const amxMasterPort = validPort(env.PIMATRIX_AMX_MASTER_PORT, 6501, "PIMATRIX_AMX_MASTER_PORT");
 
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("PIMATRIX_PORT must be an integer between 1 and 65535");
@@ -112,6 +142,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     host, port, mode, hamaEnabled, hamaDevice,
     streamRestartMinMs, streamRestartMaxMs,
+    displayMode,
+    amxTcpEnabled, amxTcpHost, amxTcpPort,
+    amxSimulated,
+    ...(amxMasterHost ? { amxMasterHost } : {}),
+    amxMasterPort,
     ...(hamaInputFormat ? { hamaInputFormat } : {}),
     ...(hamaWidth !== undefined ? { hamaWidth } : {}),
     ...(hamaHeight !== undefined ? { hamaHeight } : {}),

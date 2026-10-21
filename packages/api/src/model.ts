@@ -50,12 +50,29 @@ export function createOutputStore() {
     list(): OutputSnapshot[] {
       return [...outputs.values()].map((output) => ({ ...output }));
     },
+    get(outputId: OutputId): OutputSnapshot | undefined {
+      const output = outputs.get(outputId);
+      return output ? { ...output } : undefined;
+    },
     setDesiredSource(outputId: string, sourceId: SourceId | null): OutputSnapshot | undefined {
       if (!outputs.has(outputId as OutputId)) return undefined;
       const current = outputs.get(outputId as OutputId)!;
       const updated: OutputSnapshot = { ...current, desiredSource: sourceId };
       outputs.set(updated.id, updated);
       return { ...updated };
+    },
+    setObservedState(
+      outputId: string,
+      observedSource: SourceId | null,
+      state: OutputSnapshot["state"]
+    ): OutputSnapshot | undefined {
+      if (!outputs.has(outputId as OutputId)) return undefined;
+      const current = outputs.get(outputId as OutputId)!;
+      const updated: OutputSnapshot = { ...current, observedSource, state };
+      outputs.set(updated.id, updated);
+      return { ...updated };
     }
   };
 }
+
+export type OutputStore = ReturnType<typeof createOutputStore>;

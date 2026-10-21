@@ -28,7 +28,9 @@ async function run(options: CliOptions): Promise<void> {
   const [group, action, arg1, arg2] = options.command;
 
   if (group === "help" || options.command.length === 0) {
-    console.log("Usage: pimatrix [--server <url>] [--json] <status|sources list|outputs list|outputs set <outputId> <sourceId|none>>");
+    console.log(
+      "Usage: pimatrix [--server <url>] [--json] <status|sources list|sources show <sourceId>|outputs list|outputs set <outputId> <sourceId|none>|matrix route <input> <output>>"
+    );
     return;
   }
 
@@ -57,6 +59,20 @@ async function run(options: CliOptions): Promise<void> {
     return;
   }
 
+  if (group === "sources" && action === "show" && options.command.length === 3) {
+    if (!sourceIds.includes(arg1 as SourceId)) throw new Error(`Unknown source ID: ${arg1}`);
+    const source = await SourcesService.getSource(arg1 as SourceId);
+    if (options.json) console.log(JSON.stringify(source, null, 2));
+    else {
+      console.log(`Source:   ${source.id}`);
+      console.log(`Label:    ${source.label}`);
+      console.log(`Kind:     ${source.kind}`);
+      console.log(`State:    ${source.state}`);
+      console.log(`Preview:  ${source.preview.available ? `available (${source.preview.url})` : "unavailable"}`);
+    }
+    return;
+  }
+
   if (group === "outputs" && action === "list" && options.command.length === 2) {
     const data = await OutputsService.listOutputs();
     if (options.json) console.log(JSON.stringify(data.items, null, 2));
@@ -77,6 +93,21 @@ async function run(options: CliOptions): Promise<void> {
       console.log(`Desired source for ${data.id}: ${data.desiredSource ?? "none"}`);
       console.log(`Output state: ${data.state}`);
       if (data.state === "unavailable") console.log("Note: route intent is saved; HDMI hardware output is not implemented yet.");
+    }
+    return;
+  }
+
+  if (group === "matrix" && action === "route" && options.command.length === 4) {
+    const input = Number(arg1);
+    const output = Number(arg2);
+    if (!Number.isInteger(input) || input < 1 || input > 4) throw new Error("Matrix input must be 1-4");
+    if (!Number.isInteger(output) || output < 1 || output > 4) throw new Error("Matrix output must be 1-4");
+    const data = await SystemService.requestMatrixRoute({ input, output });
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else {
+      console.log(`Matrix route requested: in ${data.input} -> out ${data.output}`);
+      console.log(`Status: ${data.confirmed ? "confirmed" : "sent"}`);
+      if (data.message) console.log(`AMX reply: ${data.message}`);
     }
     return;
   }

@@ -136,6 +136,60 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/v1/events:
+    get:
+      operationId: getEvents
+      tags: [System]
+      summary: Server-Sent Events stream for runtime state changes
+      description: Emits real-time state changes for sources, outputs, and stream jobs.
+      responses:
+        "200":
+          description: Continuous Server-Sent Events stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+  /api/v1/matrix/route:
+    post:
+      operationId: requestMatrixRoute
+      tags: [System]
+      summary: Request an Atlona matrix route through the AMX NetLinx master
+      description: AMX remains the sole controller of the Atlona. PiMatrix forwards the routing request to AMX.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input, output]
+              properties:
+                input:
+                  type: integer
+                  minimum: 1
+                  maximum: 4
+                output:
+                  type: integer
+                  minimum: 1
+                  maximum: 4
+      responses:
+        "200":
+          description: Matrix route requested successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MatrixRouteResponse"
+        "422":
+          description: Invalid input or output parameter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: AMX master is unreachable or route command failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   responses:
     NotFound:
@@ -277,6 +331,22 @@ components:
         state:
           type: string
           enum: [unavailable, starting, active, failed]
+    MatrixRouteResponse:
+      type: object
+      required: [requestId, success, input, output, confirmed]
+      properties:
+        requestId:
+          type: string
+        success:
+          type: boolean
+        input:
+          type: integer
+        output:
+          type: integer
+        confirmed:
+          type: boolean
+        message:
+          type: string
     Error:
       type: object
       required: [error]
