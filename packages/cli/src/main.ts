@@ -6,7 +6,11 @@ import {
   SystemService,
   OutputsService
 } from "@pimatrix/api-client";
+import type { OutputId, SourceId } from "@pimatrix/api-client";
 import { parseArgs, type CliOptions } from "./options.js";
+
+const outputIds = ["hdmi0", "hdmi1"] as const;
+const sourceIds = ["hama", "rtmp1", "rtmp2", "cam1", "cam2", "cam3", "PiPGM1", "PiPGM2"] as const;
 
 function printTable(headers: string[], rows: string[][]): void {
   const widths = headers.map((header, index) =>
@@ -21,10 +25,10 @@ function printTable(headers: string[], rows: string[][]): void {
 
 async function run(options: CliOptions): Promise<void> {
   configureApiClient({ baseUrl: options.server });
-  const [group, action] = options.command;
+  const [group, action, arg1, arg2] = options.command;
 
   if (group === "help" || options.command.length === 0) {
-    console.log("Usage: pimatrix [--server <url>] [--json] <status|sources list|outputs list>");
+    console.log("Usage: pimatrix [--server <url>] [--json] <status|sources list|outputs list|outputs set <outputId> <sourceId|none>>");
     return;
   }
 
@@ -59,6 +63,21 @@ async function run(options: CliOptions): Promise<void> {
     else printTable(["ID", "LABEL", "DESIRED SOURCE", "OBSERVED SOURCE", "STATE"], data.items.map((output) => [
       output.id, output.label, output.desiredSource ?? "-", output.observedSource ?? "-", output.state
     ]));
+    return;
+  }
+
+  if (group === "outputs" && action === "set" && options.command.length === 4) {
+    if (!outputIds.includes(arg1 as OutputId)) throw new Error(`Unknown output ID: ${arg1}`);
+    if (arg2 !== "none" && !sourceIds.includes(arg2 as SourceId)) throw new Error(`Unknown source ID: ${arg2}`);
+    const data = await OutputsService.setOutputSource(arg1 as OutputId, {
+      sourceId: arg2 === "none" ? null : arg2 as SourceId
+    });
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else {
+      console.log(`Desired source for ${data.id}: ${data.desiredSource ?? "none"}`);
+      console.log(`Output state: ${data.state}`);
+      if (data.state === "unavailable") console.log("Note: route intent is saved; HDMI hardware output is not implemented yet.");
+    }
     return;
   }
 
