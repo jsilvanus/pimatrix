@@ -1,0 +1,37 @@
+name: pimatrix-streaming-lab
+
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:1.15.5
+    restart: unless-stopped
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+    command: ["/mediamtx.yml"]
+    ports:
+      - "8554:8554/tcp"   # RTSP ingest
+      - "8889:8889/tcp"   # WebRTC HTTP/WHEP
+      - "8189:8189/udp"   # WebRTC media
+      - "9997:9997/tcp"   # MediaMTX API (local development only)
+    networks:
+      - pimatrix-lab
+
+  test-patterns:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - mediamtx
+    environment:
+      RTSP_HOST: mediamtx
+      RTSP_PORT: "8554"
+      SOURCES: "hama rtmp1 rtmp2 cam1 cam2 cam3 PiPGM1 PiPGM2"
+      WIDTH: "640"
+      HEIGHT: "360"
+      FPS: "10"
+    networks:
+      - pimatrix-lab
+
+networks:
+  pimatrix-lab:
+    name: pimatrix-streaming-lab
