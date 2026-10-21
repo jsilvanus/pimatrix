@@ -1,4 +1,5 @@
 export type RuntimeMode = "simulation" | "production";
+export type HamaVideoCodec = "copy" | "libx264";
 
 export interface AppConfig {
   host: string;
@@ -10,6 +11,16 @@ export interface AppConfig {
   fffleetToken?: string;
   fffleetClientId?: string;
   fffleetClientSecret?: string;
+  hamaEnabled: boolean;
+  hamaDevice: string;
+  hamaInputFormat: string;
+  hamaWidth: number;
+  hamaHeight: number;
+  hamaFrameRate: number;
+  hamaVideoCodec: HamaVideoCodec;
+  hamaRtspUrl?: string;
+  streamRestartMinMs: number;
+  streamRestartMaxMs: number;
 }
 
 function optionalHttpUrl(value: string | undefined, name: string): string | undefined {
@@ -26,6 +37,28 @@ function optionalHttpUrl(value: string | undefined, name: string): string | unde
   return parsed.toString().replace(/\/$/, "");
 }
 
+function optionalRtspUrl(value: string | undefined, name: string): string | undefined {
+  if (!value?.trim()) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(value.trim());
+  } catch {
+    throw new Error(`${name} must be a valid RTSP URL`);
+  }
+  if (parsed.protocol !== "rtsp:" || parsed.username || parsed.password || parsed.hash) {
+    throw new Error(`${name} must be an RTSP URL without embedded credentials or a fragment`);
+  }
+  return parsed.toString();
+}
+
+function positiveInteger(value: string | undefined, fallback: number, name: string): number {
+  const result = Number(value ?? fallback);
+  if (!Number.isInteger(result) || result < 1 || result > 10000) {
+    throw new Error(`${name} must be an integer between 1 and 10000`);
+  }
+  return result;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const host = env.PIMATRIX_HOST?.trim() || "127.0.0.1";
   const port = Number(env.PIMATRIX_PORT ?? "3000");
@@ -36,6 +69,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const fffleetToken = env.FFFLEET_TOKEN?.trim() || undefined;
   const fffleetClientId = env.FFFLEET_CLIENT_ID?.trim() || undefined;
   const fffleetClientSecret = env.FFFLEET_CLIENT_SECRET || undefined;
+  const hamaEnabled = env.PIMATRIX_HAMA_ENABLED === "true";
+  const hamaDevice = env.PIMATRIX_HAMA_DEVICE?.trim() || "/dev/video0";
+  const hamaInputFormat = env.PIMATRIX_HAMA_INPUT_FORMAT?.trim() || "mjpeg";
+  const hamaWidth = positiveInteger(env.PIMATRIX_HAMA_WIDTH, 1920, "PIMATRIX_HAMA_WIDTH");
+  const hamaHeight = positiveInteger(env.PIMATRIX_HAMA_HEIGHT, 1080, "PIMATRIX_HAMA_HEIGHT");
+  const hamaFrameRate = positiveInteger(env.PIMATRIX_HAMA_FRAME_RATE, 30, "PIMATRIX_HAMA_FRAME_RATE");
+  const hamaVideoCodec = env.PIMATRIX_HAMA_VIDEO_CODEC ?? "copy";
+  const hamaRtspUrl = optionalRtspUrl(env.PIMATRIX_HAMA_RTSP_URL, "PIMATRIX_HAMA_RTSP_URL");
+  const streamRestartMinMs = positiveInteger(env.PIMATRIX_STREAM_RESTART_MIN_MS, 1000, "PIMATRIX_STREAM_RESTART_MIN_MS");
+  const streamRestartMaxMs = positiveInteger(env.PIMATRIX_STREAM_RESTART_MAX_MS, 30000, "PIMATRIX_STREAM_RESTART_MAX_MS");
 
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("PIMATRIX_PORT must be an integer between 1 and 65535");
@@ -52,15 +95,26 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if ((fffleetToken || fffleetClientId) && !fffleetUrl) {
     throw new Error("FFFLEET_URL is required when fffleet credentials are configured");
   }
+  if (hamaEnabled && !hamaRtspUrl) {
+    throw new Error("PIMATRIX_HAMA_RTSP_URL is required when PIMATRIX_HAMA_ENABLED=true");
+  }
+  if (hamaVideoCodec !== "copy" && hamaVideoCodec !== "libx264") {
+    throw new Error('PIMATRIX_HAMA_VIDEO_CODEC must be "copy" or "libx264"');
+  }
+  if (streamRestartMaxMs < streamRestartMinMs) {
+    throw new Error("PIMATRIX_STREAM_RESTART_MAX_MS must be greater than or equal to PIMATRIX_STREAM_RESTART_MIN_MS");
+  }
+
   return {
-    host,
-    port,
-    mode,
+    host, port, mode, hamaEnabled, hamaDevice, hamaInputFormat,
+    hamaWidth, hamaHeight, hamaFrameRate,
+    hamaVideoCodec, streamRestartMinMs, streamRestartMaxMs,
     ...(mediaMtxApiUrl ? { mediaMtxApiUrl } : {}),
     ...(previewBaseUrl ? { previewBaseUrl } : {}),
     ...(fffleetUrl ? { fffleetUrl } : {}),
     ...(fffleetToken ? { fffleetToken } : {}),
     ...(fffleetClientId ? { fffleetClientId } : {}),
-    ...(fffleetClientSecret ? { fffleetClientSecret } : {})
+    ...(fffleetClientSecret ? { fffleetClientSecret } : {}),
+    ...(hamaRtspUrl ? { hamaRtspUrl } : {})
   };
 }
