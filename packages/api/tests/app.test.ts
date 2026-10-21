@@ -32,7 +32,9 @@ test("source and output inventory does not claim live hardware", async () => {
     ));
     const outputs = (await app.inject("/api/v1/outputs")).json().items;
     assert.deepEqual(outputs.map((output: { id: string }) => output.id), ["hdmi0", "hdmi1"]);
-    assert.ok(outputs.every((output: { observedSource: string | null }) => output.observedSource === null));
+    assert.ok(outputs.every((output: { observedSource: string | null; desiredSource: string | null }) =>
+      output.observedSource === null && output.desiredSource === null
+    ));
   } finally {
     await app.close();
   }
@@ -95,6 +97,56 @@ test("fffleet connection state is surfaced without breaking API health", async (
     const status = (await app.inject("/api/v1/status")).json();
     assert.equal(status.integrations.fffleet, "connected");
     assert.equal((await app.inject("/health")).statusCode, 200);
+  } finally {
+    await app.close();
+  }
+});
+
+test("output route intent is accepted but not reported as observed hardware state", async () => {
+  const app = buildApp(loadConfig({}));
+  try {
+    const response = await app.inject({
+      method: "PUT",
+      url: "/api/v1/outputs/hdmi0/source",
+      payload: { sourceId: "hama" }
+    });
+    assert.equal(response.statusCode, 202);
+    assert.equal(response.json().desiredSource, "hama");
+    assert.equal(response.json().observedSource, null);
+    assert.equal(response.json().state, "unavailable");
+
+    const outputs = (await app.inject("/api/v1/outputs")).json().items;
+    assert.equal(outputs.find((output: { id: string }) => output.id === "hdmi0").desiredSource, "hama");
+  } finally {
+    await app.close();
+  }
+});
+
+test("output route rejects unknown sources and unknown outputs", async () => {
+  const app = buildApp(loadConfig({}));
+  try {
+    const invalidSource = await app.inject({
+      method: "PUT",
+      url: "/api/v1/outputs/hdmi0/source",
+      payload: { sourceId: "made-up" }
+    });
+    assert.equal(invalidSource.statusCode, 422);
+    assert.equal(invalidSource.json().error.code, "INVALID_SOURCE");
+
+    const unknownOutput = await app.inject({
+      method: "PUT",
+      url: "/api/v1/outputs/not-a-display/source",
+      payload: { sourceId: "hama" }
+    });
+    assert.equal(unknownOutput.statusCode, 404);
+    assert.equal(unknownOutput.json().error.code, "OUTPUT_NOT_FOUND");
+
+    const missingSource = await app.inject({
+      method: "PUT",
+      url: "/api/v1/outputs/hdmi0/source",
+      payload: {}
+    });
+    assert.equal(missingSource.statusCode, 422);
   } finally {
     await app.close();
   }
