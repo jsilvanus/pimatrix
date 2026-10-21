@@ -2,7 +2,7 @@
 
 PiMatrix is the Raspberry Pi-side video routing and processing control plane for the Keskuskirkko AV system.
 
-The implementation provides a simulation-first HTTP API and standalone CLI, MediaMTX path discovery, fffleet job supervision, and an opt-in local Hama USB capture publisher. The supported capture model is Hama Video Recording/Streaming Stick, article no. 00074257. The Hama job is executed by a local fffleet runner on the Pi so a remote fleet can never be handed the Pi's `/dev/video*` device.
+The implementation provides a simulation-first HTTP API and standalone CLI, MediaMTX path discovery, fffleet job supervision, and an opt-in local Hama USB capture publisher. The supported capture model is Hama Video Recording/Streaming Stick, article no. 00074257. See the [device-specific capture guide](docs/hama-00074257.md) for official documentation, Linux mode discovery, and configuration. The Hama job is executed by a local fffleet runner on the Pi so a remote fleet can never be handed the Pi's `/dev/video*` device.
 
 ## Architecture
 
