@@ -112,3 +112,14 @@ test("stream supervisor restarts a failed job with a new id and closes its fleet
   assert.equal(closed, true);
   assert.equal(supervisor.snapshot().state, "stopping");
 });
+
+
+test("Hama capture does not force undocumented Linux modes by default", () => {
+  const config = loadConfig({ PIMATRIX_HAMA_RTSP_URL: "rtsp://mediamtx:8554/hama" });
+  const spec = buildHamaCaptureSpec(config, 1);
+  const args = spec.ffmpeg?.args ?? [];
+  assert.equal(args.includes("-input_format"), false);
+  assert.equal(args.includes("-framerate"), false);
+  assert.equal(args.includes("-video_size"), false);
+  assert.equal(args.includes("-c:v"), false);
+});
