@@ -180,7 +180,7 @@ components:
             display: { type: string }
     Status:
       type: object
-      required: [apiVersion, service, mode, status, integrations, counts]
+      required: [apiVersion, service, mode, status, integrations, managedStreams, counts]
       properties:
         apiVersion:
           type: string
@@ -203,6 +203,25 @@ components:
             capture: { type: string }
             display: { type: string }
             amx: { type: string }
+        managedStreams:
+          type: object
+          required: [hama]
+          properties:
+            hama:
+              type: object
+              required: [state, jobId, attempt, lastError, stderrTail]
+              properties:
+                state:
+                  type: string
+                  enum: [disabled, starting, running, degraded, failed, stopping]
+                jobId:
+                  type: [string, "null"]
+                attempt:
+                  type: integer
+                lastError:
+                  type: [string, "null"]
+                stderrTail:
+                  type: [string, "null"]
         counts:
           type: object
           required: [sources, outputs]
