@@ -16,6 +16,7 @@ export const outputDefinitions = [
 
 export type SourceId = typeof sourceDefinitions[number]["id"];
 export type OutputId = typeof outputDefinitions[number]["id"];
+export type SourceState = "unavailable" | "starting" | "live" | "degraded" | "failed";
 
 export interface OutputSnapshot {
   id: OutputId;
@@ -30,7 +31,7 @@ export function getSources(readyMediaPaths: ReadonlySet<string> = new Set(), pre
     const live = readyMediaPaths.has(source.id);
     return {
       ...source,
-      state: live ? "live" as const : "unavailable" as const,
+      state: (live ? "live" : "unavailable") as SourceState,
       preview: {
         available: live && Boolean(previewBaseUrl),
         url: live && previewBaseUrl ? `${previewBaseUrl}/${encodeURIComponent(source.id)}` : null
