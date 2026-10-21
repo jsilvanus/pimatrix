@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createApiClient, type components } from "@pimatrix/api-client";
+import { createApiClient } from "@pimatrix/api-client";
 import { parseArgs, type CliOptions } from "./options.js";
 
 function printTable(headers: string[], rows: string[][]): void {
