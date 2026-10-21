@@ -13,11 +13,11 @@ export interface AppConfig {
   fffleetClientSecret?: string;
   hamaEnabled: boolean;
   hamaDevice: string;
-  hamaInputFormat: string;
-  hamaWidth: number;
-  hamaHeight: number;
-  hamaFrameRate: number;
-  hamaVideoCodec: HamaVideoCodec;
+  hamaInputFormat?: string;
+  hamaWidth?: number;
+  hamaHeight?: number;
+  hamaFrameRate?: number;
+  hamaVideoCodec?: HamaVideoCodec;
   hamaRtspUrl?: string;
   streamRestartMinMs: number;
   streamRestartMaxMs: number;
@@ -71,11 +71,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const fffleetClientSecret = env.FFFLEET_CLIENT_SECRET || undefined;
   const hamaEnabled = env.PIMATRIX_HAMA_ENABLED === "true";
   const hamaDevice = env.PIMATRIX_HAMA_DEVICE?.trim() || "/dev/video0";
-  const hamaInputFormat = env.PIMATRIX_HAMA_INPUT_FORMAT?.trim() || "mjpeg";
-  const hamaWidth = positiveInteger(env.PIMATRIX_HAMA_WIDTH, 1920, "PIMATRIX_HAMA_WIDTH");
-  const hamaHeight = positiveInteger(env.PIMATRIX_HAMA_HEIGHT, 1080, "PIMATRIX_HAMA_HEIGHT");
-  const hamaFrameRate = positiveInteger(env.PIMATRIX_HAMA_FRAME_RATE, 30, "PIMATRIX_HAMA_FRAME_RATE");
-  const hamaVideoCodec = env.PIMATRIX_HAMA_VIDEO_CODEC ?? "copy";
+  // Hama documents advertised ceilings, not Linux V4L2 modes; do not force a mode by default.
+  const hamaInputFormat = env.PIMATRIX_HAMA_INPUT_FORMAT?.trim() || undefined;
+  const hamaWidth = env.PIMATRIX_HAMA_WIDTH === undefined ? undefined : positiveInteger(env.PIMATRIX_HAMA_WIDTH, 1, "PIMATRIX_HAMA_WIDTH");
+  const hamaHeight = env.PIMATRIX_HAMA_HEIGHT === undefined ? undefined : positiveInteger(env.PIMATRIX_HAMA_HEIGHT, 1, "PIMATRIX_HAMA_HEIGHT");
+  const hamaFrameRate = env.PIMATRIX_HAMA_FRAME_RATE === undefined ? undefined : positiveInteger(env.PIMATRIX_HAMA_FRAME_RATE, 1, "PIMATRIX_HAMA_FRAME_RATE");
+  const hamaVideoCodec = env.PIMATRIX_HAMA_VIDEO_CODEC || undefined;
   const hamaRtspUrl = optionalRtspUrl(env.PIMATRIX_HAMA_RTSP_URL, "PIMATRIX_HAMA_RTSP_URL");
   const streamRestartMinMs = positiveInteger(env.PIMATRIX_STREAM_RESTART_MIN_MS, 1000, "PIMATRIX_STREAM_RESTART_MIN_MS", 300000);
   const streamRestartMaxMs = positiveInteger(env.PIMATRIX_STREAM_RESTART_MAX_MS, 30000, "PIMATRIX_STREAM_RESTART_MAX_MS", 300000);
@@ -98,7 +99,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (hamaEnabled && !hamaRtspUrl) {
     throw new Error("PIMATRIX_HAMA_RTSP_URL is required when PIMATRIX_HAMA_ENABLED=true");
   }
-  if (hamaVideoCodec !== "copy" && hamaVideoCodec !== "libx264") {
+  if (hamaVideoCodec !== undefined && hamaVideoCodec !== "copy" && hamaVideoCodec !== "libx264") {
     throw new Error('PIMATRIX_HAMA_VIDEO_CODEC must be "copy" or "libx264"');
   }
   if (streamRestartMaxMs < streamRestartMinMs) {
