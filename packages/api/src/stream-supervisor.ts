@@ -24,16 +24,19 @@ export function buildHamaCaptureSpec(config: AppConfig, attempt: number): JobSpe
     "-loglevel", "warning",
     "-thread_queue_size", "512",
     "-f", "v4l2",
-    "-input_format", config.hamaInputFormat,
-    "-framerate", String(config.hamaFrameRate),
-    "-video_size", `${config.hamaWidth}x${config.hamaHeight}`,
-    "-i", config.hamaDevice,
+  ];
+
+  if (config.hamaInputFormat) args.push("-input_format", config.hamaInputFormat);
+  if (config.hamaFrameRate) args.push("-framerate", String(config.hamaFrameRate));
+  if (config.hamaWidth && config.hamaHeight) args.push("-video_size", `${config.hamaWidth}x${config.hamaHeight}`);
+
+  args.push("-i", config.hamaDevice,
     "-an"
   ];
 
   if (config.hamaVideoCodec === "copy") {
     args.push("-c:v", "copy");
-  } else {
+  } else if (config.hamaVideoCodec === "libx264") {
     args.push("-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p");
   }
 
