@@ -12,16 +12,27 @@ import {
   createOutputStore,
   getMultiview,
   getSources,
+  multiviewSourceOrder,
   sourceDefinitions,
   type MultiviewLayoutMode,
+  type MultiviewTilePiPgmStatus,
   type OutputId,
   type SourceId
 } from "./model.js";
 import { renderMultiviewHtml } from "./multiview-html.js";
+import type {
+  PiPgmControlAction,
+  PiPgmOrientation,
+  PiPgmPipelineId,
+  PptxAnimationEffect
+} from "./pipgm/pipgm-model.js";
+import { PiPgmService } from "./pipgm/pipgm-service.js";
+import { renderPiPgmStageHtml } from "./pipgm/stage-html.js";
 import { buildHamaCaptureSpec, StreamSupervisor } from "./stream-supervisor.js";
 
 export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): FastifyInstance {
   const app = Fastify({
+    bodyLimit: 50 * 1024 * 1024, // 50 MB for direct .pptx, video, and image uploads
     logger: {
       level: process.env.LOG_LEVEL ?? "info",
       redact: ["req.headers.authorization", "req.headers.cookie"]
@@ -32,6 +43,16 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   const displayAdapter: DisplayAdapter = createDisplayAdapter(config.displayMode);
   const eventBroker = new PiMatrixEventBroker();
   let multiviewLayout: MultiviewLayoutMode = "auto";
+  const multiviewSlotOverrides = new Map<number, SourceId>();
+
+  const pipgmService = new PiPgmService({
+    eventBroker,
+    canvaConfig: {
+      apiBaseUrl: config.canvaApiBaseUrl,
+      accessToken: config.canvaAccessToken,
+      fetchImpl
+    }
+  });
 
   const cameraService = new CameraService({
     mode: config.mode,
@@ -102,9 +123,18 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     return state;
   };
 
-  const listSources = async () => {
+  const listSources = async (includeHidden = false) => {
     const media = await mediaSnapshot();
-    const items = getSources(media.readyPaths, config.previewBaseUrl);
+    const unhiddenIds = new Set<string>();
+    if (!pipgmService.isPipelineHidden("PiPGM3")) {
+      unhiddenIds.add("PiPGM3");
+    }
+
+    const items = getSources(media.readyPaths, config.previewBaseUrl, {
+      includeHidden,
+      unhiddenIds
+    });
+
     const capture = captureSupervisor.snapshot();
     const hama = items.find((source) => source.id === "hama");
     if (hama && !media.readyPaths.has("hama") && capture.state !== "disabled") {
@@ -112,7 +142,41 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       else if (capture.state === "degraded") hama.state = "degraded";
       else if (capture.state === "failed") hama.state = "failed";
     }
+
+    for (const p of pipgmService.listPipelines(true)) {
+      const src = items.find((item) => item.id === p.id);
+      if (src && !media.readyPaths.has(p.id) && p.activeItemId !== null) {
+        src.state = "live";
+        if (!src.preview.url) {
+          src.preview = {
+            available: true,
+            url: p.stageUrl
+          };
+        }
+      }
+    }
+
     return items;
+  };
+
+  const buildCurrentMultiview = async () => {
+    const allSources = await listSources(true);
+    const pipgmStatusById = new Map<string, MultiviewTilePiPgmStatus>();
+    for (const p of pipgmService.listPipelines(true)) {
+      pipgmStatusById.set(p.id, {
+        orientation: p.orientation,
+        fadeToBlack: p.fadeToBlack,
+        audioEnabled: p.audioEnabled,
+        signCode: p.mobileAlert.signCode,
+        cuedSummary: p.mobileAlert.cuedSummary
+      });
+    }
+
+    return getMultiview(allSources, multiviewLayout, {
+      slotOverrides: multiviewSlotOverrides,
+      pipgm3AutoReplace: pipgmService.isPipelineActiveOnMultiview("PiPGM3"),
+      pipgmStatusById
+    });
   };
 
   const amxListener = config.amxTcpEnabled
@@ -121,8 +185,9 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         port: config.amxTcpPort,
         outputStore,
         displayAdapter,
+        pipgmService,
         eventBroker,
-        listSources,
+        listSources: () => listSources(false),
         mode: config.mode,
         logger: app.log
       })
@@ -150,6 +215,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   (app as unknown as { amxListener?: AmxTcpListener | null }).amxListener = amxListener;
   (app as unknown as { eventBroker: PiMatrixEventBroker }).eventBroker = eventBroker;
   (app as unknown as { cameraService: CameraService }).cameraService = cameraService;
+  (app as unknown as { pipgmService: PiPgmService }).pipgmService = pipgmService;
 
   app.get("/health", async () => ({ status: "ok", service: "pimatrix" }));
 
@@ -167,32 +233,58 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     });
   });
 
-  app.get("/api/v1/status", async () => ({
-    apiVersion: "v1",
-    service: "pimatrix",
-    mode: config.mode,
-    status: "running",
-    integrations: {
-      mediaMtx: await mediaStatus(),
-      fffleet: await fleetStatus(),
-      capture: captureStatus(),
-      display: displayAdapter.getStatus(),
-      amx: await amxClient.getStatus()
-    },
-    managedStreams: { hama: captureSupervisor.snapshot() },
-    counts: { sources: 8, outputs: outputStore.list().length, cameras: cameraService.list().length }
-  }));
+  app.get("/api/v1/status", async () => {
+    const visibleSources = await listSources(false);
+    return {
+      apiVersion: "v1",
+      service: "pimatrix",
+      mode: config.mode,
+      status: "running",
+      integrations: {
+        mediaMtx: await mediaStatus(),
+        fffleet: await fleetStatus(),
+        capture: captureStatus(),
+        display: displayAdapter.getStatus(),
+        amx: await amxClient.getStatus()
+      },
+      managedStreams: { hama: captureSupervisor.snapshot() },
+      counts: {
+        sources: visibleSources.length,
+        outputs: outputStore.list().length,
+        cameras: cameraService.list().length,
+        pipgmPipelines: pipgmService.listPipelines(true).length
+      }
+    };
+  });
 
-  app.get("/api/v1/sources", async () => ({ items: await listSources() }));
+  app.get<{ Querystring: { includeHidden?: string } }>("/api/v1/sources", async (request) => {
+    const includeHidden = request.query?.includeHidden === "true";
+    const items = await listSources(includeHidden);
+    return {
+      items: items.map(({ id, label, kind, state, preview }) => ({
+        id,
+        label,
+        kind,
+        state,
+        preview
+      }))
+    };
+  });
 
   app.get<{ Params: { sourceId: string } }>("/api/v1/sources/:sourceId", async (request, reply) => {
-    const source = (await listSources()).find((item) => item.id === request.params.sourceId);
+    const source = (await listSources(true)).find((item) => item.id === request.params.sourceId);
     if (!source) {
       return reply.code(404).send({
         error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
       });
     }
-    return source;
+    return {
+      id: source.id,
+      label: source.label,
+      kind: source.kind,
+      state: source.state,
+      preview: source.preview
+    };
   });
 
   app.get("/api/v1/outputs", async () => ({ items: outputStore.list() }));
@@ -243,15 +335,13 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   );
 
   app.get("/multiview", async (_request, reply) => {
-    const sources = await listSources();
-    const mv = getMultiview(sources, multiviewLayout);
+    const mv = await buildCurrentMultiview();
     const html = renderMultiviewHtml(mv, config.previewBaseUrl);
     return reply.type("text/html; charset=utf-8").send(html);
   });
 
   app.get("/api/v1/outputs/multiview", async () => {
-    const sources = await listSources();
-    return getMultiview(sources, multiviewLayout);
+    return buildCurrentMultiview();
   });
 
   app.put<{ Body: { layout?: unknown } }>(
@@ -264,10 +354,65 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         });
       }
       multiviewLayout = layout as MultiviewLayoutMode;
-      const sources = await listSources();
-      return getMultiview(sources, multiviewLayout);
+      return buildCurrentMultiview();
     }
   );
+
+  app.put<{
+    Body: { slotIndex?: unknown; replaceSourceId?: unknown; sourceId?: unknown };
+  }>("/api/v1/outputs/multiview/slot", async (request, reply) => {
+    const body = request.body ?? {};
+    const requestedSource = body.sourceId;
+
+    if (
+      requestedSource !== null &&
+      (typeof requestedSource !== "string" ||
+        !sourceDefinitions.some((s) => s.id === requestedSource))
+    ) {
+      return reply.code(422).send({
+        error: {
+          code: "INVALID_SOURCE",
+          message: "sourceId must be a valid SourceId (e.g. PiPGM3) or null to reset slot"
+        }
+      });
+    }
+
+    let slotIdx = -1;
+    if (body.slotIndex !== undefined) {
+      const parsedIdx = Number(body.slotIndex);
+      if (!Number.isInteger(parsedIdx) || parsedIdx < 0 || parsedIdx > 7) {
+        return reply.code(422).send({
+          error: { code: "INVALID_SLOT_INDEX", message: "slotIndex must be an integer between 0 and 7" }
+        });
+      }
+      slotIdx = parsedIdx;
+    } else if (typeof body.replaceSourceId === "string") {
+      slotIdx = multiviewSourceOrder.indexOf(body.replaceSourceId as SourceId);
+      if (slotIdx < 0) {
+        return reply.code(422).send({
+          error: {
+            code: "INVALID_REPLACE_SOURCE",
+            message: `Source ${body.replaceSourceId} is not one of the 8 default multiview slots`
+          }
+        });
+      }
+    } else {
+      return reply.code(422).send({
+        error: {
+          code: "SLOT_TARGET_REQUIRED",
+          message: "Provide either slotIndex (0-7) or replaceSourceId (e.g. 'cam3')"
+        }
+      });
+    }
+
+    if (requestedSource === null) {
+      multiviewSlotOverrides.delete(slotIdx);
+    } else {
+      multiviewSlotOverrides.set(slotIdx, requestedSource as SourceId);
+    }
+
+    return reply.code(200).send(await buildCurrentMultiview());
+  });
 
   app.get("/api/v1/events", async (request, reply) => {
     reply.raw.setHeader("Content-Type", "text/event-stream");
@@ -335,6 +480,694 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       }
     }
   );
+
+  // =========================================================================
+  // PiPGM Multi-Format Renderers & Control Endpoints
+  // =========================================================================
+
+  app.get<{ Params: { pipelineId: string } }>("/pipgm/:pipelineId/stage", async (request, reply) => {
+    const pipeline = pipgmService.getPipeline(request.params.pipelineId);
+    if (!pipeline) {
+      return reply.code(404).send({
+        error: { code: "PIPELINE_NOT_FOUND", message: `Unknown PiPGM pipeline: ${request.params.pipelineId}` }
+      });
+    }
+    const html = renderPiPgmStageHtml(pipeline);
+    return reply.type("text/html; charset=utf-8").send(html);
+  });
+
+  app.get<{ Querystring: { includeHidden?: string } }>("/api/v1/pipgm/pipelines", async (request) => {
+    const includeHidden = request.query?.includeHidden !== "false";
+    return { items: pipgmService.listPipelines(includeHidden) };
+  });
+
+  app.get<{ Params: { pipelineId: string } }>("/api/v1/pipgm/pipelines/:pipelineId", async (request, reply) => {
+    const pipeline = pipgmService.getPipeline(request.params.pipelineId);
+    if (!pipeline) {
+      return reply.code(404).send({
+        error: { code: "PIPELINE_NOT_FOUND", message: `Unknown PiPGM pipeline: ${request.params.pipelineId}` }
+      });
+    }
+    return reply.code(200).send(pipeline);
+  });
+
+  app.put<{
+    Params: { pipelineId: string };
+    Body: {
+      orientation?: unknown;
+      hidden?: unknown;
+      linked?: unknown;
+      fadeDurationMs?: unknown;
+    };
+  }>("/api/v1/pipgm/pipelines/:pipelineId/config", async (request, reply) => {
+    if (!pipgmService.isValidPipelineId(request.params.pipelineId)) {
+      return reply.code(404).send({
+        error: { code: "PIPELINE_NOT_FOUND", message: `Unknown PiPGM pipeline: ${request.params.pipelineId}` }
+      });
+    }
+
+    const body = request.body ?? {};
+    if (body.orientation !== undefined && body.orientation !== "landscape" && body.orientation !== "portrait") {
+      return reply.code(422).send({
+        error: { code: "INVALID_ORIENTATION", message: "orientation must be 'landscape' or 'portrait'" }
+      });
+    }
+    if (body.hidden !== undefined && typeof body.hidden !== "boolean") {
+      return reply.code(422).send({
+        error: { code: "INVALID_HIDDEN", message: "hidden must be a boolean" }
+      });
+    }
+    if (body.linked !== undefined && typeof body.linked !== "boolean") {
+      return reply.code(422).send({
+        error: { code: "INVALID_LINKED", message: "linked must be a boolean" }
+      });
+    }
+    if (
+      body.fadeDurationMs !== undefined &&
+      (typeof body.fadeDurationMs !== "number" ||
+        !Number.isFinite(body.fadeDurationMs) ||
+        body.fadeDurationMs < 0 ||
+        body.fadeDurationMs > 10000)
+    ) {
+      return reply.code(422).send({
+        error: { code: "INVALID_FADE_DURATION", message: "fadeDurationMs must be between 0 and 10000" }
+      });
+    }
+
+    const updated = pipgmService.updatePipelineConfig(request.params.pipelineId, {
+      ...(body.orientation !== undefined ? { orientation: body.orientation as PiPgmOrientation } : {}),
+      ...(body.hidden !== undefined ? { hidden: body.hidden } : {}),
+      ...(body.linked !== undefined ? { linked: body.linked } : {}),
+      ...(body.fadeDurationMs !== undefined ? { fadeDurationMs: body.fadeDurationMs } : {})
+    });
+
+    return reply.code(200).send(updated);
+  });
+
+  const validControlActions = new Set<PiPgmControlAction>([
+    "next",
+    "prev",
+    "gotoStep",
+    "gotoItem",
+    "play",
+    "pause",
+    "stop",
+    "restart"
+  ]);
+
+  app.post<{
+    Params: { pipelineId: string };
+    Body: {
+      action?: unknown;
+      stepIndex?: unknown;
+      itemId?: unknown;
+      itemIndex?: unknown;
+      advanceItemOnEnd?: unknown;
+      sync?: unknown;
+    };
+  }>("/api/v1/pipgm/pipelines/:pipelineId/control", async (request, reply) => {
+    if (!pipgmService.isValidPipelineId(request.params.pipelineId)) {
+      return reply.code(404).send({
+        error: { code: "PIPELINE_NOT_FOUND", message: `Unknown PiPGM pipeline: ${request.params.pipelineId}` }
+      });
+    }
+
+    const action = String(request.body?.action ?? "") as PiPgmControlAction;
+    if (!validControlActions.has(action)) {
+      return reply.code(422).send({
+        error: {
+          code: "INVALID_CONTROL_ACTION",
+          message: `action must be one of: ${[...validControlActions].join(", ")}`
+        }
+      });
+    }
+
+    const stepIndex = request.body?.stepIndex !== undefined ? Number(request.body.stepIndex) : undefined;
+    if (stepIndex !== undefined && (!Number.isInteger(stepIndex) || stepIndex < 0)) {
+      return reply.code(422).send({
+        error: { code: "INVALID_STEP_INDEX", message: "stepIndex must be a non-negative integer" }
+      });
+    }
+
+    const itemIndex = request.body?.itemIndex !== undefined ? Number(request.body.itemIndex) : undefined;
+    if (itemIndex !== undefined && (!Number.isInteger(itemIndex) || itemIndex < 0)) {
+      return reply.code(422).send({
+        error: { code: "INVALID_ITEM_INDEX", message: "itemIndex must be a non-negative integer" }
+      });
+    }
+
+    const updated = pipgmService.control(request.params.pipelineId, {
+      action,
+      ...(stepIndex !== undefined ? { stepIndex } : {}),
+      ...(typeof request.body?.itemId === "string" ? { itemId: request.body.itemId } : {}),
+      ...(itemIndex !== undefined ? { itemIndex } : {}),
+      ...(typeof request.body?.advanceItemOnEnd === "boolean"
+        ? { advanceItemOnEnd: request.body.advanceItemOnEnd }
+        : {}),
+      ...(typeof request.body?.sync === "boolean" ? { sync: request.body.sync } : {})
+    });
+
+    return reply.code(200).send(updated);
+  });
+
+  app.post<{
+    Params: { pipelineId: string };
+    Body: { fadeToBlack?: unknown; toggle?: unknown; durationMs?: unknown; sync?: unknown };
+  }>("/api/v1/pipgm/pipelines/:pipelineId/ftb", async (request, reply) => {
+    if (!pipgmService.isValidPipelineId(request.params.pipelineId)) {
+      return reply.code(404).send({
+        error: { code: "PIPELINE_NOT_FOUND", message: `Unknown PiPGM pipeline: ${request.params.pipelineId}` }
+      });
+    }
+
+    const body = request.body ?? {};
+    if (body.fadeToBlack !== undefined && typeof body.fadeToBlack !== "boolean") {
+      return reply.code(422).send({
+        error: { code: "INVALID_FTB_VALUE", message: "fadeToBlack must be a boolean" }
+      });
+    }
+
+    const durationMs = body.durationMs !== undefined ? Number(body.durationMs) : undefined;
+    if (durationMs !== undefined && (!Number.isFinite(durationMs) || durationMs < 0 || durationMs > 10000)) {
+      return reply.code(422).send({
+        error: { code: "INVALID_FADE_DURATION", message: "durationMs must be between 0 and 10000" }
+      });
+    }
+
+    const updated = pipgmService.setFadeToBlack(request.params.pipelineId, {
+      ...(typeof body.fadeToBlack === "boolean" ? { fadeToBlack: body.fadeToBlack } : {}),
+      ...(typeof body.toggle === "boolean" ? { toggle: body.toggle } : {}),
+      ...(durationMs !== undefined ? { durationMs } : {}),
+      ...(typeof body.sync === "boolean" ? { sync: body.sync } : {})
+    });
+
+    return reply.code(200).send(updated);
+  });
+
+  app.post<{
+    Params: { pipelineId: string };
+    Body: { audioEnabled?: unknown; toggle?: unknown; volume?: unknown; sync?: unknown };
+  }>("/api/v1/pipgm/pipelines/:pipelineId/audio", async (request, reply) => {
+    if (!pipgmService.isValidPipelineId(request.params.pipelineId)) {
+      return reply.code(404).send({
+        error: { code: "PIPELINE_NOT_FOUND", message: `Unknown PiPGM pipeline: ${request.params.pipelineId}` }
+      });
+    }
+
+    const body = request.body ?? {};
+    if (body.audioEnabled !== undefined && typeof body.audioEnabled !== "boolean") {
+      return reply.code(422).send({
+        error: { code: "INVALID_AUDIO_VALUE", message: "audioEnabled must be a boolean" }
+      });
+    }
+
+    const volume = body.volume !== undefined ? Number(body.volume) : undefined;
+    if (volume !== undefined && (!Number.isFinite(volume) || volume < 0 || volume > 100)) {
+      return reply.code(422).send({
+        error: { code: "INVALID_VOLUME", message: "volume must be between 0 and 100" }
+      });
+    }
+
+    const updated = pipgmService.setAudio(request.params.pipelineId, {
+      ...(typeof body.audioEnabled === "boolean" ? { audioEnabled: body.audioEnabled } : {}),
+      ...(typeof body.toggle === "boolean" ? { toggle: body.toggle } : {}),
+      ...(volume !== undefined ? { volume } : {}),
+      ...(typeof body.sync === "boolean" ? { sync: body.sync } : {})
+    });
+
+    return reply.code(200).send(updated);
+  });
+
+  app.post<{
+    Params: { pipelineId: string };
+    Body: { itemId?: unknown; cueImmediately?: unknown };
+  }>("/api/v1/pipgm/pipelines/:pipelineId/playlist", async (request, reply) => {
+    if (!pipgmService.isValidPipelineId(request.params.pipelineId)) {
+      return reply.code(404).send({
+        error: { code: "PIPELINE_NOT_FOUND", message: `Unknown PiPGM pipeline: ${request.params.pipelineId}` }
+      });
+    }
+
+    const itemId = typeof request.body?.itemId === "string" ? request.body.itemId.trim() : "";
+    if (!itemId) {
+      return reply.code(422).send({
+        error: { code: "ITEM_ID_REQUIRED", message: "itemId is required" }
+      });
+    }
+
+    const updated = pipgmService.addItemToPipeline(
+      request.params.pipelineId,
+      itemId,
+      request.body?.cueImmediately === true
+    );
+    if (!updated) {
+      return reply.code(404).send({
+        error: { code: "ITEM_NOT_FOUND", message: `Unknown PiPGM item: ${itemId}` }
+      });
+    }
+
+    return reply.code(200).send(updated);
+  });
+
+  app.delete<{ Params: { pipelineId: string; itemId: string } }>(
+    "/api/v1/pipgm/pipelines/:pipelineId/playlist/:itemId",
+    async (request, reply) => {
+      if (!pipgmService.isValidPipelineId(request.params.pipelineId)) {
+        return reply.code(404).send({
+          error: { code: "PIPELINE_NOT_FOUND", message: `Unknown PiPGM pipeline: ${request.params.pipelineId}` }
+        });
+      }
+
+      const updated = pipgmService.removeItemFromPipeline(request.params.pipelineId, request.params.itemId);
+      return reply.code(200).send(updated);
+    }
+  );
+
+  // Shared Library & Format-Specific Item Creation
+  app.get("/api/v1/pipgm/items", async () => ({
+    items: pipgmService.listLibraryItems()
+  }));
+
+  app.get<{ Params: { itemId: string } }>("/api/v1/pipgm/items/:itemId", async (request, reply) => {
+    const item = pipgmService.getLibraryItem(request.params.itemId);
+    if (!item) {
+      return reply.code(404).send({
+        error: { code: "ITEM_NOT_FOUND", message: `Unknown PiPGM item: ${request.params.itemId}` }
+      });
+    }
+    return reply.code(200).send(item);
+  });
+
+  app.post<{
+    Body: {
+      title?: unknown;
+      hymnNumber?: unknown;
+      includeTitleSlide?: unknown;
+      stanzas?: unknown;
+      rawText?: unknown;
+      targetPipelineId?: unknown;
+      cueImmediately?: unknown;
+    };
+  }>("/api/v1/pipgm/items/hymn", async (request, reply) => {
+    const body = request.body ?? {};
+    const title = typeof body.title === "string" ? body.title.trim() : "";
+    if (!title) {
+      return reply.code(422).send({
+        error: { code: "TITLE_REQUIRED", message: "Hymn title is required" }
+      });
+    }
+
+    if (
+      body.targetPipelineId !== undefined &&
+      (typeof body.targetPipelineId !== "string" || !pipgmService.isValidPipelineId(body.targetPipelineId))
+    ) {
+      return reply.code(422).send({
+        error: { code: "INVALID_PIPELINE_ID", message: "targetPipelineId must be PiPGM1, PiPGM2, or PiPGM3" }
+      });
+    }
+
+    const stanzasInput = Array.isArray(body.stanzas)
+      ? (body.stanzas as Array<{ stanzaNumber?: string | number; lines: string[]; refrain?: boolean }>)
+      : undefined;
+
+    const item = pipgmService.createHymnItem({
+      title,
+      ...(typeof body.hymnNumber === "string" ? { hymnNumber: body.hymnNumber } : {}),
+      ...(typeof body.includeTitleSlide === "boolean" ? { includeTitleSlide: body.includeTitleSlide } : {}),
+      ...(stanzasInput ? { stanzas: stanzasInput } : {}),
+      ...(typeof body.rawText === "string" ? { rawText: body.rawText } : {}),
+      ...(typeof body.targetPipelineId === "string"
+        ? { targetPipelineId: body.targetPipelineId as PiPgmPipelineId }
+        : {}),
+      ...(typeof body.cueImmediately === "boolean" ? { cueImmediately: body.cueImmediately } : {})
+    });
+
+    return reply.code(201).send(item);
+  });
+
+  app.post<{
+    Body: {
+      title?: unknown;
+      urlOrId?: unknown;
+      startSeconds?: unknown;
+      endSeconds?: unknown;
+      autoplay?: unknown;
+      loop?: unknown;
+      targetPipelineId?: unknown;
+      cueImmediately?: unknown;
+    };
+  }>("/api/v1/pipgm/items/youtube", async (request, reply) => {
+    const body = request.body ?? {};
+    const urlOrId = typeof body.urlOrId === "string" ? body.urlOrId.trim() : "";
+    if (!urlOrId) {
+      return reply.code(422).send({
+        error: { code: "YOUTUBE_URL_REQUIRED", message: "urlOrId is required" }
+      });
+    }
+
+    if (
+      body.targetPipelineId !== undefined &&
+      (typeof body.targetPipelineId !== "string" || !pipgmService.isValidPipelineId(body.targetPipelineId))
+    ) {
+      return reply.code(422).send({
+        error: { code: "INVALID_PIPELINE_ID", message: "targetPipelineId must be PiPGM1, PiPGM2, or PiPGM3" }
+      });
+    }
+
+    const item = pipgmService.createYouTubeItem({
+      urlOrId,
+      ...(typeof body.title === "string" ? { title: body.title } : {}),
+      ...(typeof body.startSeconds === "number" ? { startSeconds: body.startSeconds } : {}),
+      ...(typeof body.endSeconds === "number" ? { endSeconds: body.endSeconds } : {}),
+      ...(typeof body.autoplay === "boolean" ? { autoplay: body.autoplay } : {}),
+      ...(typeof body.loop === "boolean" ? { loop: body.loop } : {}),
+      ...(typeof body.targetPipelineId === "string"
+        ? { targetPipelineId: body.targetPipelineId as PiPgmPipelineId }
+        : {}),
+      ...(typeof body.cueImmediately === "boolean" ? { cueImmediately: body.cueImmediately } : {})
+    });
+
+    if (!item) {
+      return reply.code(422).send({
+        error: { code: "INVALID_YOUTUBE_URL", message: "Could not extract a valid 11-character YouTube video ID" }
+      });
+    }
+
+    return reply.code(201).send(item);
+  });
+
+  app.post<{
+    Body: {
+      kind?: unknown;
+      title?: unknown;
+      filename?: unknown;
+      mimeType?: unknown;
+      dataBase64?: unknown;
+      fit?: unknown;
+      caption?: unknown;
+      durationMs?: unknown;
+      autoplay?: unknown;
+      loop?: unknown;
+      targetPipelineId?: unknown;
+      cueImmediately?: unknown;
+    };
+  }>("/api/v1/pipgm/items/media", async (request, reply) => {
+    const body = request.body ?? {};
+    const kind = body.kind;
+    if (kind !== "video" && kind !== "image") {
+      return reply.code(422).send({
+        error: { code: "INVALID_MEDIA_KIND", message: "kind must be 'video' or 'image'" }
+      });
+    }
+
+    const filename = typeof body.filename === "string" ? body.filename.trim() : "";
+    if (!filename) {
+      return reply.code(422).send({
+        error: { code: "FILENAME_REQUIRED", message: "filename is required" }
+      });
+    }
+
+    if (
+      body.targetPipelineId !== undefined &&
+      (typeof body.targetPipelineId !== "string" || !pipgmService.isValidPipelineId(body.targetPipelineId))
+    ) {
+      return reply.code(422).send({
+        error: { code: "INVALID_PIPELINE_ID", message: "targetPipelineId must be PiPGM1, PiPGM2, or PiPGM3" }
+      });
+    }
+
+    const item = pipgmService.createUploadedMediaItem({
+      kind,
+      filename,
+      ...(typeof body.title === "string" ? { title: body.title } : {}),
+      ...(typeof body.mimeType === "string" ? { mimeType: body.mimeType } : {}),
+      ...(typeof body.dataBase64 === "string" ? { dataBase64: body.dataBase64 } : {}),
+      ...(body.fit === "contain" || body.fit === "cover" ? { fit: body.fit } : {}),
+      ...(typeof body.caption === "string" ? { caption: body.caption } : {}),
+      ...(typeof body.durationMs === "number" ? { durationMs: body.durationMs } : {}),
+      ...(typeof body.autoplay === "boolean" ? { autoplay: body.autoplay } : {}),
+      ...(typeof body.loop === "boolean" ? { loop: body.loop } : {}),
+      ...(typeof body.targetPipelineId === "string"
+        ? { targetPipelineId: body.targetPipelineId as PiPgmPipelineId }
+        : {}),
+      ...(typeof body.cueImmediately === "boolean" ? { cueImmediately: body.cueImmediately } : {})
+    });
+
+    return reply.code(201).send(item);
+  });
+
+  app.post<{
+    Body: {
+      title?: unknown;
+      filename?: unknown;
+      dataBase64?: unknown;
+      animateBulletsByDefault?: unknown;
+      slides?: unknown;
+      targetPipelineId?: unknown;
+      cueImmediately?: unknown;
+    };
+  }>("/api/v1/pipgm/items/pptx", async (request, reply) => {
+    const body = request.body ?? {};
+    const filename = typeof body.filename === "string" ? body.filename.trim() : "";
+    if (!filename) {
+      return reply.code(422).send({
+        error: { code: "FILENAME_REQUIRED", message: "filename is required for .pptx upload" }
+      });
+    }
+
+    if (
+      body.targetPipelineId !== undefined &&
+      (typeof body.targetPipelineId !== "string" || !pipgmService.isValidPipelineId(body.targetPipelineId))
+    ) {
+      return reply.code(422).send({
+        error: { code: "INVALID_PIPELINE_ID", message: "targetPipelineId must be PiPGM1, PiPGM2, or PiPGM3" }
+      });
+    }
+
+    const slidesInput = Array.isArray(body.slides)
+      ? (body.slides as Array<{
+          slideNumber?: number;
+          title: string;
+          bullets?: string[];
+          notes?: string;
+          builds?: Array<{ effect?: PptxAnimationEffect; targetText?: string; durationMs?: number }>;
+        }>)
+      : undefined;
+
+    const item = pipgmService.createPptxItem({
+      filename,
+      ...(typeof body.title === "string" ? { title: body.title } : {}),
+      ...(typeof body.dataBase64 === "string" ? { dataBase64: body.dataBase64 } : {}),
+      ...(typeof body.animateBulletsByDefault === "boolean"
+        ? { animateBulletsByDefault: body.animateBulletsByDefault }
+        : {}),
+      ...(slidesInput ? { slides: slidesInput } : {}),
+      ...(typeof body.targetPipelineId === "string"
+        ? { targetPipelineId: body.targetPipelineId as PiPgmPipelineId }
+        : {}),
+      ...(typeof body.cueImmediately === "boolean" ? { cueImmediately: body.cueImmediately } : {})
+    });
+
+    return reply.code(201).send(item);
+  });
+
+  app.post<{
+    Body: {
+      designId?: unknown;
+      title?: unknown;
+      embedUrl?: unknown;
+      viewUrl?: unknown;
+      editUrl?: unknown;
+      pageCount?: unknown;
+      pages?: unknown;
+      exportUrls?: unknown;
+      exportFormat?: unknown;
+      mode?: unknown;
+      autoExport?: unknown;
+      targetPipelineId?: unknown;
+      cueImmediately?: unknown;
+      orientation?: unknown;
+    };
+  }>("/api/v1/pipgm/items/canva", async (request, reply) => {
+    const body = request.body ?? {};
+    if (
+      body.targetPipelineId !== undefined &&
+      (typeof body.targetPipelineId !== "string" || !pipgmService.isValidPipelineId(body.targetPipelineId))
+    ) {
+      return reply.code(422).send({
+        error: { code: "INVALID_PIPELINE_ID", message: "targetPipelineId must be PiPGM1, PiPGM2, or PiPGM3" }
+      });
+    }
+
+    const item = await pipgmService.createOrPushCanvaItem(
+      {
+        ...(typeof body.designId === "string" ? { designId: body.designId } : {}),
+        ...(typeof body.title === "string" ? { title: body.title } : {}),
+        ...(typeof body.embedUrl === "string" ? { embedUrl: body.embedUrl } : {}),
+        ...(typeof body.viewUrl === "string" ? { viewUrl: body.viewUrl } : {}),
+        ...(typeof body.editUrl === "string" ? { editUrl: body.editUrl } : {}),
+        ...(typeof body.pageCount === "number" ? { pageCount: body.pageCount } : {}),
+        ...(Array.isArray(body.pages) ? { pages: body.pages as never } : {}),
+        ...(Array.isArray(body.exportUrls) ? { exportUrls: body.exportUrls as string[] } : {}),
+        ...(body.exportFormat === "mp4" || body.exportFormat === "png"
+          ? { exportFormat: body.exportFormat }
+          : {}),
+        ...(body.mode === "embed" || body.mode === "exported_mp4" || body.mode === "exported_slides"
+          ? { mode: body.mode }
+          : {}),
+        ...(typeof body.autoExport === "boolean" ? { autoExport: body.autoExport } : {}),
+        ...(typeof body.targetPipelineId === "string"
+          ? { targetPipelineId: body.targetPipelineId as PiPgmPipelineId }
+          : {}),
+        ...(typeof body.cueImmediately === "boolean" ? { cueImmediately: body.cueImmediately } : {}),
+        ...(body.orientation === "landscape" || body.orientation === "portrait"
+          ? { orientation: body.orientation }
+          : {})
+      },
+      false
+    );
+
+    if (!item) {
+      return reply.code(422).send({
+        error: { code: "INVALID_CANVA_DESIGN", message: "Valid Canva designId or embedUrl/viewUrl is required" }
+      });
+    }
+
+    return reply.code(201).send(item);
+  });
+
+  // CORS preflight for the Canva App plugin running inside Canva's editor iframe
+  app.options("/api/v1/pipgm/canva/push", async (_request, reply) => {
+    return reply
+      .header("Access-Control-Allow-Origin", "*")
+      .header("Access-Control-Allow-Methods", "POST, OPTIONS")
+      .header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+      .code(204)
+      .send();
+  });
+
+  app.post<{
+    Body: {
+      designId?: unknown;
+      title?: unknown;
+      embedUrl?: unknown;
+      viewUrl?: unknown;
+      editUrl?: unknown;
+      pageCount?: unknown;
+      pages?: unknown;
+      exportUrls?: unknown;
+      exportFormat?: unknown;
+      mode?: unknown;
+      autoExport?: unknown;
+      targetPipelineId?: unknown;
+      cueImmediately?: unknown;
+      orientation?: unknown;
+    };
+  }>("/api/v1/pipgm/canva/push", async (request, reply) => {
+    reply.header("Access-Control-Allow-Origin", "*");
+    const body = request.body ?? {};
+
+    if (
+      body.targetPipelineId !== undefined &&
+      (typeof body.targetPipelineId !== "string" || !pipgmService.isValidPipelineId(body.targetPipelineId))
+    ) {
+      return reply.code(422).send({
+        error: { code: "INVALID_PIPELINE_ID", message: "targetPipelineId must be PiPGM1, PiPGM2, or PiPGM3" }
+      });
+    }
+
+    const item = await pipgmService.createOrPushCanvaItem(
+      {
+        ...(typeof body.designId === "string" ? { designId: body.designId } : {}),
+        ...(typeof body.title === "string" ? { title: body.title } : {}),
+        ...(typeof body.embedUrl === "string" ? { embedUrl: body.embedUrl } : {}),
+        ...(typeof body.viewUrl === "string" ? { viewUrl: body.viewUrl } : {}),
+        ...(typeof body.editUrl === "string" ? { editUrl: body.editUrl } : {}),
+        ...(typeof body.pageCount === "number" ? { pageCount: body.pageCount } : {}),
+        ...(Array.isArray(body.pages) ? { pages: body.pages as never } : {}),
+        ...(Array.isArray(body.exportUrls) ? { exportUrls: body.exportUrls as string[] } : {}),
+        ...(body.exportFormat === "mp4" || body.exportFormat === "png"
+          ? { exportFormat: body.exportFormat }
+          : {}),
+        ...(body.mode === "embed" || body.mode === "exported_mp4" || body.mode === "exported_slides"
+          ? { mode: body.mode }
+          : {}),
+        ...(typeof body.autoExport === "boolean" ? { autoExport: body.autoExport } : {}),
+        ...(typeof body.targetPipelineId === "string"
+          ? { targetPipelineId: body.targetPipelineId as PiPgmPipelineId }
+          : {}),
+        ...(typeof body.cueImmediately === "boolean" ? { cueImmediately: body.cueImmediately } : {}),
+        ...(body.orientation === "landscape" || body.orientation === "portrait"
+          ? { orientation: body.orientation }
+          : {})
+      },
+      true
+    );
+
+    if (!item) {
+      return reply.code(422).send({
+        error: { code: "INVALID_CANVA_DESIGN", message: "Valid Canva designId or embedUrl/viewUrl is required" }
+      });
+    }
+
+    const targetPipeline =
+      typeof body.targetPipelineId === "string"
+        ? pipgmService.getPipeline(body.targetPipelineId) ?? null
+        : null;
+
+    return reply.code(201).send({
+      accepted: true,
+      item,
+      pipeline: targetPipeline
+    });
+  });
+
+  app.post<{
+    Params: { itemId: string };
+    Body: { format?: unknown; orientation?: unknown; switchToExportedMode?: unknown };
+  }>("/api/v1/pipgm/items/:itemId/canva/export", async (request, reply) => {
+    const body = request.body ?? {};
+    const format = body.format === undefined ? "mp4" : body.format;
+    if (format !== "mp4" && format !== "png") {
+      return reply.code(422).send({
+        error: { code: "INVALID_EXPORT_FORMAT", message: "format must be 'mp4' or 'png'" }
+      });
+    }
+
+    const orientation =
+      body.orientation === "portrait" || body.orientation === "landscape"
+        ? body.orientation
+        : "landscape";
+
+    const updated = await pipgmService.exportCanvaItem(request.params.itemId, {
+      format,
+      orientation,
+      ...(typeof body.switchToExportedMode === "boolean"
+        ? { switchToExportedMode: body.switchToExportedMode }
+        : {})
+    });
+
+    if (!updated) {
+      return reply.code(404).send({
+        error: { code: "CANVA_ITEM_NOT_FOUND", message: `Canva item not found: ${request.params.itemId}` }
+      });
+    }
+
+    return reply.code(200).send(updated);
+  });
+
+  app.get<{ Params: { assetId: string } }>("/api/v1/pipgm/assets/:assetId", async (request, reply) => {
+    const asset = pipgmService.getAsset(request.params.assetId);
+    if (!asset) {
+      return reply.code(404).send({
+        error: { code: "ASSET_NOT_FOUND", message: `Unknown asset ID: ${request.params.assetId}` }
+      });
+    }
+    return reply
+      .header("Content-Type", asset.mimeType)
+      .header("Content-Disposition", `inline; filename="${asset.filename.replace(/"/g, "")}"`)
+      .send(asset.data ?? Buffer.alloc(0));
+  });
 
   // Cameras
   app.get("/api/v1/cameras", async () => ({ items: cameraService.list() }));

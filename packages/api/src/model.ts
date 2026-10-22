@@ -1,12 +1,15 @@
+import type { PiPgmMobileSignCode, PiPgmOrientation } from "./pipgm/pipgm-model.js";
+
 export const sourceDefinitions = [
-  { id: "hama", label: "Hama capture", kind: "capture" },
-  { id: "rtmp1", label: "RTMP 1", kind: "rtmp" },
-  { id: "rtmp2", label: "RTMP 2", kind: "rtmp" },
-  { id: "cam1", label: "Camera 1", kind: "camera" },
-  { id: "cam2", label: "Camera 2", kind: "camera" },
-  { id: "cam3", label: "Camera 3", kind: "camera" },
-  { id: "PiPGM1", label: "Pi Programme 1", kind: "renderer" },
-  { id: "PiPGM2", label: "Pi Programme 2", kind: "renderer" }
+  { id: "hama", label: "Hama capture", kind: "capture", defaultHidden: false },
+  { id: "rtmp1", label: "RTMP 1", kind: "rtmp", defaultHidden: false },
+  { id: "rtmp2", label: "RTMP 2", kind: "rtmp", defaultHidden: false },
+  { id: "cam1", label: "Camera 1", kind: "camera", defaultHidden: false },
+  { id: "cam2", label: "Camera 2", kind: "camera", defaultHidden: false },
+  { id: "cam3", label: "Camera 3", kind: "camera", defaultHidden: false },
+  { id: "PiPGM1", label: "Pi Programme 1", kind: "renderer", defaultHidden: false },
+  { id: "PiPGM2", label: "Pi Programme 2", kind: "renderer", defaultHidden: false },
+  { id: "PiPGM3", label: "Pi Programme 3", kind: "renderer", defaultHidden: true }
 ] as const;
 
 export const outputDefinitions = [
@@ -26,11 +29,33 @@ export const multiviewSourceOrder: SourceId[] = [
   "PiPGM2"
 ];
 
+/**
+ * Priority order of slots that PiPGM3 can automatically replace when active/unhidden
+ * and the candidate slot is not currently live (cam3 is first since it is usually not sent via RTMP).
+ */
+export const multiviewReplaceablePriority: SourceId[] = [
+  "cam3",
+  "rtmp2",
+  "rtmp1",
+  "hama",
+  "cam2",
+  "cam1"
+];
+
 export type MultiviewLayoutMode = "auto" | "landscape" | "portrait";
+
+export interface MultiviewTilePiPgmStatus {
+  orientation: PiPgmOrientation;
+  fadeToBlack: boolean;
+  audioEnabled: boolean;
+  signCode: PiPgmMobileSignCode;
+  cuedSummary: string | null;
+}
 
 export interface MultiviewTile {
   index: number;
   sourceId: SourceId;
+  replacedSourceId?: SourceId | null;
   label: string;
   kind: string;
   state: SourceState;
@@ -38,6 +63,7 @@ export interface MultiviewTile {
     available: boolean;
     url: string | null;
   };
+  pipgm?: MultiviewTilePiPgmStatus;
 }
 
 export interface MultiviewSnapshot {
@@ -49,20 +75,74 @@ export interface MultiviewSnapshot {
   tiles: MultiviewTile[];
 }
 
+export interface MultiviewOptions {
+  slotOverrides?: ReadonlyMap<number, SourceId>;
+  pipgm3AutoReplace?: boolean;
+  pipgmStatusById?: ReadonlyMap<string, MultiviewTilePiPgmStatus>;
+}
+
 export function getMultiview(
-  sources: Array<{ id: SourceId; label: string; kind: string; state: SourceState; preview: { available: boolean; url: string | null } }>,
-  layout: MultiviewLayoutMode = "auto"
+  sources: Array<{
+    id: SourceId;
+    label: string;
+    kind: string;
+    state: SourceState;
+    preview: { available: boolean; url: string | null };
+  }>,
+  layout: MultiviewLayoutMode = "auto",
+  options: MultiviewOptions = {}
 ): MultiviewSnapshot {
   const sourceMap = new Map(sources.map((s) => [s.id, s]));
-  const tiles: MultiviewTile[] = multiviewSourceOrder.map((id, index) => {
-    const s = sourceMap.get(id);
+  const effectiveOrder: Array<{ sourceId: SourceId; replacedSourceId: SourceId | null }> =
+    multiviewSourceOrder.map((id, idx) => {
+      const override = options.slotOverrides?.get(idx);
+      if (override && override !== id) {
+        return { sourceId: override, replacedSourceId: id };
+      }
+      return { sourceId: id, replacedSourceId: null };
+    });
+
+  // If PiPGM3 is live or flagged for auto-replacement and not already in the 8 slots,
+  // replace the first non-live candidate in priority order (starting with cam3).
+  const pipgm3Source = sourceMap.get("PiPGM3");
+  const shouldAutoIncludePiPgm3 =
+    options.pipgm3AutoReplace === true || pipgm3Source?.state === "live";
+
+  if (
+    shouldAutoIncludePiPgm3 &&
+    !effectiveOrder.some((slot) => slot.sourceId === "PiPGM3")
+  ) {
+    for (const candidateId of multiviewReplaceablePriority) {
+      const slotIdx = effectiveOrder.findIndex(
+        (slot) => slot.sourceId === candidateId && slot.replacedSourceId === null
+      );
+      if (slotIdx >= 0) {
+        const candidateSource = sourceMap.get(candidateId);
+        if (!candidateSource || candidateSource.state !== "live") {
+          effectiveOrder[slotIdx] = {
+            sourceId: "PiPGM3",
+            replacedSourceId: candidateId
+          };
+          break;
+        }
+      }
+    }
+  }
+
+  const tiles: MultiviewTile[] = effectiveOrder.map((slot, index) => {
+    const s = sourceMap.get(slot.sourceId);
+    const defaultDef = sourceDefinitions.find((d) => d.id === slot.sourceId);
+    const pipgmMeta = options.pipgmStatusById?.get(slot.sourceId);
+
     return {
       index,
-      sourceId: id,
-      label: s?.label ?? id,
-      kind: s?.kind ?? "unknown",
+      sourceId: slot.sourceId,
+      ...(slot.replacedSourceId ? { replacedSourceId: slot.replacedSourceId } : {}),
+      label: s?.label ?? defaultDef?.label ?? slot.sourceId,
+      kind: s?.kind ?? defaultDef?.kind ?? "unknown",
       state: s?.state ?? "unavailable",
-      preview: s?.preview ?? { available: false, url: null }
+      preview: s?.preview ?? { available: false, url: null },
+      ...(pipgmMeta ? { pipgm: pipgmMeta } : {})
     };
   });
 
@@ -88,18 +168,33 @@ export interface OutputSnapshot {
   state: "unavailable" | "starting" | "active" | "failed";
 }
 
-export function getSources(readyMediaPaths: ReadonlySet<string> = new Set(), previewBaseUrl?: string) {
-  return sourceDefinitions.map((source) => {
-    const live = readyMediaPaths.has(source.id);
-    return {
-      ...source,
-      state: (live ? "live" : "unavailable") as SourceState,
-      preview: {
-        available: live && Boolean(previewBaseUrl),
-        url: live && previewBaseUrl ? `${previewBaseUrl}/${encodeURIComponent(source.id)}` : null
-      }
-    };
-  });
+export function getSources(
+  readyMediaPaths: ReadonlySet<string> = new Set(),
+  previewBaseUrl?: string,
+  options: { includeHidden?: boolean; unhiddenIds?: ReadonlySet<string> } = {}
+) {
+  return sourceDefinitions
+    .filter((source) => {
+      if (!source.defaultHidden) return true;
+      if (options.includeHidden) return true;
+      if (options.unhiddenIds?.has(source.id)) return true;
+      if (readyMediaPaths.has(source.id)) return true;
+      return false;
+    })
+    .map((source) => {
+      const live = readyMediaPaths.has(source.id);
+      return {
+        id: source.id,
+        label: source.label,
+        kind: source.kind,
+        hidden: source.defaultHidden && !options.unhiddenIds?.has(source.id),
+        state: (live ? "live" : "unavailable") as SourceState,
+        preview: {
+          available: live && Boolean(previewBaseUrl),
+          url: live && previewBaseUrl ? `${previewBaseUrl}/${encodeURIComponent(source.id)}` : null
+        }
+      };
+    });
 }
 
 export function createOutputStore() {

@@ -4,6 +4,7 @@ import {
   CamerasService,
   configureApiClient,
   OutputsService,
+  PiPgmService,
   SourcesService,
   SystemService
 } from "@pimatrix/api-client";
@@ -14,13 +15,17 @@ import type {
   CameraZoomRequest,
   MultiviewLayoutMode,
   OutputId,
+  PiPgmControlRequest,
+  PiPgmOrientation,
+  PiPgmPipelineId,
   SourceId
 } from "@pimatrix/api-client";
 import { parseArgs, type CliOptions } from "./options.js";
 
 const outputIds = ["hdmi0", "hdmi1", "multiview"] as const;
-const sourceIds = ["hama", "rtmp1", "rtmp2", "cam1", "cam2", "cam3", "PiPGM1", "PiPGM2"] as const;
+const sourceIds = ["hama", "rtmp1", "rtmp2", "cam1", "cam2", "cam3", "PiPGM1", "PiPGM2", "PiPGM3"] as const;
 const cameraIds = ["cam1", "cam2", "cam3"] as const;
+const pipgmIds = ["PiPGM1", "PiPGM2", "PiPGM3"] as const;
 
 function printTable(headers: string[], rows: string[][]): void {
   const widths = headers.map((header, index) =>
@@ -48,6 +53,7 @@ async function run(options: CliOptions): Promise<void> {
       "  outputs set <outputId> <sourceId|none>\n" +
       "  multiview show\n" +
       "  multiview layout <auto|landscape|portrait>\n" +
+      "  multiview slot <replaceSourceId> <sourceId|none>\n" +
       "  matrix route <input> <output>\n" +
       "  cameras list\n" +
       "  cameras show <cameraId>\n" +
@@ -57,7 +63,15 @@ async function run(options: CliOptions): Promise<void> {
       "  cameras preset save <cameraId> <presetId> [--name <label>]\n" +
       "  cameras smartframe <cameraId> <enable|disable|trigger>\n" +
       "  cameras stream start <cameraId>\n" +
-      "  cameras stream stop <cameraId>"
+      "  cameras stream stop <cameraId>\n" +
+      "  pipgm list\n" +
+      "  pipgm show <PiPGM1|PiPGM2|PiPGM3>\n" +
+      "  pipgm orientation <pipelineId> <landscape|portrait>\n" +
+      "  pipgm next <pipelineId>\n" +
+      "  pipgm prev <pipelineId>\n" +
+      "  pipgm ftb <pipelineId> <on|off|toggle>\n" +
+      "  pipgm audio <pipelineId> <on|off|toggle>\n" +
+      "  pipgm link <pipelineId> <on|off>"
     );
     return;
   }
@@ -132,10 +146,11 @@ async function run(options: CliOptions): Promise<void> {
       console.log(`Multiview: ${data.label} (Layout: ${data.layout})`);
       console.log(`Grid: Landscape ${data.landscape.columns}x${data.landscape.rows}, Portrait ${data.portrait.columns}x${data.portrait.rows}`);
       printTable(
-        ["#", "SOURCE", "LABEL", "KIND", "STATE", "PREVIEW"],
+        ["#", "SOURCE", "REPLACES", "LABEL", "KIND", "STATE", "PREVIEW"],
         data.tiles.map((t) => [
           String(t.index + 1),
           t.sourceId,
+          t.replacedSourceId ?? "-",
           t.label,
           t.kind,
           t.state,
@@ -156,6 +171,18 @@ async function run(options: CliOptions): Promise<void> {
     });
     if (options.json) console.log(JSON.stringify(data, null, 2));
     else console.log(`Multiview layout updated to: ${data.layout}`);
+    return;
+  }
+
+  if (group === "multiview" && action === "slot" && options.command.length === 4) {
+    if (!sourceIds.includes(arg1 as SourceId)) throw new Error(`Unknown slot source ID: ${arg1}`);
+    if (arg2 !== "none" && !sourceIds.includes(arg2 as SourceId)) throw new Error(`Unknown replacement source ID: ${arg2}`);
+    const data = await OutputsService.setMultiviewSlot({
+      replaceSourceId: arg1 as SourceId,
+      sourceId: arg2 === "none" ? null : (arg2 as SourceId)
+    });
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Multiview slot ${arg1} set to: ${arg2}`);
     return;
   }
 
@@ -295,17 +322,111 @@ async function run(options: CliOptions): Promise<void> {
     return;
   }
 
+  // PiPGM commands
+  if (group === "pipgm" && action === "list" && options.command.length === 2) {
+    const data = await PiPgmService.listPiPgmPipelines(true);
+    if (options.json) console.log(JSON.stringify(data.items, null, 2));
+    else {
+      printTable(
+        ["ID", "ORIENTATION", "HIDDEN", "STATE", "FTB", "AUDIO", "LINKED", "STEP", "MOBILE SIGN"],
+        data.items.map((p) => [
+          p.id,
+          `${p.orientation} (${p.resolution.width}x${p.resolution.height})`,
+          p.hidden ? "yes" : "no",
+          p.state,
+          p.fadeToBlack ? "BLACKOUT" : "live",
+          p.audioEnabled ? `ON (${p.volume}%)` : "MUTED",
+          p.linked ? "linked" : "-",
+          p.totalSteps > 0 ? `${p.currentStep + 1}/${p.totalSteps}` : "-",
+          p.mobileAlert.signCode
+        ])
+      );
+    }
+    return;
+  }
+
+  if (group === "pipgm" && action === "show" && options.command.length === 3) {
+    if (!pipgmIds.includes(arg1 as PiPgmPipelineId)) throw new Error(`Unknown PiPGM pipeline: ${arg1}`);
+    const p = await PiPgmService.getPiPgmPipeline(arg1 as PiPgmPipelineId);
+    if (options.json) console.log(JSON.stringify(p, null, 2));
+    else {
+      console.log(`Pipeline:    ${p.id} (${p.label})`);
+      console.log(`Hidden:      ${p.hidden ? "yes" : "no"}`);
+      console.log(`Orientation: ${p.orientation} (${p.resolution.width}x${p.resolution.height})`);
+      console.log(`State:       ${p.state}`);
+      console.log(`FTB:         ${p.fadeToBlack ? "ACTIVE (FADED TO BLACK)" : "off"}`);
+      console.log(`Audio:       ${p.audioEnabled ? `ENABLED (${p.volume}%)` : "MUTED (default)"}`);
+      console.log(`Linked:      ${p.linked ? "yes" : "no"}`);
+      console.log(`Mobile Sign: ${p.mobileAlert.signCode}${p.mobileAlert.bannerText ? ` — ${p.mobileAlert.bannerText}` : ""}`);
+      console.log(`Step:        ${p.totalSteps > 0 ? `${p.currentStep + 1}/${p.totalSteps}` : "none"}`);
+      console.log(`Stage URL:   ${p.stageUrl}`);
+    }
+    return;
+  }
+
+  if (group === "pipgm" && action === "orientation" && options.command.length === 4) {
+    if (!pipgmIds.includes(arg1 as PiPgmPipelineId)) throw new Error(`Unknown PiPGM pipeline: ${arg1}`);
+    if (arg2 !== "landscape" && arg2 !== "portrait") throw new Error("Orientation must be 'landscape' or 'portrait'");
+    const p = await PiPgmService.updatePiPgmPipelineConfig(arg1 as PiPgmPipelineId, {
+      orientation: arg2 as unknown as PiPgmOrientation
+    });
+    if (options.json) console.log(JSON.stringify(p, null, 2));
+    else console.log(`${p.id} orientation set to ${p.orientation} (${p.resolution.width}x${p.resolution.height})`);
+    return;
+  }
+
+  if (group === "pipgm" && (action === "next" || action === "prev") && options.command.length === 3) {
+    if (!pipgmIds.includes(arg1 as PiPgmPipelineId)) throw new Error(`Unknown PiPGM pipeline: ${arg1}`);
+    const p = await PiPgmService.controlPiPgmPipeline(arg1 as PiPgmPipelineId, {
+      action: action as unknown as PiPgmControlRequest.action
+    });
+    if (options.json) console.log(JSON.stringify(p, null, 2));
+    else console.log(`${p.id} ${action} -> step ${p.currentStep + 1}/${p.totalSteps}`);
+    return;
+  }
+
+  if (group === "pipgm" && action === "ftb" && options.command.length === 4) {
+    if (!pipgmIds.includes(arg1 as PiPgmPipelineId)) throw new Error(`Unknown PiPGM pipeline: ${arg1}`);
+    if (!["on", "off", "toggle"].includes(arg2 ?? "")) throw new Error("FTB mode must be 'on', 'off', or 'toggle'");
+    const p = await PiPgmService.setPiPgmFadeToBlack(arg1 as PiPgmPipelineId, {
+      toggle: arg2 === "toggle",
+      ...(arg2 !== "toggle" ? { fadeToBlack: arg2 === "on" } : {})
+    });
+    if (options.json) console.log(JSON.stringify(p, null, 2));
+    else console.log(`${p.id} Fade to Black: ${p.fadeToBlack ? "ON (FADED TO BLACK)" : "OFF"}`);
+    return;
+  }
+
+  if (group === "pipgm" && action === "audio" && options.command.length === 4) {
+    if (!pipgmIds.includes(arg1 as PiPgmPipelineId)) throw new Error(`Unknown PiPGM pipeline: ${arg1}`);
+    if (!["on", "off", "toggle"].includes(arg2 ?? "")) throw new Error("Audio mode must be 'on', 'off', or 'toggle'");
+    const p = await PiPgmService.setPiPgmAudio(arg1 as PiPgmPipelineId, {
+      toggle: arg2 === "toggle",
+      ...(arg2 !== "toggle" ? { audioEnabled: arg2 === "on" } : {})
+    });
+    if (options.json) console.log(JSON.stringify(p, null, 2));
+    else console.log(`${p.id} Audio: ${p.audioEnabled ? `ENABLED (${p.volume}%)` : "MUTED"}`);
+    return;
+  }
+
+  if (group === "pipgm" && action === "link" && options.command.length === 4) {
+    if (!pipgmIds.includes(arg1 as PiPgmPipelineId)) throw new Error(`Unknown PiPGM pipeline: ${arg1}`);
+    if (!["on", "off"].includes(arg2 ?? "")) throw new Error("Link mode must be 'on' or 'off'");
+    const p = await PiPgmService.updatePiPgmPipelineConfig(arg1 as PiPgmPipelineId, {
+      linked: arg2 === "on"
+    });
+    if (options.json) console.log(JSON.stringify(p, null, 2));
+    else console.log(`${p.id} Link Sync: ${p.linked ? "ON" : "OFF"}`);
+    return;
+  }
+
   throw new Error(`Unknown command: ${options.command.join(" ")}`);
 }
 
-async function main(): Promise<void> {
-  try {
-    await run(parseArgs(process.argv.slice(2)));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unexpected error";
-    console.error(`pimatrix: ${message}`);
-    process.exitCode = 1;
-  }
+try {
+  await run(parseArgs(process.argv.slice(2)));
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`pimatrix: ${message}`);
+  process.exitCode = 1;
 }
-
-await main();

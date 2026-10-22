@@ -36,6 +36,8 @@ export interface AppConfig {
   cam2Host?: string;
   cam2ViscaPort: number;
   cam2CgiPort: number;
+  canvaApiBaseUrl?: string;
+  canvaAccessToken?: string;
 }
 
 function optionalHttpUrl(value: string | undefined, name: string): string | undefined {
@@ -130,6 +132,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const cam2ViscaPort = validPort(env.PIMATRIX_CAM2_VISCA_PORT, 52381, "PIMATRIX_CAM2_VISCA_PORT");
   const cam2CgiPort = validPort(env.PIMATRIX_CAM2_CGI_PORT, 80, "PIMATRIX_CAM2_CGI_PORT");
 
+  const canvaAccessToken = env.CANVA_ACCESS_TOKEN?.trim() || undefined;
+  const canvaApiBaseUrl =
+    optionalHttpUrl(env.CANVA_API_BASE_URL, "CANVA_API_BASE_URL") ??
+    (canvaAccessToken ? "https://api.canva.com/rest" : undefined);
+
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("PIMATRIX_PORT must be an integer between 1 and 65535");
   }
@@ -173,6 +180,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     cam2CgiPort,
     ...(cam1Host ? { cam1Host } : {}),
     ...(cam2Host ? { cam2Host } : {}),
+    ...(canvaApiBaseUrl ? { canvaApiBaseUrl } : {}),
+    ...(canvaAccessToken ? { canvaAccessToken } : {}),
     ...(hamaInputFormat ? { hamaInputFormat } : {}),
     ...(hamaWidth !== undefined ? { hamaWidth } : {}),
     ...(hamaHeight !== undefined ? { hamaHeight } : {}),

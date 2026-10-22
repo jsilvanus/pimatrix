@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { OutputSnapshot, SourceId, SourceState } from "./model.js";
+import type { PiPgmPipelineSnapshot } from "./pipgm/pipgm-model.js";
 
 export interface SourceEventPayload {
   id: SourceId;
@@ -32,11 +33,17 @@ export interface CameraEventPayload {
   position?: { pan: number; tilt: number; zoom: number };
 }
 
+export interface PiPgmEventPayload {
+  action: string;
+  pipeline: PiPgmPipelineSnapshot;
+}
+
 export type PiMatrixEvent =
   | { type: "source"; data: SourceEventPayload }
   | { type: "output"; data: OutputEventPayload }
   | { type: "stream"; data: StreamEventPayload }
   | { type: "camera"; data: CameraEventPayload }
+  | { type: "pipgm"; data: PiPgmEventPayload }
   | { type: "ready"; data: { status: string; time: string } };
 
 export class PiMatrixEventBroker {

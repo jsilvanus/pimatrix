@@ -7,25 +7,39 @@ export function renderMultiviewHtml(
   const tilesHtml = multiview.tiles
     .map((tile) => {
       const isLive = tile.state === "live";
-      const statusClass = isLive ? "live" : "offline";
+      const isFtb = tile.pipgm?.fadeToBlack === true;
+      const audioOn = tile.pipgm?.audioEnabled === true;
+      const statusClass = isFtb ? "ftb" : isLive ? "live" : "offline";
+      const statusText = isFtb ? "⬛ FTB" : tile.state.toUpperCase();
       const previewUrl = tile.preview.url ?? (previewBaseUrl ? `${previewBaseUrl}/${encodeURIComponent(tile.sourceId)}` : null);
+      const replacedNote = tile.replacedSourceId ? ` <small class="replaced-tag">(replaces ${tile.replacedSourceId})</small>` : "";
+      const pipgmBadges = tile.pipgm
+        ? `<span class="pipgm-meta" id="pipgm-meta-${tile.sourceId}">${audioOn ? "🔊 ON" : "🔇 MUTED"} • ${tile.pipgm.orientation === "portrait" ? "9:16" : "16:9"}</span>`
+        : "";
 
       return `
-    <div class="tile" id="tile-${tile.sourceId}">
+    <div class="tile ${isFtb ? "tile-ftb" : ""}" id="tile-${tile.sourceId}">
       <div class="tile-header">
-        <span class="tile-label">${tile.label} <small>(${tile.sourceId})</small></span>
-        <span class="status-badge ${statusClass}" id="status-${tile.sourceId}">${tile.state.toUpperCase()}</span>
+        <span class="tile-label">${tile.label} <small>(${tile.sourceId})</small>${replacedNote}</span>
+        <div class="tile-badges">
+          ${pipgmBadges}
+          <span class="status-badge ${statusClass}" id="status-${tile.sourceId}">${statusText}</span>
+        </div>
       </div>
       <div class="tile-content">
         ${
           previewUrl && isLive
             ? `<iframe src="${previewUrl}" allow="autoplay; fullscreen" loading="lazy"></iframe>`
             : `<div class="placeholder">
-                <div class="icon">📹</div>
+                <div class="icon">${isFtb ? "⬛" : "📹"}</div>
                 <div class="name">${tile.label}</div>
-                <div class="kind">${tile.kind}</div>
+                <div class="kind">${isFtb ? "FADED TO BLACK" : tile.kind}</div>
               </div>`
         }
+        <div class="ftb-banner" id="ftb-banner-${tile.sourceId}" style="display: ${isFtb ? "flex" : "none"};">
+          <span>⬛ OUTPUT FADED TO BLACK</span>
+          <small id="ftb-summary-${tile.sourceId}">${tile.pipgm?.cuedSummary ?? ""}</small>
+        </div>
       </div>
     </div>`;
     })
@@ -112,18 +126,37 @@ export function renderMultiviewHtml(
       display: flex;
       flex-direction: column;
     }
+    .tile.tile-ftb {
+      border-color: var(--warning);
+    }
     .tile-header {
       position: absolute;
       top: 0;
       left: 0;
       right: 0;
       padding: 3px 6px;
-      background: linear-gradient(180deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 100%);
+      background: linear-gradient(180deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0) 100%);
       display: flex;
       justify-content: space-between;
       align-items: center;
       z-index: 2;
       pointer-events: none;
+    }
+    .tile-badges {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .pipgm-meta {
+      font-size: 8px;
+      background: rgba(15, 23, 42, 0.85);
+      color: #cbd5e1;
+      padding: 1px 4px;
+      border-radius: 2px;
+      border: 1px solid #334155;
+    }
+    .replaced-tag {
+      color: #38bdf8;
     }
     .tile-label {
       font-size: 11px;
@@ -141,6 +174,25 @@ export function renderMultiviewHtml(
     }
     .status-badge.live { background: var(--live); color: #000; }
     .status-badge.offline { background: rgba(239, 68, 68, 0.4); color: #fca5a5; }
+    .status-badge.ftb { background: var(--warning); color: #000; }
+
+    .ftb-banner {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(245, 158, 11, 0.92);
+      color: #000;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 3px 6px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 3;
+    }
+    .ftb-banner small { font-weight: 600; font-size: 9px; opacity: 0.85; }
 
     .tile-content {
       width: 100%;
@@ -208,6 +260,33 @@ export function renderMultiviewHtml(
         if (badge) {
           badge.textContent = data.state.toUpperCase();
           badge.className = "status-badge " + (data.state === "live" ? "live" : "offline");
+        }
+      } catch (err) {}
+    });
+
+    sse.addEventListener("pipgm", (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        const p = data.pipeline;
+        if (!p) return;
+        const tile = document.getElementById("tile-" + p.id);
+        const badge = document.getElementById("status-" + p.id);
+        const meta = document.getElementById("pipgm-meta-" + p.id);
+        const banner = document.getElementById("ftb-banner-" + p.id);
+        const summary = document.getElementById("ftb-summary-" + p.id);
+        if (tile) tile.className = "tile " + (p.fadeToBlack ? "tile-ftb" : "");
+        if (badge) {
+          badge.textContent = p.fadeToBlack ? "⬛ FTB" : p.state.toUpperCase();
+          badge.className = "status-badge " + (p.fadeToBlack ? "ftb" : (p.state === "live" ? "live" : "offline"));
+        }
+        if (meta) {
+          meta.textContent = (p.audioEnabled ? "🔊 ON" : "🔇 MUTED") + " • " + (p.orientation === "portrait" ? "9:16" : "16:9");
+        }
+        if (banner) {
+          banner.style.display = p.fadeToBlack ? "flex" : "none";
+        }
+        if (summary && p.mobileAlert) {
+          summary.textContent = p.mobileAlert.cuedSummary || "";
         }
       } catch (err) {}
     });

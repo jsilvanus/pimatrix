@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: PiMatrix API
-  version: 0.1.0
-  description: PiMatrix control-plane API. Hardware and media integrations are introduced incrementally.
+  version: 0.2.0
+  description: PiMatrix and PiPGM unified control-plane API.
 servers:
   - url: http://127.0.0.1:3000
     description: Local development default
@@ -11,6 +11,7 @@ tags:
   - name: Sources
   - name: Outputs
   - name: Cameras
+  - name: PiPGM
 paths:
   /health:
     get:
@@ -53,6 +54,12 @@ paths:
       operationId: listSources
       tags: [Sources]
       summary: List configured logical sources
+      parameters:
+        - in: query
+          name: includeHidden
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: Source list
@@ -142,7 +149,7 @@ paths:
       operationId: getMultiview
       tags: [Outputs]
       summary: Get 8-way multiview configuration and live tiles
-      description: Returns the 8-way multiview tile layout (cam1, cam2, cam3, hama, rtmp1, rtmp2, pipgm1, pipgm2) with WebRTC preview URLs and automatic 4x2 / 2x4 orientation.
+      description: Returns the 8-way multiview tile layout with WebRTC preview URLs, automatic 4x2 / 2x4 orientation, and PiPGM3 slot replacement.
       responses:
         "200":
           description: Multiview layout and tiles
@@ -179,12 +186,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/v1/outputs/multiview/slot:
+    put:
+      operationId: setMultiviewSlot
+      tags: [Outputs]
+      summary: Replace a tile slot in the 8-way multiview (e.g. replace cam3 with PiPGM3)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MultiviewSlotRequest"
+      responses:
+        "200":
+          description: Updated multiview layout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MultiviewSnapshot"
+        "422":
+          description: Invalid slot or source ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/v1/events:
     get:
       operationId: getEvents
       tags: [System]
       summary: Server-Sent Events stream for runtime state changes
-      description: Emits real-time state changes for sources, outputs, and stream jobs.
+      description: Emits real-time state changes for sources, outputs, cameras, PiPGM pipelines, and stream jobs.
       responses:
         "200":
           description: Continuous Server-Sent Events stream
@@ -489,6 +520,464 @@ paths:
                 $ref: "#/components/schemas/CameraStreamResponse"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  # PiPGM Endpoints
+  /api/v1/pipgm/pipelines:
+    get:
+      operationId: listPiPgmPipelines
+      tags: [PiPGM]
+      summary: List PiPGM renderer pipelines (PiPGM1, PiPGM2, and hidden-by-default PiPGM3)
+      parameters:
+        - in: query
+          name: includeHidden
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of PiPGM pipelines
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PiPgmPipeline"
+  /api/v1/pipgm/pipelines/{pipelineId}:
+    get:
+      operationId: getPiPgmPipeline
+      tags: [PiPGM]
+      summary: Get one PiPGM pipeline state and playlist
+      parameters:
+        - in: path
+          name: pipelineId
+          required: true
+          schema:
+            $ref: "#/components/schemas/PiPgmPipelineId"
+      responses:
+        "200":
+          description: PiPGM pipeline details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PiPgmPipeline"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/pipgm/pipelines/{pipelineId}/config:
+    put:
+      operationId: updatePiPgmPipelineConfig
+      tags: [PiPGM]
+      summary: Configure pipeline orientation (portrait/landscape), visibility (PiPGM3), link sync, or fade duration
+      parameters:
+        - in: path
+          name: pipelineId
+          required: true
+          schema:
+            $ref: "#/components/schemas/PiPgmPipelineId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PiPgmPipelineConfigRequest"
+      responses:
+        "200":
+          description: Updated pipeline state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PiPgmPipeline"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid pipeline configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/pipgm/pipelines/{pipelineId}/control:
+    post:
+      operationId: controlPiPgmPipeline
+      tags: [PiPGM]
+      summary: Execute transport control (next, prev, gotoStep, gotoItem, play, pause, stop, restart)
+      parameters:
+        - in: path
+          name: pipelineId
+          required: true
+          schema:
+            $ref: "#/components/schemas/PiPgmPipelineId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PiPgmControlRequest"
+      responses:
+        "200":
+          description: Updated pipeline state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PiPgmPipeline"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid control command
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/pipgm/pipelines/{pipelineId}/ftb:
+    post:
+      operationId: setPiPgmFadeToBlack
+      tags: [PiPGM]
+      summary: Set or toggle Fade to Black (FTB) on a PiPGM pipeline
+      parameters:
+        - in: path
+          name: pipelineId
+          required: true
+          schema:
+            $ref: "#/components/schemas/PiPgmPipelineId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PiPgmFtbRequest"
+      responses:
+        "200":
+          description: Updated pipeline state including mobile FTB alert sign
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PiPgmPipeline"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid FTB request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/pipgm/pipelines/{pipelineId}/audio:
+    post:
+      operationId: setPiPgmAudio
+      tags: [PiPGM]
+      summary: Enable or disable (mute/unmute) audio and set volume on a PiPGM pipeline
+      parameters:
+        - in: path
+          name: pipelineId
+          required: true
+          schema:
+            $ref: "#/components/schemas/PiPgmPipelineId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PiPgmAudioRequest"
+      responses:
+        "200":
+          description: Updated pipeline state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PiPgmPipeline"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid audio request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/pipgm/pipelines/{pipelineId}/playlist:
+    post:
+      operationId: addPiPgmPlaylistItem
+      tags: [PiPGM]
+      summary: Add a library item to a pipeline's playlist and optionally cue it immediately
+      parameters:
+        - in: path
+          name: pipelineId
+          required: true
+          schema:
+            $ref: "#/components/schemas/PiPgmPipelineId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [itemId]
+              properties:
+                itemId:
+                  type: string
+                cueImmediately:
+                  type: boolean
+      responses:
+        "200":
+          description: Updated pipeline state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PiPgmPipeline"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/pipgm/pipelines/{pipelineId}/playlist/{itemId}:
+    delete:
+      operationId: removePiPgmPlaylistItem
+      tags: [PiPGM]
+      summary: Remove an item from a pipeline's playlist
+      parameters:
+        - in: path
+          name: pipelineId
+          required: true
+          schema:
+            $ref: "#/components/schemas/PiPgmPipelineId"
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Updated pipeline state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PiPgmPipeline"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/pipgm/items:
+    get:
+      operationId: listPiPgmItems
+      tags: [PiPGM]
+      summary: List all presentation and media items in the shared PiPGM library
+      responses:
+        "200":
+          description: Library items
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PiPgmItem"
+  /api/v1/pipgm/items/{itemId}:
+    get:
+      operationId: getPiPgmItem
+      tags: [PiPGM]
+      summary: Get details and steps for a specific PiPGM item
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: PiPGM item details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PiPgmItem"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/pipgm/items/hymn:
+    post:
+      operationId: createPiPgmHymnItem
+      tags: [PiPGM]
+      summary: Create a hymn presentation with stanzas as slides
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePiPgmHymnRequest"
+      responses:
+        "201":
+          description: Created hymn item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PiPgmItem"
+        "422":
+          description: Invalid hymn payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/pipgm/items/youtube:
+    post:
+      operationId: createPiPgmYouTubeItem
+      tags: [PiPGM]
+      summary: Create a YouTube video embedding item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePiPgmYouTubeRequest"
+      responses:
+        "201":
+          description: Created YouTube item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PiPgmItem"
+        "422":
+          description: Invalid YouTube URL or video ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/pipgm/items/media:
+    post:
+      operationId: createPiPgmMediaItem
+      tags: [PiPGM]
+      summary: Upload a video or image file item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePiPgmMediaRequest"
+      responses:
+        "201":
+          description: Created video or image item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PiPgmItem"
+        "422":
+          description: Invalid media payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/pipgm/items/pptx:
+    post:
+      operationId: createPiPgmPptxItem
+      tags: [PiPGM]
+      summary: Direct upload of a PowerPoint (.pptx) presentation with animations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePiPgmPptxRequest"
+      responses:
+        "201":
+          description: Created PowerPoint item with animation build steps
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PiPgmItem"
+        "422":
+          description: Invalid PowerPoint upload payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/pipgm/items/canva:
+    post:
+      operationId: createPiPgmCanvaItem
+      tags: [PiPGM]
+      summary: Create a Canva presentation item (live embed or exported MP4/slides)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePiPgmCanvaRequest"
+      responses:
+        "201":
+          description: Created Canva item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PiPgmItem"
+        "422":
+          description: Invalid Canva design reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/pipgm/canva/push:
+    post:
+      operationId: pushPiPgmCanvaDesign
+      tags: [PiPGM]
+      summary: Receive a one-click design push from the Team Canva App plugin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePiPgmCanvaRequest"
+      responses:
+        "201":
+          description: Canva design accepted and queued in PiPGM
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accepted, item, pipeline]
+                properties:
+                  accepted:
+                    type: boolean
+                  item:
+                    $ref: "#/components/schemas/PiPgmItem"
+                  pipeline:
+                    oneOf:
+                      - $ref: "#/components/schemas/PiPgmPipeline"
+                      - type: "null"
+        "422":
+          description: Invalid Canva push payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/pipgm/items/{itemId}/canva/export:
+    post:
+      operationId: exportPiPgmCanvaItem
+      tags: [PiPGM]
+      summary: Trigger Canva Connect API export to MP4 or PNG slides for offline Pi rendering
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                format:
+                  type: string
+                  enum: [mp4, png]
+                orientation:
+                  $ref: "#/components/schemas/PiPgmOrientation"
+                switchToExportedMode:
+                  type: boolean
+      responses:
+        "200":
+          description: Updated Canva item with export job status and local asset URLs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PiPgmItem"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
   responses:
     NotFound:
@@ -500,10 +989,16 @@ components:
   schemas:
     SourceId:
       type: string
-      enum: [hama, rtmp1, rtmp2, cam1, cam2, cam3, PiPGM1, PiPGM2]
+      enum: [hama, rtmp1, rtmp2, cam1, cam2, cam3, PiPGM1, PiPGM2, PiPGM3]
     OutputId:
       type: string
       enum: [hdmi0, hdmi1, multiview]
+    PiPgmPipelineId:
+      type: string
+      enum: [PiPGM1, PiPGM2, PiPGM3]
+    PiPgmOrientation:
+      type: string
+      enum: [landscape, portrait]
     Health:
       type: object
       required: [status, service]
@@ -581,6 +1076,8 @@ components:
           properties:
             sources: { type: integer }
             outputs: { type: integer }
+            cameras: { type: integer }
+            pipgmPipelines: { type: integer }
     SourcePreview:
       type: object
       required: [available, url]
@@ -774,6 +1271,34 @@ components:
     MultiviewLayoutMode:
       type: string
       enum: [auto, landscape, portrait]
+    MultiviewSlotRequest:
+      type: object
+      required: [sourceId]
+      properties:
+        slotIndex:
+          type: integer
+          minimum: 0
+          maximum: 7
+        replaceSourceId:
+          $ref: "#/components/schemas/SourceId"
+        sourceId:
+          oneOf:
+            - $ref: "#/components/schemas/SourceId"
+            - type: "null"
+    MultiviewTilePiPgmStatus:
+      type: object
+      required: [orientation, fadeToBlack, audioEnabled, signCode, cuedSummary]
+      properties:
+        orientation:
+          $ref: "#/components/schemas/PiPgmOrientation"
+        fadeToBlack:
+          type: boolean
+        audioEnabled:
+          type: boolean
+        signCode:
+          type: string
+        cuedSummary:
+          type: [string, "null"]
     MultiviewTile:
       type: object
       required: [index, sourceId, label, kind, state, preview]
@@ -782,6 +1307,10 @@ components:
           type: integer
         sourceId:
           $ref: "#/components/schemas/SourceId"
+        replacedSourceId:
+          oneOf:
+            - $ref: "#/components/schemas/SourceId"
+            - type: "null"
         label:
           type: string
         kind:
@@ -790,6 +1319,8 @@ components:
           type: string
         preview:
           $ref: "#/components/schemas/SourcePreview"
+        pipgm:
+          $ref: "#/components/schemas/MultiviewTilePiPgmStatus"
     MultiviewSnapshot:
       type: object
       required: [id, label, layout, landscape, portrait, tiles]
@@ -821,3 +1352,364 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/MultiviewTile"
+
+    # PiPGM Schemas
+    PiPgmStepDescriptor:
+      type: object
+      required: [stepIndex, totalSteps, label]
+      properties:
+        stepIndex:
+          type: integer
+        totalSteps:
+          type: integer
+        label:
+          type: string
+        subLabel:
+          type: string
+        slideNumber:
+          type: integer
+        buildIndex:
+          type: integer
+        effect:
+          type: string
+        previewText:
+          type: array
+          items:
+            type: string
+        assetUrl:
+          type: string
+    PiPgmMobileAlert:
+      type: object
+      required: [fadeToBlackActive, audioArmed, signCode, bannerText, ghostPreviewAvailable, cuedSummary]
+      properties:
+        fadeToBlackActive:
+          type: boolean
+        audioArmed:
+          type: boolean
+        signCode:
+          type: string
+          enum: [NORMAL, FADED_TO_BLACK, SOUND_ON_AIR, FTB_AND_SOUND_ON]
+        bannerText:
+          type: [string, "null"]
+        ghostPreviewAvailable:
+          type: boolean
+        cuedSummary:
+          type: [string, "null"]
+    PiPgmItem:
+      type: object
+      required: [id, title, kind, createdAt, steps]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        kind:
+          type: string
+          enum: [pptx, canva, youtube, video, image, hymn]
+        createdAt:
+          type: string
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/PiPgmStepDescriptor"
+        pptx:
+          type: object
+        canva:
+          type: object
+        youtube:
+          type: object
+        video:
+          type: object
+        image:
+          type: object
+        hymn:
+          type: object
+    PiPgmPipeline:
+      type: object
+      required:
+        - id
+        - label
+        - hidden
+        - orientation
+        - resolution
+        - state
+        - fadeToBlack
+        - fadeDurationMs
+        - audioEnabled
+        - volume
+        - linked
+        - activeItemId
+        - activeItemIndex
+        - currentStep
+        - totalSteps
+        - currentStepDetail
+        - nextStepDetail
+        - playbackState
+        - stageUrl
+        - mobileAlert
+        - stream
+        - playlist
+      properties:
+        id:
+          $ref: "#/components/schemas/PiPgmPipelineId"
+        label:
+          type: string
+        hidden:
+          type: boolean
+        orientation:
+          $ref: "#/components/schemas/PiPgmOrientation"
+        resolution:
+          type: object
+          required: [width, height]
+          properties:
+            width: { type: integer }
+            height: { type: integer }
+        state:
+          type: string
+          enum: [idle, live, blackout, starting, degraded, failed]
+        fadeToBlack:
+          type: boolean
+        fadeDurationMs:
+          type: integer
+        audioEnabled:
+          type: boolean
+        volume:
+          type: integer
+        linked:
+          type: boolean
+        activeItemId:
+          type: [string, "null"]
+        activeItemIndex:
+          type: integer
+        currentStep:
+          type: integer
+        totalSteps:
+          type: integer
+        currentStepDetail:
+          oneOf:
+            - $ref: "#/components/schemas/PiPgmStepDescriptor"
+            - type: "null"
+        nextStepDetail:
+          oneOf:
+            - $ref: "#/components/schemas/PiPgmStepDescriptor"
+            - type: "null"
+        playbackState:
+          type: string
+          enum: [playing, paused, stopped]
+        stageUrl:
+          type: string
+        mobileAlert:
+          $ref: "#/components/schemas/PiPgmMobileAlert"
+        stream:
+          type: object
+        playlist:
+          type: array
+          items:
+            $ref: "#/components/schemas/PiPgmItem"
+    PiPgmPipelineConfigRequest:
+      type: object
+      properties:
+        orientation:
+          $ref: "#/components/schemas/PiPgmOrientation"
+        hidden:
+          type: boolean
+        linked:
+          type: boolean
+        fadeDurationMs:
+          type: integer
+    PiPgmControlRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [next, prev, gotoStep, gotoItem, play, pause, stop, restart]
+        stepIndex:
+          type: integer
+        itemId:
+          type: string
+        itemIndex:
+          type: integer
+        advanceItemOnEnd:
+          type: boolean
+        sync:
+          type: boolean
+    PiPgmFtbRequest:
+      type: object
+      properties:
+        fadeToBlack:
+          type: boolean
+        toggle:
+          type: boolean
+        durationMs:
+          type: integer
+        sync:
+          type: boolean
+    PiPgmAudioRequest:
+      type: object
+      properties:
+        audioEnabled:
+          type: boolean
+        toggle:
+          type: boolean
+        volume:
+          type: integer
+        sync:
+          type: boolean
+    CreatePiPgmHymnRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        hymnNumber:
+          type: string
+        includeTitleSlide:
+          type: boolean
+        rawText:
+          type: string
+        stanzas:
+          type: array
+          items:
+            type: object
+            required: [lines]
+            properties:
+              stanzaNumber:
+                type: string
+              lines:
+                type: array
+                items:
+                  type: string
+              refrain:
+                type: boolean
+        targetPipelineId:
+          $ref: "#/components/schemas/PiPgmPipelineId"
+        cueImmediately:
+          type: boolean
+    CreatePiPgmYouTubeRequest:
+      type: object
+      required: [urlOrId]
+      properties:
+        title:
+          type: string
+        urlOrId:
+          type: string
+        startSeconds:
+          type: integer
+        endSeconds:
+          type: integer
+        autoplay:
+          type: boolean
+        loop:
+          type: boolean
+        targetPipelineId:
+          $ref: "#/components/schemas/PiPgmPipelineId"
+        cueImmediately:
+          type: boolean
+    CreatePiPgmMediaRequest:
+      type: object
+      required: [kind, filename]
+      properties:
+        kind:
+          type: string
+          enum: [video, image]
+        title:
+          type: string
+        filename:
+          type: string
+        mimeType:
+          type: string
+        dataBase64:
+          type: string
+        fit:
+          type: string
+          enum: [contain, cover]
+        caption:
+          type: string
+        durationMs:
+          type: integer
+        autoplay:
+          type: boolean
+        loop:
+          type: boolean
+        targetPipelineId:
+          $ref: "#/components/schemas/PiPgmPipelineId"
+        cueImmediately:
+          type: boolean
+    CreatePiPgmPptxRequest:
+      type: object
+      required: [filename]
+      properties:
+        title:
+          type: string
+        filename:
+          type: string
+        dataBase64:
+          type: string
+        animateBulletsByDefault:
+          type: boolean
+        slides:
+          type: array
+          items:
+            type: object
+            required: [title]
+            properties:
+              slideNumber:
+                type: integer
+              title:
+                type: string
+              bullets:
+                type: array
+                items:
+                  type: string
+              notes:
+                type: string
+              builds:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    effect:
+                      type: string
+                      enum: [initial, appear, fade, wipe, fly, zoom, morph]
+                    targetText:
+                      type: string
+                    durationMs:
+                      type: integer
+        targetPipelineId:
+          $ref: "#/components/schemas/PiPgmPipelineId"
+        cueImmediately:
+          type: boolean
+    CreatePiPgmCanvaRequest:
+      type: object
+      properties:
+        designId:
+          type: string
+        title:
+          type: string
+        embedUrl:
+          type: string
+        viewUrl:
+          type: string
+        editUrl:
+          type: string
+        pageCount:
+          type: integer
+        exportUrls:
+          type: array
+          items:
+            type: string
+        exportFormat:
+          type: string
+          enum: [mp4, png]
+        mode:
+          type: string
+          enum: [embed, exported_mp4, exported_slides]
+        autoExport:
+          type: boolean
+        targetPipelineId:
+          $ref: "#/components/schemas/PiPgmPipelineId"
+        cueImmediately:
+          type: boolean
+        orientation:
+          $ref: "#/components/schemas/PiPgmOrientation"

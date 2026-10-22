@@ -9,19 +9,21 @@ import {
   type OutputStore,
   type SourceId
 } from "../model.js";
+import type { PiPgmService } from "../pipgm/pipgm-service.js";
 
 export interface AmxListenerOptions {
   host: string;
   port: number;
   outputStore: OutputStore;
   displayAdapter: DisplayAdapter;
+  pipgmService?: PiPgmService | undefined;
   eventBroker?: PiMatrixEventBroker | undefined;
   listSources: () => Promise<Array<{ id: SourceId; state: string; preview: { available: boolean } }>>;
   mode: string;
   logger?: FastifyBaseLogger | undefined;
 }
 
-const KNOWN_COMMANDS = new Set(["DEV", "PING", "STATUS", "SOURCE", "OUTPUT", "HELP"]);
+const KNOWN_COMMANDS = new Set(["DEV", "PING", "STATUS", "SOURCE", "OUTPUT", "PIPGM", "HELP"]);
 
 export class AmxTcpListener {
   private server: Server | null = null;
@@ -222,8 +224,41 @@ export class AmxTcpListener {
       return wrap("ERR:UNKNOWN_OUTPUT_ACTION");
     }
 
+    if (cmd === "PIPGM" && this.options.pipgmService) {
+      const sub = args[0]?.toUpperCase();
+      const pipelineId = args[1] ?? "PiPGM1";
+      if (!this.options.pipgmService.isValidPipelineId(pipelineId)) {
+        return wrap(`ERR:PIPGM_NOT_FOUND:${pipelineId}`);
+      }
+      if (sub === "NEXT") {
+        const res = this.options.pipgmService.control(pipelineId, { action: "next" });
+        return wrap(`PIPGM:OK:${pipelineId}:NEXT:step=${res?.currentStep ?? 0}`);
+      }
+      if (sub === "PREV" || sub === "BACK") {
+        const res = this.options.pipgmService.control(pipelineId, { action: "prev" });
+        return wrap(`PIPGM:OK:${pipelineId}:PREV:step=${res?.currentStep ?? 0}`);
+      }
+      if (sub === "FTB") {
+        const modeArg = args[2]?.toLowerCase() ?? "toggle";
+        const res = this.options.pipgmService.setFadeToBlack(pipelineId, {
+          toggle: modeArg === "toggle",
+          fadeToBlack: modeArg === "on" || modeArg === "1" || modeArg === "true"
+        });
+        return wrap(`PIPGM:OK:${pipelineId}:FTB:${res?.fadeToBlack ? "1" : "0"}`);
+      }
+      if (sub === "AUDIO") {
+        const modeArg = args[2]?.toLowerCase() ?? "toggle";
+        const res = this.options.pipgmService.setAudio(pipelineId, {
+          toggle: modeArg === "toggle",
+          audioEnabled: modeArg === "on" || modeArg === "1" || modeArg === "true"
+        });
+        return wrap(`PIPGM:OK:${pipelineId}:AUDIO:${res?.audioEnabled ? "1" : "0"}`);
+      }
+      return wrap("ERR:UNKNOWN_PIPGM_ACTION");
+    }
+
     if (cmd === "HELP") {
-      return wrap("HELP:COMMANDS=DEV:VERSION,PING,STATUS,SOURCE:LIST,SOURCE:GET,OUTPUT:LIST,OUTPUT:SET");
+      return wrap("HELP:COMMANDS=DEV:VERSION,PING,STATUS,SOURCE:LIST,SOURCE:GET,OUTPUT:LIST,OUTPUT:SET,PIPGM:NEXT,PIPGM:PREV,PIPGM:FTB,PIPGM:AUDIO");
     }
 
     return wrap(`ERR:UNKNOWN_COMMAND:${cmd}`);
