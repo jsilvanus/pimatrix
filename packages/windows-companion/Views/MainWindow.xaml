@@ -71,6 +71,13 @@
 
                 <!-- Global Action Controls -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- Preview Always On Top Toggle -->
+                    <CheckBox IsChecked="{Binding PreviewAlwaysOnTop, Mode=TwoWay}"
+                              Content="Always On Top"
+                              ToolTip="Keep the preview deck pinned above other windows (can be turned on or off anytime)"
+                              Foreground="#E4E4E7" FontSize="11.5" VerticalAlignment="Center"
+                              Margin="0,0,12,0" Cursor="Hand"/>
+
                     <!-- Pop Out Small Preview -->
                     <Button Content="🗗 Pop Out Preview Deck" Command="{Binding OpenPreviewWindowCommand}"
                             Background="#3B82F6" Foreground="White" BorderThickness="0"

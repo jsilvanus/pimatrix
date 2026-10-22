@@ -17,13 +17,28 @@ namespace PiMatrixCompanion
             DataContext = _viewModel;
 
             _viewModel.RequestOpenPreview += OnRequestOpenPreview;
+
+            _viewModel.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(MainViewModel.PreviewAlwaysOnTop) && _previewWindow != null)
+                {
+                    if (_previewWindow.DataContext is PreviewViewModel pvm)
+                    {
+                        pvm.IsAlwaysOnTop = _viewModel.PreviewAlwaysOnTop;
+                    }
+                }
+            };
         }
 
         private void OnRequestOpenPreview()
         {
             if (_previewWindow == null || !_previewWindow.IsLoaded)
             {
-                var previewVm = new PreviewViewModel(_viewModel.Monitors);
+                var previewVm = new PreviewViewModel(_viewModel.Monitors, _viewModel.PreviewAlwaysOnTop);
+                previewVm.AlwaysOnTopChanged += (isOnTop) =>
+                {
+                    _viewModel.PreviewAlwaysOnTop = isOnTop;
+                };
                 _previewWindow = new Views.PreviewWindow(previewVm);
                 _previewWindow.Closed += (s, e) => _previewWindow = null;
             }

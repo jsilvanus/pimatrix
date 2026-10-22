@@ -52,7 +52,8 @@
 
                     <!-- Always on top toggle -->
                     <ToggleButton IsChecked="{Binding IsAlwaysOnTop, Mode=TwoWay}"
-                                  Content="Topmost"
+                                  Content="{Binding AlwaysOnTopStatusText}"
+                                  ToolTip="Click to toggle Always On Top on or off"
                                   Background="#3F3F46" Foreground="#E4E4E7" BorderThickness="0"
                                   Padding="8,3" Margin="2,0" FontSize="11" Cursor="Hand"/>
 

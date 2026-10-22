@@ -146,5 +146,36 @@ namespace PiMatrixCompanion.Tests
                 Assert.False(string.IsNullOrWhiteSpace(preset.AspectRatio));
             }
         }
+
+        [Fact]
+        public void PreviewViewModel_AlwaysOnTop_CanBeTurnedOff()
+        {
+            var monitors = new System.Collections.ObjectModel.ObservableCollection<PiMatrixCompanion.ViewModels.MonitorViewModel>();
+            var previewVm = new PiMatrixCompanion.ViewModels.PreviewViewModel(monitors, initialAlwaysOnTop: true);
+
+            Assert.True(previewVm.IsAlwaysOnTop);
+            Assert.Contains("ON", previewVm.AlwaysOnTopStatusText);
+
+            bool callbackFired = false;
+            bool observedState = true;
+            previewVm.AlwaysOnTopChanged += (state) =>
+            {
+                callbackFired = true;
+                observedState = state;
+            };
+
+            // Turn off Always-on-top
+            previewVm.IsAlwaysOnTop = false;
+
+            Assert.False(previewVm.IsAlwaysOnTop);
+            Assert.True(callbackFired);
+            Assert.False(observedState);
+            Assert.Contains("OFF", previewVm.AlwaysOnTopStatusText);
+
+            // Turn back on
+            previewVm.ToggleAlwaysOnTopCommand.Execute(null);
+            Assert.True(previewVm.IsAlwaysOnTop);
+            Assert.Contains("ON", previewVm.AlwaysOnTopStatusText);
+        }
     }
 }
