@@ -20,6 +20,7 @@ import {
 export interface CameraPreset {
   id: number;
   name?: string;
+  thumbnail?: string;
 }
 
 export interface CameraPosition {
@@ -51,6 +52,7 @@ export interface CameraAdapter {
   zoom(action: ZoomAction, speed?: number): Promise<void>;
   recallPreset(presetId: number): Promise<void>;
   savePreset(presetId: number, name?: string): Promise<void>;
+  savePresetThumbnail(presetId: number, thumbnail: string): Promise<void>;
   resetPreset(presetId: number): Promise<void>;
   setSmartFrame(mode: SmartFrameMode): Promise<void>;
   startStream(): Promise<string | null>;
@@ -65,7 +67,7 @@ export class SimulatedCameraAdapter implements CameraAdapter {
   private streaming = false;
   private smartFrame: SmartFrameState = "disabled";
   private position: CameraPosition = { pan: 0, tilt: 0, zoom: 0 };
-  private readonly presets = new Map<number, { position: CameraPosition; name?: string }>([
+  private readonly presets = new Map<number, { position: CameraPosition; name?: string; thumbnail?: string }>([
     [1, { position: { pan: 100, tilt: 50, zoom: 10 }, name: "Pulpit" }],
     [2, { position: { pan: -200, tilt: 30, zoom: 15 }, name: "Altar" }],
     [3, { position: { pan: 0, tilt: 10, zoom: 5 }, name: "Organ" }],
@@ -90,7 +92,11 @@ export class SimulatedCameraAdapter implements CameraAdapter {
       smartFrame: this.smartFrame,
       position: { ...this.position },
       presets: [...this.presets.entries()]
-        .map(([id, p]) => ({ id, ...(p.name ? { name: p.name } : {}) }))
+        .map(([id, p]) => ({
+          id,
+          ...(p.name ? { name: p.name } : {}),
+          ...(p.thumbnail ? { thumbnail: p.thumbnail } : {})
+        }))
         .sort((a, b) => a.id - b.id)
     };
   }
@@ -151,9 +157,21 @@ export class SimulatedCameraAdapter implements CameraAdapter {
   }
 
   async savePreset(presetId: number, name?: string): Promise<void> {
+    const existing = this.presets.get(presetId);
+    const resolvedName = name ?? existing?.name;
     this.presets.set(presetId, {
       position: { ...this.position },
-      ...(name ? { name } : {})
+      ...(resolvedName ? { name: resolvedName } : {}),
+      ...(existing?.thumbnail ? { thumbnail: existing.thumbnail } : {})
+    });
+  }
+
+  async savePresetThumbnail(presetId: number, thumbnail: string): Promise<void> {
+    const existing = this.presets.get(presetId);
+    this.presets.set(presetId, {
+      position: existing ? { ...existing.position } : { ...this.position },
+      ...(existing?.name ? { name: existing.name } : {}),
+      thumbnail
     });
   }
 
@@ -213,7 +231,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   private streaming = false;
   private smartFrame: SmartFrameState = "disabled";
   private position: CameraPosition = { pan: 0, tilt: 0, zoom: 0 };
-  private readonly presets = new Map<number, { position: CameraPosition; name?: string }>();
+  private readonly presets = new Map<number, { position: CameraPosition; name?: string; thumbnail?: string }>();
 
   constructor(config: UdpViscaCameraConfig) {
     this.id = config.id;
@@ -237,7 +255,11 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
       smartFrame: this.smartFrame,
       position: { ...this.position },
       presets: [...this.presets.entries()]
-        .map(([id, p]) => ({ id, ...(p.name ? { name: p.name } : {}) }))
+        .map(([id, p]) => ({
+          id,
+          ...(p.name ? { name: p.name } : {}),
+          ...(p.thumbnail ? { thumbnail: p.thumbnail } : {})
+        }))
         .sort((a, b) => a.id - b.id)
     };
   }
@@ -289,9 +311,21 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   async savePreset(presetId: number, name?: string): Promise<void> {
     const payload = buildPresetSave(presetId);
     await this.sendCommand(payload);
+    const existing = this.presets.get(presetId);
+    const resolvedName = name ?? existing?.name;
     this.presets.set(presetId, {
       position: { ...this.position },
-      ...(name ? { name } : {})
+      ...(resolvedName ? { name: resolvedName } : {}),
+      ...(existing?.thumbnail ? { thumbnail: existing.thumbnail } : {})
+    });
+  }
+
+  async savePresetThumbnail(presetId: number, thumbnail: string): Promise<void> {
+    const existing = this.presets.get(presetId);
+    this.presets.set(presetId, {
+      position: existing ? { ...existing.position } : { ...this.position },
+      ...(existing?.name ? { name: existing.name } : {}),
+      thumbnail
     });
   }
 

@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { createFleet } from "fffleet";
 import Fastify, { type FastifyInstance } from "fastify";
 import { createAmxClient, type AmxClient } from "./amx/amx-client.js";
@@ -17,6 +18,7 @@ import {
 } from "./effects/effects-model.js";
 import {
   renderOperatorFrontendHtml,
+  resolveWebAssetFile,
   type FrontendTabId,
   type MatrixRouteState,
   type RtspOutState
@@ -73,7 +75,11 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   let rtspOutState: RtspOutState = {
     sourceId: "rtmp1",
     layout: "landscape",
-    url: "rtsp://pimatrix.local:554/live"
+    url: "rtsp://pimatrix.local:554/live",
+    streaming: false,
+    quality: "full",
+    resolution: "1920x1080",
+    bitrateKbps: 6200
   };
 
   const pipgmService = new PiPgmService({
@@ -279,8 +285,18 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   (app as unknown as { captureSupervisor: StreamSupervisor }).captureSupervisor = captureSupervisor;
 
   // =========================================================================
-  // Operator Frontend UI Routes (Warm Broadcast Control - Stitch)
+  // Operator Frontend UI Routes (Built with Vite in @pimatrix/web)
   // =========================================================================
+
+  app.get<{ Params: { "*": string } }>("/assets/*", async (request, reply) => {
+    const asset = resolveWebAssetFile(request.params["*"]);
+    if (!asset) {
+      return reply.code(404).send({
+        error: { code: "ASSET_NOT_FOUND", message: `Unknown frontend asset: ${request.url}` }
+      });
+    }
+    return reply.type(asset.contentType).send(fs.readFileSync(asset.filePath));
+  });
 
   app.get("/", async (_request, reply) => {
     const html = await renderFrontendPage("outputs");
@@ -430,44 +446,109 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     }
   );
 
-  // Network Stream Out (RTSP) assignment endpoints
+  // Network Stream Out (RTSP) assignment & stream control endpoints
   app.get("/api/v1/outputs/rtsp", async () => rtspOutState);
 
-  app.put<{ Body: { sourceId?: unknown; layout?: unknown } }>(
-    "/api/v1/outputs/rtsp/source",
+  app.put<{
+    Body: {
+      sourceId?: unknown;
+      layout?: unknown;
+      quality?: unknown;
+      resolution?: unknown;
+      bitrateKbps?: unknown;
+    };
+  }>("/api/v1/outputs/rtsp/source", async (request, reply) => {
+    if (!Object.prototype.hasOwnProperty.call(request.body ?? {}, "sourceId")) {
+      return reply.code(422).send({
+        error: { code: "SOURCE_REQUIRED", message: "Request body must include sourceId (or null to clear)" }
+      });
+    }
+    const requestedSource = request.body.sourceId;
+    const isValidLogicalSource =
+      requestedSource === "multiview" ||
+      (typeof requestedSource === "string" &&
+        sourceDefinitions.some((source) => source.id === requestedSource));
+
+    if (requestedSource !== null && !isValidLogicalSource) {
+      return reply.code(422).send({
+        error: { code: "INVALID_SOURCE", message: "sourceId must be a known logical source ID, 'multiview', or null" }
+      });
+    }
+
+    const layoutRaw = request.body?.layout;
+    if (
+      layoutRaw !== undefined &&
+      layoutRaw !== "landscape" &&
+      layoutRaw !== "portrait"
+    ) {
+      return reply.code(422).send({
+        error: { code: "INVALID_LAYOUT", message: "layout must be 'landscape' or 'portrait'" }
+      });
+    }
+
+    const qualityRaw = request.body?.quality;
+    if (qualityRaw !== undefined && qualityRaw !== "preview" && qualityRaw !== "full") {
+      return reply.code(422).send({
+        error: { code: "INVALID_QUALITY", message: "quality must be 'preview' or 'full'" }
+      });
+    }
+
+    const resolutionRaw = request.body?.resolution;
+    if (resolutionRaw !== undefined && typeof resolutionRaw !== "string") {
+      return reply.code(422).send({
+        error: { code: "INVALID_RESOLUTION", message: "resolution must be a string (e.g. '1920x1080' or '640x360')" }
+      });
+    }
+
+    const bitrateRaw = request.body?.bitrateKbps !== undefined ? Number(request.body.bitrateKbps) : undefined;
+    if (bitrateRaw !== undefined && (!Number.isFinite(bitrateRaw) || bitrateRaw < 100 || bitrateRaw > 50000)) {
+      return reply.code(422).send({
+        error: { code: "INVALID_BITRATE", message: "bitrateKbps must be between 100 and 50000" }
+      });
+    }
+
+    rtspOutState = {
+      ...rtspOutState,
+      sourceId: (requestedSource as string | null) ?? "rtmp1",
+      ...(layoutRaw !== undefined ? { layout: layoutRaw } : {}),
+      ...(qualityRaw !== undefined ? { quality: qualityRaw } : {}),
+      ...(resolutionRaw !== undefined ? { resolution: resolutionRaw } : {}),
+      ...(bitrateRaw !== undefined ? { bitrateKbps: bitrateRaw } : {})
+    };
+
+    eventBroker.emit({
+      type: "rtsp",
+      data: { ...rtspOutState }
+    });
+
+    return reply.code(200).send(rtspOutState);
+  });
+
+  app.post<{ Body: { streaming?: unknown; toggle?: unknown } }>(
+    "/api/v1/outputs/rtsp/stream",
     async (request, reply) => {
-      if (!Object.prototype.hasOwnProperty.call(request.body ?? {}, "sourceId")) {
+      const body = request.body ?? {};
+      if (body.streaming !== undefined && typeof body.streaming !== "boolean") {
         return reply.code(422).send({
-          error: { code: "SOURCE_REQUIRED", message: "Request body must include sourceId (or null to clear)" }
+          error: { code: "INVALID_STREAMING_VALUE", message: "streaming must be a boolean" }
         });
       }
-      const requestedSource = request.body.sourceId;
-      const isValidLogicalSource =
-        requestedSource === "multiview" ||
-        (typeof requestedSource === "string" &&
-          sourceDefinitions.some((source) => source.id === requestedSource));
-
-      if (requestedSource !== null && !isValidLogicalSource) {
+      if (body.toggle !== undefined && typeof body.toggle !== "boolean") {
         return reply.code(422).send({
-          error: { code: "INVALID_SOURCE", message: "sourceId must be a known logical source ID, 'multiview', or null" }
+          error: { code: "INVALID_TOGGLE_VALUE", message: "toggle must be a boolean" }
         });
       }
 
-      const layoutRaw = request.body?.layout;
-      if (
-        layoutRaw !== undefined &&
-        layoutRaw !== "landscape" &&
-        layoutRaw !== "portrait"
-      ) {
-        return reply.code(422).send({
-          error: { code: "INVALID_LAYOUT", message: "layout must be 'landscape' or 'portrait'" }
-        });
-      }
+      const nextStreaming =
+        typeof body.streaming === "boolean"
+          ? body.streaming
+          : body.toggle === true
+            ? !rtspOutState.streaming
+            : !rtspOutState.streaming;
 
       rtspOutState = {
         ...rtspOutState,
-        sourceId: (requestedSource as string | null) ?? "rtmp1",
-        ...(layoutRaw !== undefined ? { layout: layoutRaw } : {})
+        streaming: nextStreaming
       };
 
       eventBroker.emit({
@@ -1551,6 +1632,42 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       cameraId: request.params.cameraId,
       success: true,
       action: `preset:save:${presetId}`
+    });
+  });
+
+  app.post<{
+    Params: { cameraId: string; presetId: string };
+    Body: { thumbnail?: unknown };
+  }>("/api/v1/cameras/:cameraId/presets/:presetId/thumbnail", async (request, reply) => {
+    const camera = cameraService.get(request.params.cameraId);
+    if (!camera) {
+      return reply.code(404).send({
+        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+      });
+    }
+
+    const presetId = Number(request.params.presetId);
+    if (!Number.isInteger(presetId) || presetId < 0 || presetId > 254) {
+      return reply.code(422).send({
+        error: { code: "INVALID_PRESET_ID", message: "presetId must be an integer between 0 and 254" }
+      });
+    }
+
+    const thumbnail = typeof request.body?.thumbnail === "string" ? request.body.thumbnail.trim() : "";
+    if (!thumbnail) {
+      return reply.code(422).send({
+        error: { code: "THUMBNAIL_REQUIRED", message: "thumbnail data URL or string is required" }
+      });
+    }
+
+    const updated = await cameraService.savePresetThumbnail(request.params.cameraId, presetId, thumbnail);
+
+    return reply.code(200).send({
+      cameraId: request.params.cameraId,
+      presetId,
+      success: true,
+      action: `preset:thumbnail:${presetId}`,
+      camera: updated
     });
   });
 

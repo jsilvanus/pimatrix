@@ -100,6 +100,22 @@ export function renderMultiviewHtml(
       flex-shrink: 0;
       z-index: 10;
     }
+    .brand-group { display: flex; align-items: center; gap: 10px; }
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #1e293b;
+      color: #f8fafc;
+      text-decoration: none;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid #334155;
+      transition: background 0.15s;
+    }
+    .back-btn:hover { background: #334155; }
     .brand { font-size: 13px; font-weight: 700; letter-spacing: 0.5px; }
     .brand span { color: #60a5fa; }
     .meta { font-size: 11px; color: #94a3b8; display: flex; gap: 10px; align-items: center; }
@@ -384,7 +400,10 @@ export function renderMultiviewHtml(
 </head>
 <body>
   <header>
-    <div class="brand">Pi<span>Matrix</span> Multiview & Effects</div>
+    <div class="brand-group">
+      <a href="/" class="back-btn" id="multiview-back-btn" title="Back to Home">← Back</a>
+      <div class="brand">Pi<span>Matrix</span> Multiview & Effects</div>
+    </div>
     <div class="meta">
       <span class="mode-pill" id="grid-mode">Auto (4x2 / 2x4)</span>
       <span id="sse-indicator" style="color: #64748b;">● Connected</span>

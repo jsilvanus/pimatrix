@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 20;
+  user-select: none;
+}
+
+.material-symbols-filled {
+  font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 20;
+  user-select: none;
+}
+
+:root {
+  --surface: #fff8f5;
+  --surface-low: #fcf2eb;
+  --surface-container: #f6ece6;
+  --surface-high: #f0e6e0;
+  --surface-highest: #eae1da;
+  --on-surface: #1f1b17;
+  --on-surface-variant: #4a4455;
+  --primary: #5300b7;
+  --primary-container: #6d28d9;
+  --secondary: #6b38d4;
+  --tertiary: #653400;
+  --error: #ba1a1a;
+  --outline-variant: #ccc3d7;
+}
+
+html, body {
+  width: 100vw;
+  margin: 0;
+  padding: 0;
+  background-color: var(--surface);
+  color: var(--on-surface);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  overscroll-behavior: none;
+  min-height: max(884px, 100dvh);
+}
+
+.pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+::-webkit-scrollbar { display: none; }
+.tab-panel { display: none; }
+.tab-panel.active { display: flex; flex-direction: column; }
+
+/* Native <dialog> styling with light-dismiss backdrop */
+dialog.broadcast-dialog {
+  border: none;
+  padding: 0;
+  background: transparent;
+  max-width: 24rem;
+  width: calc(100vw - 2rem);
+  margin: auto;
+  overflow: visible;
+}
+dialog.broadcast-dialog::backdrop {
+  background-color: rgba(31, 27, 23, 0.45);
+  backdrop-filter: blur(4px);
+}

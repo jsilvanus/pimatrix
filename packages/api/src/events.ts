@@ -30,6 +30,7 @@ export interface CameraEventPayload {
   action: string;
   streaming?: boolean;
   presetId?: number;
+  thumbnail?: string;
   smartFrame?: string;
   position?: { pan: number; tilt: number; zoom: number };
 }
@@ -54,6 +55,10 @@ export interface RtspOutEventPayload {
   sourceId: string;
   layout?: string;
   url: string;
+  streaming?: boolean;
+  quality?: "preview" | "full";
+  resolution?: string;
+  bitrateKbps?: number;
 }
 
 export type PiMatrixEvent =

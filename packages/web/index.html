@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="shell-type" content="mobile_tab">
+  <title>PiMatrix | Broadcast Routing & Camera Control</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
+</head>
+<body class="bg-surface font-body-md text-on-surface flex flex-col min-h-screen selection:bg-primary selection:text-on-primary">
+
+  <!-- TOP FIXED BROADCAST HEADER -->
+  <header class="fixed top-0 w-full z-40 pt-safe bg-surface/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] border-b border-outline-variant/25">
+    <div class="h-16 px-margin max-w-2xl mx-auto flex items-center justify-between gap-space-sm">
+      <div class="flex items-center gap-space-sm min-w-0">
+        <div class="w-9 h-9 rounded-xl bg-primary flex items-center justify-center flex-shrink-0 shadow-sm" id="header-icon-box">
+          <span class="material-symbols-outlined text-on-primary text-[22px]" id="header-icon">crop_free</span>
+        </div>
+        <div class="flex flex-col min-w-0">
+          <div class="flex items-center gap-space-xs">
+            <span class="font-headline-sm text-headline-sm text-on-surface truncate leading-none font-bold" id="header-title">PiMatrix</span>
+          </div>
+          <span class="font-label-sm text-label-sm text-on-surface-variant truncate" id="header-subtitle">Pi Outputs</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <!-- Fast Navigation to Multiview -->
+        <a href="/multiview" id="top-multiview-btn" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary-fixed text-on-primary-fixed border border-primary/20 text-[10px] font-label-sm font-bold uppercase transition-all hover:bg-primary hover:text-on-primary active:scale-95">
+          <span class="material-symbols-outlined text-[14px]">grid_view</span>
+          <span>Multiview</span>
+        </a>
+
+        <!-- Matrix Safety Lock Button (shown on Inputs/Matrix tab) -->
+        <button id="lockToggleBtn" type="button" onclick="toggleMatrixLock()" class="hidden items-center gap-1 px-2.5 py-1 rounded-full bg-surface-container-high border border-outline-variant/40 text-[10px] font-label-sm font-bold uppercase transition-all active:scale-95">
+          <span class="material-symbols-outlined text-[14px] text-tertiary" id="lockIcon">lock_open</span>
+          <span class="text-tertiary" id="lockLabel">UNLOCKED</span>
+        </button>
+
+        <!-- Camera View Focus Toggle (shown on Cameras tab) -->
+        <button id="toggleViewBtn" type="button" onclick="toggleCamFocus()" class="hidden items-center gap-1 px-2.5 py-1 rounded-full bg-surface-container-high border border-outline-variant/40 text-primary text-[10px] font-label-sm font-bold uppercase transition-all active:scale-95">
+          <span class="material-symbols-outlined text-[14px]">grid_view</span>
+          <span id="viewModeLabel">Dual View</span>
+        </button>
+
+        <!-- Live SSE Status Pill -->
+        <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-high border border-outline-variant/30 text-on-surface-variant text-[10px] font-label-sm font-semibold">
+          <span class="w-2 h-2 rounded-full bg-primary animate-pulse" id="sse-dot"></span>
+          <span id="sse-status-text">ONLINE</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN VIEWPORT -->
+  <main class="flex flex-col relative w-full max-w-2xl mx-auto pt-16 pb-24 bg-surface min-h-screen">
+
+    <!-- =================================================================== -->
+    <!-- TAB 1: PIMATRIX OUTPUTS                                             -->
+    <!-- =================================================================== -->
+    <section id="tab-outputs" class="tab-panel active w-full px-margin space-y-space-md pt-2">
+      <!-- 2-Column Hardware Layout: Pi 1 (hdmi 0) & Pi 2 (hdmi 1) -->
+      <div class="grid grid-cols-2 gap-space-sm w-full">
+
+        <!-- COLUMN 1: Pi 1 (hdmi 0) -->
+        <div class="bg-surface-container-low rounded-xl p-3 flex flex-col justify-between shadow-sm border border-outline-variant/30 space-y-3" id="hdmi-card-1">
+          <!-- Header -->
+          <div class="flex items-start justify-between gap-1">
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5">
+                <h2 class="font-headline-sm text-[17px] font-bold text-on-surface leading-tight">Pi 1</h2>
+                <span id="hdmi1-ftb-pill" class="hidden px-1.5 py-0.5 rounded-full bg-error text-on-error text-[9px] font-label-sm font-bold uppercase animate-pulse">FTB</span>
+              </div>
+              <span class="font-label-sm text-[10px] text-on-surface-variant">hdmi 0</span>
+            </div>
+            <div class="flex flex-col items-end gap-1 flex-shrink-0">
+              <span class="font-label-sm text-[9px] text-on-surface-variant uppercase tracking-wider font-semibold leading-none">Routed To</span>
+              <div class="flex flex-wrap items-center justify-end gap-1" id="hdmi1-routed-badges">
+                <span class="px-1.5 py-0.5 rounded bg-surface-container-high border border-outline-variant/30 text-on-surface font-label-sm text-[9px] font-semibold leading-none">Standby</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tactical Inputs Vertical List -->
+          <div class="flex flex-col gap-1.5">
+            <div class="flex items-center justify-between">
+              <span class="font-label-sm text-[10px] text-on-surface-variant uppercase tracking-wider">Select Input:</span>
+              <span class="font-label-sm text-[9px] text-primary font-semibold uppercase" id="hdmi1-active-label">--</span>
+            </div>
+
+            <button type="button" data-source="hama" class="hdmi1-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(1, 'hama')">
+              <span>hama</span>
+              <span class="btn-indicators flex items-center gap-1"></span>
+            </button>
+            <button type="button" data-source="rtmp1" class="hdmi1-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(1, 'rtmp1')">
+              <span>rtmp1</span>
+              <span class="btn-indicators flex items-center gap-1"></span>
+            </button>
+            <button type="button" data-source="rtmp2" class="hdmi1-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(1, 'rtmp2')">
+              <span>rtmp2</span>
+              <span class="btn-indicators flex items-center gap-1"></span>
+            </button>
+            <button type="button" data-source="PiPGM1" class="hdmi1-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(1, 'PiPGM1')">
+              <span>pipgm 1</span>
+              <span class="btn-indicators flex items-center gap-1"></span>
+            </button>
+            <button type="button" data-source="PiPGM2" class="hdmi1-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(1, 'PiPGM2')">
+              <span>pipgm 2</span>
+              <span class="btn-indicators flex items-center gap-1"></span>
+            </button>
+
+            <!-- Auxiliary Button with Dialog trigger -->
+            <div class="relative pt-0.5">
+              <button type="button" id="hdmi1-aux-btn" class="w-full p-1.5 rounded-lg border border-dashed border-primary/40 bg-surface-container hover:bg-surface-container-high text-left active:scale-[0.98] transition-all flex flex-col gap-0.5" onclick="openAuxModal(1)">
+                <div class="flex items-center justify-between">
+                  <span class="font-label-md text-[11px] font-bold text-primary uppercase flex items-center gap-1" id="hdmi1-aux-label">
+                    <span class="material-symbols-outlined text-[13px]">tune</span>Auxiliary
+                  </span>
+                  <span class="material-symbols-outlined text-[14px] text-primary" id="hdmi1-aux-icon">touch_app</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Dedicated Output Controls (Input-Specific FTB & Mute for Pi 1's selected input) -->
+          <div class="pt-2 border-t border-outline-variant/30 flex flex-col gap-1">
+            <div class="flex items-center justify-between text-[9px] font-label-sm text-on-surface-variant uppercase">
+              <span>Input Controls</span>
+              <span id="hdmi1-ctrl-target" class="font-bold text-primary">pipgm 1</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button type="button" class="flex-1 h-8 rounded-lg bg-surface-container-high hover:bg-error/20 active:scale-[0.98] text-error font-label-sm text-[11px] font-bold flex items-center justify-center gap-1 transition-all shadow-xs" id="btn-ftb-1" onclick="toggleOutputInputControl(1, 'ftb')">
+                <span class="material-symbols-outlined text-[13px]">power_settings_new</span>
+                <span>FTB</span>
+              </button>
+              <button type="button" class="flex-1 h-8 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface-variant font-label-sm text-[11px] font-bold flex items-center justify-center gap-1 transition-all shadow-xs" id="btn-mute-1" onclick="toggleOutputInputControl(1, 'mute')">
+                <span class="material-symbols-outlined text-[13px]" id="icon-mute-1">volume_up</span>
+                <span id="label-mute-1">Mute</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- COLUMN 2: Pi 2 (hdmi 1) -->
+        <div class="bg-surface-container-low rounded-xl p-3 flex flex-col justify-between shadow-sm border border-outline-variant/30 space-y-3" id="hdmi-card-2">
+          <!-- Header -->
+          <div class="flex items-start justify-between gap-1">
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5">
+                <h2 class="font-headline-sm text-[17px] font-bold text-on-surface leading-tight">Pi 2</h2>
+                <span id="hdmi2-ftb-pill" class="hidden px-1.5 py-0.5 rounded-full bg-error text-on-error text-[9px] font-label-sm font-bold uppercase animate-pulse">FTB</span>
+              </div>
+              <span class="font-label-sm text-[10px] text-on-surface-variant">hdmi 1</span>
+            </div>
+            <div class="flex flex-col items-end gap-1 flex-shrink-0">
+              <span class="font-label-sm text-[9px] text-on-surface-variant uppercase tracking-wider font-semibold leading-none">Routed To</span>
+              <div class="flex flex-wrap items-center justify-end gap-1" id="hdmi2-routed-badges">
+                <span class="px-1.5 py-0.5 rounded bg-surface-container-high border border-outline-variant/30 text-on-surface font-label-sm text-[9px] font-semibold leading-none">Standby</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tactical Inputs Vertical List -->
+          <div class="flex flex-col gap-1.5">
+            <div class="flex items-center justify-between">
+              <span class="font-label-sm text-[10px] text-on-surface-variant uppercase tracking-wider">Select Input:</span>
+              <span class="font-label-sm text-[9px] text-primary font-semibold uppercase" id="hdmi2-active-label">--</span>
+            </div>
+
+            <button type="button" data-source="hama" class="hdmi2-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(2, 'hama')">
+              <span>hama</span>
+              <span class="btn-indicators flex items-center gap-1"></span>
+            </button>
+            <button type="button" data-source="rtmp1" class="hdmi2-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(2, 'rtmp1')">
+              <span>rtmp1</span>
+              <span class="btn-indicators flex items-center gap-1"></span>
+            </button>
+            <button type="button" data-source="rtmp2" class="hdmi2-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(2, 'rtmp2')">
+              <span>rtmp2</span>
+              <span class="btn-indicators flex items-center gap-1"></span>
+            </button>
+            <button type="button" data-source="PiPGM1" class="hdmi2-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(2, 'PiPGM1')">
+              <span>pipgm 1</span>
+              <span class="btn-indicators flex items-center gap-1"></span>
+            </button>
+            <button type="button" data-source="PiPGM2" class="hdmi2-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(2, 'PiPGM2')">
+              <span>pipgm 2</span>
+              <span class="btn-indicators flex items-center gap-1"></span>
+            </button>
+
+            <!-- Auxiliary Button with Dialog trigger -->
+            <div class="relative pt-0.5">
+              <button type="button" id="hdmi2-aux-btn" class="w-full p-1.5 rounded-lg border border-dashed border-primary/40 bg-surface-container hover:bg-surface-container-high text-left active:scale-[0.98] transition-all flex flex-col gap-0.5" onclick="openAuxModal(2)">
+                <div class="flex items-center justify-between">
+                  <span class="font-label-md text-[11px] font-bold text-primary uppercase flex items-center gap-1" id="hdmi2-aux-label">
+                    <span class="material-symbols-outlined text-[13px]">tune</span>Auxiliary
+                  </span>
+                  <span class="material-symbols-outlined text-[14px] text-primary" id="hdmi2-aux-icon">touch_app</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Dedicated Output Controls (Input-Specific FTB & Mute for Pi 2's selected input) -->
+          <div class="pt-2 border-t border-outline-variant/30 flex flex-col gap-1">
+            <div class="flex items-center justify-between text-[9px] font-label-sm text-on-surface-variant uppercase">
+              <span>Input Controls</span>
+              <span id="hdmi2-ctrl-target" class="font-bold text-primary">multiview</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button type="button" class="flex-1 h-8 rounded-lg bg-surface-container-high hover:bg-error/20 active:scale-[0.98] text-error font-label-sm text-[11px] font-bold flex items-center justify-center gap-1 transition-all shadow-xs" id="btn-ftb-2" onclick="toggleOutputInputControl(2, 'ftb')">
+                <span class="material-symbols-outlined text-[13px]">power_settings_new</span>
+                <span>FTB</span>
+              </button>
+              <button type="button" class="flex-1 h-8 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface-variant font-label-sm text-[11px] font-bold flex items-center justify-center gap-1 transition-all shadow-xs" id="btn-mute-2" onclick="toggleOutputInputControl(2, 'mute')">
+                <span class="material-symbols-outlined text-[13px]" id="icon-mute-2">volume_up</span>
+                <span id="label-mute-2">Mute</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. BOTTOM SECTION: Network Stream Out (RTSP) Card -->
+      <!-- Start/Stop Stream button + Hold to open Assignment & Quality Modal -->
+      <div class="w-full bg-surface-container-low rounded-xl p-space-md shadow-sm border border-outline-variant/30 space-y-2 select-none" id="rtsp-card">
+        <div class="flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer" id="rtsp-hold-zone" title="Hold to open RTSP Assignment & Quality Modal">
+            <div class="w-9 h-9 rounded-lg bg-primary-container text-on-primary flex items-center justify-center flex-shrink-0" id="rtsp-icon-box">
+              <span class="material-symbols-outlined text-[20px]">podcasts</span>
+            </div>
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5">
+                <h3 class="font-headline-sm text-[16px] font-bold text-on-surface truncate">Network Stream Out (RTSP)</h3>
+                <span class="inline-block w-2 h-2 rounded-full bg-outline" id="rtsp-live-dot"></span>
+              </div>
+              <p class="font-label-sm text-[11px] text-primary font-medium flex items-center gap-1">
+                <span class="material-symbols-outlined text-[12px]">touch_long</span>
+                <span id="rtsp-summary-text">rtmp1 • 1920x1080 (Full) • 6200 kbps • Hold to configure</span>
+              </p>
+            </div>
+          </div>
+
+          <!-- Start / Stop Stream Button (also supports long-hold to open modal) -->
+          <button type="button" id="rtsp-stream-btn" class="px-3 py-2 rounded-lg bg-primary text-on-primary font-label-sm text-[11px] font-bold uppercase transition-all flex items-center gap-1.5 shadow-sm active:scale-95 flex-shrink-0">
+            <span class="material-symbols-outlined text-[15px]" id="rtsp-stream-icon">play_arrow</span>
+            <span id="rtsp-stream-label">Start Stream</span>
+          </button>
+        </div>
+
+        <div class="flex items-center justify-between pt-1 border-t border-outline-variant/20 text-[10px] font-label-sm text-on-surface-variant">
+          <span class="flex items-center gap-1" id="rtsp-url-readout">
+            <span class="material-symbols-outlined text-[13px] text-primary">dns</span>rtsp://pimatrix.local:554/live
+          </span>
+          <span class="text-on-surface-variant font-semibold" id="rtsp-quality-badge">FULL 1080p • 6.2 Mbps</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 2: PIMATRIX INPUTS / MATRIX ROUTING                             -->
+    <!-- =================================================================== -->
+    <section id="tab-inputs" class="tab-panel w-full px-margin pb-space-xl gap-space-md pt-2 select-none">
+      <!-- Destination Cards Grid (Atlona AT-UHD-PRO3-44M via AMX NetLinx) -->
+      <div class="flex flex-col gap-space-md w-full" id="destinationMatrix">
+
+        <!-- Card 1: Projector 1 (Atlona Output 1) -->
+        <div class="bg-surface-container-low rounded-xl p-space-md shadow-sm border border-outline-variant/30 flex flex-col gap-space-sm transition-all">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-space-xs">
+              <div class="w-7 h-7 rounded-lg bg-surface-container-highest flex items-center justify-center text-on-surface">
+                <span class="material-symbols-outlined text-[18px]">videocam</span>
+              </div>
+              <div>
+                <h2 class="font-headline-sm text-[16px] leading-tight text-on-surface">Projector 1</h2>
+                <span class="font-label-sm text-[9px] text-on-surface-variant uppercase">Atlona Out 1 (Epson EB-L1050U)</span>
+              </div>
+            </div>
+            <span class="font-label-sm text-[10px] text-primary font-bold uppercase" id="matrix-out-1-status">IN 1 • LECTERN</span>
+          </div>
+          <div class="grid grid-cols-4 gap-space-xs p-1 bg-surface-container rounded-lg" data-dest="prj1" data-output="1">
+            <button type="button" class="matrix-btn h-12 flex flex-col items-center justify-center rounded transition-all active:scale-95" data-input="1" data-src="Lectern" onclick="routeMatrixCrosspoint(1, 1)">
+              <span class="font-label-md text-label-md font-bold tracking-wider">Lectern</span>
+              <span class="matrix-sub font-label-sm text-[9px] uppercase tracking-tighter">HDMI IN</span>
+            </button>
+            <button type="button" class="matrix-btn h-12 flex flex-col items-center justify-center rounded transition-all active:scale-95" data-input="2" data-src="Rack PC" onclick="routeMatrixCrosspoint(2, 1)">
+              <span class="font-label-md text-label-md font-bold tracking-wider">Rack PC</span>
+              <span class="matrix-sub font-label-sm text-[9px] uppercase tracking-tighter">HDMI 1</span>
+            </button>
+            <button type="button" class="matrix-btn h-12 flex flex-col items-center justify-center rounded transition-all active:scale-95" data-input="3" data-src="Pi 1" onclick="routeMatrixCrosspoint(3, 1)">
+              <span class="font-label-md text-label-md font-bold tracking-wider">Pi 1</span>
+              <span class="matrix-sub font-label-sm text-[9px] uppercase tracking-tighter">hdmi 0</span>
+            </button>
+            <button type="button" class="matrix-btn h-12 flex flex-col items-center justify-center rounded transition-all active:scale-95" data-input="4" data-src="Pi 2" onclick="routeMatrixCrosspoint(4, 1)">
+              <span class="font-label-md text-label-md font-bold tracking-wider">Pi 2</span>
+              <span class="matrix-sub font-label-sm text-[9px] uppercase tracking-tighter">hdmi 1</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Card 2: Projector 2 (Atlona Output 2) -->
+        <div class="bg-surface-container-low rounded-xl p-space-md shadow-sm border border-outline-variant/30 flex flex-col gap-space-sm transition-all">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-space-xs">
+              <div class="w-7 h-7 rounded-lg bg-surface-container-highest flex items-center justify-center text-on-surface">
+                <span class="material-symbols-outlined text-[18px]">co_present</span>
+              </div>
+              <div>
+                <h2 class="font-headline-sm text-[16px] leading-tight text-on-surface">Projector 2</h2>
+                <span class="font-label-sm text-[9px] text-on-surface-variant uppercase">Atlona Out 2 (Epson EB-L1050U)</span>
+              </div>
+            </div>
+            <span class="font-label-sm text-[10px] text-primary font-bold uppercase" id="matrix-out-2-status">IN 2 • RACK PC</span>
+          </div>
+          <div class="grid grid-cols-4 gap-space-xs p-1 bg-surface-container rounded-lg" data-dest="prj2" data-output="2">
+            <button type="button" class="matrix-btn h-12 flex flex-col items-center justify-center rounded transition-all active:scale-95" data-input="1" data-src="Lectern" onclick="routeMatrixCrosspoint(1, 2)">
+              <span class="font-label-md text-label-md font-bold tracking-wider">Lectern</span>
+              <span class="matrix-sub font-label-sm text-[9px] uppercase tracking-tighter">HDMI IN</span>
+            </button>
+            <button type="button" class="matrix-btn h-12 flex flex-col items-center justify-center rounded transition-all active:scale-95" data-input="2" data-src="Rack PC" onclick="routeMatrixCrosspoint(2, 2)">
+              <span class="font-label-md text-label-md font-bold tracking-wider">Rack PC</span>
+              <span class="matrix-sub font-label-sm text-[9px] uppercase tracking-tighter">HDMI 1</span>
+            </button>
+            <button type="button" class="matrix-btn h-12 flex flex-col items-center justify-center rounded transition-all active:scale-95" data-input="3" data-src="Pi 1" onclick="routeMatrixCrosspoint(3, 2)">
+              <span class="font-label-md text-label-md font-bold tracking-wider">Pi 1</span>
+              <span class="matrix-sub font-label-sm text-[9px] uppercase tracking-tighter">hdmi 0</span>
+            </button>
+            <button type="button" class="matrix-btn h-12 flex flex-col items-center justify-center rounded transition-all active:scale-95" data-input="4" data-src="Pi 2" onclick="routeMatrixCrosspoint(4, 2)">
+              <span class="font-label-md text-label-md font-bold tracking-wider">Pi 2</span>
+              <span class="matrix-sub font-label-sm text-[9px] uppercase tracking-tighter">hdmi 1</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Card 3: Screen (DISABLED / MAINTENANCE - Atlona Output 3) -->
+        <div class="bg-surface-container-high/80 rounded-xl p-space-md shadow-xs opacity-75 flex flex-col gap-space-sm relative overflow-hidden border border-outline-variant/30">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-space-xs">
+              <div class="w-7 h-7 rounded-lg bg-surface-dim flex items-center justify-center text-outline">
+                <span class="material-symbols-outlined text-[18px]">tv_off</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <h2 class="font-headline-sm text-[16px] leading-tight text-on-surface-variant">Screen</h2>
+                <span class="material-symbols-outlined text-[14px] text-outline">lock</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-1 px-2.5 py-1 rounded-full bg-error-container text-on-error-container shadow-xs">
+              <span class="material-symbols-outlined text-[13px]">build</span>
+              <span class="font-label-sm text-label-sm font-bold uppercase tracking-wider">EI VIELÄ HANKITTU</span>
+            </div>
+          </div>
+          <div class="grid grid-cols-4 gap-space-xs p-1 bg-surface-container-highest/60 rounded-lg pointer-events-none">
+            <button aria-disabled="true" class="h-12 flex flex-col items-center justify-center rounded bg-surface-dim text-outline cursor-not-allowed" disabled>
+              <span class="material-symbols-outlined text-[13px] mb-0.5">lock</span>
+              <span class="font-label-md text-label-md font-semibold">Lectern</span>
+            </button>
+            <button aria-disabled="true" class="h-12 flex flex-col items-center justify-center rounded bg-surface-dim text-outline cursor-not-allowed" disabled>
+              <span class="material-symbols-outlined text-[13px] mb-0.5">lock</span>
+              <span class="font-label-md text-label-md font-semibold">Rack PC</span>
+            </button>
+            <button aria-disabled="true" class="h-12 flex flex-col items-center justify-center rounded bg-surface-dim text-outline cursor-not-allowed" disabled>
+              <span class="material-symbols-outlined text-[13px] mb-0.5">lock</span>
+              <span class="font-label-md text-label-md font-semibold">Pi 1</span>
+            </button>
+            <button aria-disabled="true" class="h-12 flex flex-col items-center justify-center rounded bg-surface-dim text-outline cursor-not-allowed" disabled>
+              <span class="material-symbols-outlined text-[13px] mb-0.5">lock</span>
+              <span class="font-label-md text-label-md font-semibold">Pi 2</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Card 4: Videomikseri (Atlona Output 4) -->
+        <div class="bg-surface-container-low rounded-xl p-space-md shadow-sm border border-outline-variant/30 flex flex-col gap-space-sm transition-all">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-space-xs">
+              <div class="w-7 h-7 rounded-lg bg-surface-container-highest flex items-center justify-center text-on-surface">
+                <span class="material-symbols-outlined text-[18px]">developer_board</span>
+              </div>
+              <div>
+                <h2 class="font-headline-sm text-[16px] leading-tight text-on-surface">Videomikseri</h2>
+                <span class="font-label-sm text-[9px] text-on-surface-variant uppercase">Atlona Out 4 (Roland V-1SDI / ATEM)</span>
+              </div>
+            </div>
+            <span class="font-label-sm text-[10px] text-primary font-bold uppercase" id="matrix-out-4-status">IN 3 • PI 1</span>
+          </div>
+          <div class="grid grid-cols-4 gap-space-xs p-1 bg-surface-container rounded-lg" data-dest="atem" data-output="4">
+            <button type="button" class="matrix-btn h-12 flex flex-col items-center justify-center rounded transition-all active:scale-95" data-input="1" data-src="Lectern" onclick="routeMatrixCrosspoint(1, 4)">
+              <span class="font-label-md text-label-md font-bold tracking-wider">Lectern</span>
+              <span class="matrix-sub font-label-sm text-[9px] uppercase tracking-tighter">AUX 1</span>
+            </button>
+            <button type="button" class="matrix-btn h-12 flex flex-col items-center justify-center rounded transition-all active:scale-95" data-input="2" data-src="Rack PC" onclick="routeMatrixCrosspoint(2, 4)">
+              <span class="font-label-md text-label-md font-bold tracking-wider">Rack PC</span>
+              <span class="matrix-sub font-label-sm text-[9px] uppercase tracking-tighter">AUX 2</span>
+            </button>
+            <button type="button" class="matrix-btn h-12 flex flex-col items-center justify-center rounded transition-all active:scale-95" data-input="3" data-src="Pi 1" onclick="routeMatrixCrosspoint(3, 4)">
+              <span class="font-label-md text-label-md font-bold tracking-wider">Pi 1</span>
+              <span class="matrix-sub font-label-sm text-[9px] uppercase tracking-tighter">AUX 3</span>
+            </button>
+            <button type="button" class="matrix-btn h-12 flex flex-col items-center justify-center rounded transition-all active:scale-95" data-input="4" data-src="Pi 2" onclick="routeMatrixCrosspoint(4, 4)">
+              <span class="font-label-md text-label-md font-bold tracking-wider">Pi 2</span>
+              <span class="matrix-sub font-label-sm text-[9px] uppercase tracking-tighter">AUX 4</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 3: CAMERA CONTROL                                               -->
+    <!-- =================================================================== -->
+    <section id="tab-cameras" class="tab-panel w-full px-margin pb-6 gap-space-md pt-2">
+
+      <!-- Dual Stream Feeds (Select Target for PTZ Drive) -->
+      <div class="grid grid-cols-2 gap-space-sm w-full transition-all duration-300" id="monitorsContainer">
+        <!-- Camera 01 Feed Card -->
+        <div class="group relative flex flex-col bg-surface-container rounded-xl overflow-hidden shadow-sm border border-outline-variant/30 active:scale-[0.99] transition-all cursor-pointer" id="cam-card-1" onclick="selectCamera('cam1')">
+          <div class="h-1.5 w-full bg-primary transition-colors" id="cam-glow-1"></div>
+          <div class="relative w-full aspect-video bg-inverse-surface overflow-hidden" id="cam-viewport-1">
+            <!-- Populated dynamically with MediaMTX iframe when receiving, or Not Connected picture -->
+            <div id="cam-feed-box-1" class="w-full h-full"></div>
+            <div class="absolute inset-0 bg-gradient-to-t from-inverse-surface/80 via-transparent to-inverse-surface/20 pointer-events-none"></div>
+            <div class="absolute top-1.5 left-1.5 flex items-center gap-1 pointer-events-none">
+              <span class="px-1.5 py-0.5 rounded bg-primary text-on-primary font-label-sm text-label-sm font-bold shadow-sm" id="cam-badge-1">CAM 01</span>
+            </div>
+            <div class="absolute top-1.5 right-1.5 flex items-center gap-1 pointer-events-none">
+              <span class="w-2 h-2 rounded-full bg-outline inline-block" id="cam-dot-1"></span>
+            </div>
+            <div class="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between text-inverse-on-surface pointer-events-none">
+              <span class="font-label-sm text-label-sm truncate">Stage Left PTZ</span>
+              <span class="font-label-sm text-[9px] px-1 rounded bg-black/50" id="cam-pos-1">P:0 T:0 Z:0</span>
+            </div>
+          </div>
+          <div class="px-space-sm py-1.5 bg-surface-container-high flex items-center justify-between gap-1">
+            <span class="font-label-sm text-[10px] text-on-surface-variant truncate" id="cam-meta-1">RTMP Preview Feed</span>
+            <button type="button" onclick="event.stopPropagation(); toggleCameraStream('cam1')" id="cam-stream-btn-1" class="px-2 py-0.5 rounded bg-surface-container-lowest text-primary font-label-sm text-[9px] font-bold uppercase shadow-xs">Start Receiving</button>
+          </div>
+        </div>
+
+        <!-- Camera 02 Feed Card -->
+        <div class="group relative flex flex-col bg-surface-container rounded-xl overflow-hidden shadow-sm border border-outline-variant/30 active:scale-[0.99] transition-all cursor-pointer" id="cam-card-2" onclick="selectCamera('cam2')">
+          <div class="h-1.5 w-full bg-surface-variant transition-colors" id="cam-glow-2"></div>
+          <div class="relative w-full aspect-video bg-inverse-surface overflow-hidden" id="cam-viewport-2">
+            <!-- Populated dynamically with MediaMTX iframe when receiving, or Not Connected picture -->
+            <div id="cam-feed-box-2" class="w-full h-full"></div>
+            <div class="absolute inset-0 bg-gradient-to-t from-inverse-surface/80 via-transparent to-inverse-surface/20 pointer-events-none"></div>
+            <div class="absolute top-1.5 left-1.5 flex items-center gap-1 pointer-events-none">
+              <span class="px-1.5 py-0.5 rounded bg-surface-container-lowest/90 text-on-surface font-label-sm text-label-sm font-bold shadow-sm" id="cam-badge-2">CAM 02</span>
+            </div>
+            <div class="absolute top-1.5 right-1.5 pointer-events-none">
+              <span class="w-2 h-2 rounded-full bg-outline inline-block" id="cam-dot-2"></span>
+            </div>
+            <div class="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between text-inverse-on-surface pointer-events-none">
+              <span class="font-label-sm text-label-sm truncate">Pulpit / Altar</span>
+              <span class="font-label-sm text-[9px] px-1 rounded bg-black/50" id="cam-pos-2">P:0 T:0 Z:0</span>
+            </div>
+          </div>
+          <div class="px-space-sm py-1.5 bg-surface-container-high flex items-center justify-between gap-1">
+            <span class="font-label-sm text-[10px] text-on-surface-variant truncate" id="cam-meta-2">RTMP Preview Feed</span>
+            <button type="button" onclick="event.stopPropagation(); toggleCameraStream('cam2')" id="cam-stream-btn-2" class="px-2 py-0.5 rounded bg-surface-container-lowest text-secondary font-label-sm text-[9px] font-bold uppercase shadow-xs">Start Receiving</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Single Cam Detailed Parameter Matrix (Shown ONLY in Single View, hidden in Dual View) -->
+      <div class="hidden w-full bg-surface-container rounded-xl p-space-md flex-col gap-space-sm shadow-sm border border-outline-variant/30" id="expandedConfigPanel">
+        <div class="flex items-center justify-between">
+          <h2 class="font-label-lg text-label-lg font-bold text-on-surface uppercase" id="param-matrix-title">CAM 01 PARAMETER MATRIX</h2>
+          <span class="font-label-sm text-[10px] text-primary font-bold uppercase hidden" id="auto-sweep-badge">Auto-Capturing...</span>
+        </div>
+
+        <!-- Config Toggles Bar: SAVE PRESET & THUMB CAPTURE (Hold for Auto-Sweep) -->
+        <div class="grid grid-cols-2 gap-space-xs pt-space-xs">
+          <button type="button" class="flex items-center justify-between px-space-sm py-2 bg-surface rounded-lg shadow-sm active:scale-98 transition-all" id="savePresetBtn" onclick="toggleSavePresetMode()">
+            <div class="flex items-center gap-1.5 min-w-0">
+              <span class="material-symbols-outlined text-primary text-[18px]">bookmark_add</span>
+              <div class="text-left">
+                <div class="font-label-sm text-label-sm font-bold text-on-surface">SAVE PRESET</div>
+                <div class="font-body-sm text-[10px] text-on-surface-variant leading-none" id="savePresetSub">Tap slot to store</div>
+              </div>
+            </div>
+            <div class="w-8 h-4 rounded-full bg-surface-container-highest flex items-center p-0.5 transition-colors" id="savePresetPill">
+              <div class="w-3 h-3 rounded-full bg-outline transition-transform" id="savePresetKnob"></div>
+            </div>
+          </button>
+
+          <button type="button" class="flex items-center justify-between px-space-sm py-2 bg-surface rounded-lg shadow-sm active:scale-98 transition-all select-none" id="setThumbBtn" title="Tap to capture on slot click, or Hold to auto-recall & capture all visible presets">
+            <div class="flex items-center gap-1.5 min-w-0">
+              <span class="material-symbols-outlined text-secondary text-[18px]">add_a_photo</span>
+              <div class="text-left">
+                <div class="font-label-sm text-label-sm font-bold text-on-surface">THUMB CAPTURE</div>
+                <div class="font-body-sm text-[10px] text-on-surface-variant leading-none" id="thumbCaptureSub">Tap or hold for auto</div>
+              </div>
+            </div>
+            <div class="w-8 h-4 rounded-full bg-surface-container-highest flex items-center p-0.5 transition-colors" id="thumbPill">
+              <div class="w-3 h-3 rounded-full bg-outline transition-transform" id="thumbKnob"></div>
+            </div>
+          </button>
+        </div>
+
+        <!-- Numerical Preset Slot Input & Display Mode -->
+        <div class="flex items-center gap-space-xs pt-1">
+          <div class="flex-1 bg-surface rounded-lg px-space-sm py-1.5 flex items-center gap-space-xs shadow-sm">
+            <span class="material-symbols-outlined text-on-surface-variant text-[16px]">list_alt</span>
+            <label class="font-label-sm text-label-sm text-on-surface-variant uppercase" for="presetRangeInput">Visible:</label>
+            <input class="font-label-sm text-label-sm text-primary font-bold bg-transparent outline-none flex-1 tracking-wider" id="presetRangeInput" type="text" value="1, 2, 3, 4, 5, 6" onchange="renderCameraPresets()" oninput="renderCameraPresets()">
+          </div>
+          <div class="flex bg-surface-container-highest rounded-lg p-0.5">
+            <button type="button" class="preset-view-mode-btn px-2 py-1 rounded font-label-sm text-[10px] uppercase font-bold bg-surface text-primary shadow-sm" data-mode="name" onclick="setPresetViewMode('name')">Name</button>
+            <button type="button" class="preset-view-mode-btn px-2 py-1 rounded font-label-sm text-[10px] uppercase text-on-surface-variant" data-mode="number" onclick="setPresetViewMode('number')">Num</button>
+            <button type="button" class="preset-view-mode-btn px-2 py-1 rounded font-label-sm text-[10px] uppercase text-on-surface-variant" data-mode="thumb" onclick="setPresetViewMode('thumb')">Thumb</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cam 01 Presets Bank -->
+      <div class="bg-surface-container-low rounded-xl p-space-sm shadow-sm border border-outline-variant/30 flex flex-col gap-space-xs" id="cam1-presets-section">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-space-xs">
+            <span class="material-symbols-outlined text-primary text-[18px]">linked_camera</span>
+            <span class="font-label-md text-label-md text-on-surface font-bold tracking-tight">CAM 01 PRESETS</span>
+            <span class="font-label-sm text-label-sm text-on-surface-variant">(Stage Left PTZ)</span>
+          </div>
+          <span class="font-label-sm text-[10px] text-primary font-semibold" id="cam1-sf-badge">SmartFrame: OFF</span>
+        </div>
+        <div class="grid grid-cols-3 gap-space-xs pt-1" id="cam1-presets-grid"></div>
+      </div>
+
+      <!-- Cam 02 Presets Bank -->
+      <div class="bg-surface-container-low rounded-xl p-space-sm shadow-sm border border-outline-variant/30 flex flex-col gap-space-xs" id="cam2-presets-section">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-space-xs">
+            <span class="material-symbols-outlined text-secondary text-[18px]">photo_camera</span>
+            <span class="font-label-md text-label-md text-on-surface font-bold tracking-tight">CAM 02 PRESETS</span>
+            <span class="font-label-sm text-label-sm text-on-surface-variant">(Pulpit / Altar)</span>
+          </div>
+          <span class="font-label-sm text-[10px] text-secondary font-semibold" id="cam2-sf-badge">SmartFrame: OFF</span>
+        </div>
+        <div class="grid grid-cols-3 gap-space-xs pt-1" id="cam2-presets-grid"></div>
+      </div>
+
+      <!-- Shared D-Pad Controller & Zoom / Focus Console -->
+      <div class="bg-surface-container rounded-xl p-space-sm shadow-sm border border-outline-variant/30 flex flex-col gap-space-sm">
+        <div class="flex items-center justify-between pb-1">
+          <div class="flex items-center gap-space-xs">
+            <span class="material-symbols-outlined text-primary text-[20px]">gamepad</span>
+            <span class="font-label-md text-label-md text-on-surface font-bold uppercase tracking-wider">PTZ Movement &amp; Optics</span>
+          </div>
+          <div class="px-2 py-0.5 rounded bg-primary-fixed text-on-primary-fixed font-label-sm text-label-sm font-bold uppercase" id="target-indicator">TARGET: CAM 01 (STAGE LEFT)</div>
+        </div>
+
+        <div class="grid grid-cols-12 gap-space-sm items-center">
+          <!-- Tactile Hardware D-Pad (7 cols) -->
+          <div class="col-span-7 flex flex-col items-center justify-center p-2 bg-surface-container-low rounded-xl">
+            <div class="relative w-36 h-36 flex items-center justify-center">
+              <!-- UP -->
+              <button type="button" class="absolute top-0 w-11 h-11 rounded-lg bg-surface-container-highest hover:bg-primary hover:text-on-primary text-on-surface shadow-xs active:scale-95 flex items-center justify-center transition-all" onclick="sendPTZMove('up')">
+                <span class="material-symbols-outlined text-[24px]">keyboard_arrow_up</span>
+              </button>
+              <!-- DOWN -->
+              <button type="button" class="absolute bottom-0 w-11 h-11 rounded-lg bg-surface-container-highest hover:bg-primary hover:text-on-primary text-on-surface shadow-xs active:scale-95 flex items-center justify-center transition-all" onclick="sendPTZMove('down')">
+                <span class="material-symbols-outlined text-[24px]">keyboard_arrow_down</span>
+              </button>
+              <!-- LEFT -->
+              <button type="button" class="absolute left-0 w-11 h-11 rounded-lg bg-surface-container-highest hover:bg-primary hover:text-on-primary text-on-surface shadow-xs active:scale-95 flex items-center justify-center transition-all" onclick="sendPTZMove('left')">
+                <span class="material-symbols-outlined text-[24px]">keyboard_arrow_left</span>
+              </button>
+              <!-- RIGHT -->
+              <button type="button" class="absolute right-0 w-11 h-11 rounded-lg bg-surface-container-highest hover:bg-primary hover:text-on-primary text-on-surface shadow-xs active:scale-95 flex items-center justify-center transition-all" onclick="sendPTZMove('right')">
+                <span class="material-symbols-outlined text-[24px]">keyboard_arrow_right</span>
+              </button>
+              <!-- HOME (Center) -->
+              <button type="button" class="w-12 h-12 rounded-full bg-primary-container text-on-primary hover:bg-primary shadow-sm active:scale-90 flex flex-col items-center justify-center transition-all" onclick="sendPTZMove('home')">
+                <span class="material-symbols-outlined text-[18px]">home</span>
+                <span class="font-label-sm text-[9px] uppercase tracking-tighter leading-none">HOME</span>
+              </button>
+            </div>
+            <!-- Pan/Tilt Speed Attenuator -->
+            <div class="w-full flex items-center justify-between pt-2 px-1">
+              <span class="font-label-sm text-label-sm text-on-surface-variant uppercase" id="ptz-speed-label">SPD 12 (0x0C)</span>
+              <div class="flex items-center gap-1">
+                <button type="button" onclick="adjustPtzSpeed(-2)" class="w-5 h-5 rounded bg-surface-container-highest text-on-surface flex items-center justify-center text-xs font-bold active:scale-90">-</button>
+                <div class="w-12 h-1.5 rounded-full bg-surface-container-highest overflow-hidden">
+                  <div class="h-full bg-primary transition-all" id="ptz-speed-bar" style="width: 50%"></div>
+                </div>
+                <button type="button" onclick="adjustPtzSpeed(2)" class="w-5 h-5 rounded bg-surface-container-highest text-on-surface flex items-center justify-center text-xs font-bold active:scale-90">+</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Zoom & SmartFrame/Focus Control Ribbons (5 cols) -->
+          <div class="col-span-5 flex flex-col gap-space-xs">
+            <!-- Zoom Bank -->
+            <div class="bg-surface-container-low rounded-xl p-space-xs flex flex-col gap-1">
+              <div class="flex items-center justify-between">
+                <span class="font-label-sm text-label-sm text-on-surface-variant font-semibold">ZOOM</span>
+                <span class="font-label-sm text-label-sm text-primary font-bold">OPTICAL</span>
+              </div>
+              <div class="grid grid-cols-2 gap-1">
+                <button type="button" class="h-10 rounded-lg bg-surface-container-highest hover:bg-primary hover:text-on-primary text-on-surface font-label-md text-label-md font-bold flex items-center justify-center gap-1 active:scale-95 transition-all" onclick="sendPTZZoom('in')">
+                  <span class="material-symbols-outlined text-[16px]">zoom_in</span> IN
+                </button>
+                <button type="button" class="h-10 rounded-lg bg-surface-container-highest hover:bg-primary hover:text-on-primary text-on-surface font-label-md text-label-md font-bold flex items-center justify-center gap-1 active:scale-95 transition-all" onclick="sendPTZZoom('out')">
+                  <span class="material-symbols-outlined text-[16px]">zoom_out</span> OUT
+                </button>
+              </div>
+            </div>
+
+            <!-- Focus & SmartFrame Bank -->
+            <div class="bg-surface-container-low rounded-xl p-space-xs flex flex-col gap-1">
+              <div class="flex items-center justify-between">
+                <span class="font-label-sm text-label-sm text-on-surface-variant font-semibold">AI / FOCUS</span>
+                <button type="button" onclick="sendSmartFrame('trigger')" class="px-1.5 py-0.5 rounded bg-primary-fixed text-on-primary-fixed font-label-sm text-[9px] font-bold uppercase">SMART TRIG</button>
+              </div>
+              <div class="grid grid-cols-2 gap-1">
+                <button type="button" class="h-10 rounded-lg bg-surface-container-highest hover:bg-primary hover:text-on-primary text-on-surface font-label-md text-[10px] font-semibold flex items-center justify-center text-center leading-tight active:scale-95 transition-all" onclick="sendSmartFrame('enable')">
+                  AI ON
+                </button>
+                <button type="button" class="h-10 rounded-lg bg-surface-container-highest hover:bg-primary hover:text-on-primary text-on-surface font-label-md text-[10px] font-semibold flex items-center justify-center text-center leading-tight active:scale-95 transition-all" onclick="sendSmartFrame('disable')">
+                  AI OFF
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 4: PIPGM RENDERER (STUB ONLY — as requested)                    -->
+    <!-- =================================================================== -->
+    <section id="tab-renderer" class="tab-panel w-full px-margin pb-6 gap-space-md pt-4">
+      <div class="p-space-lg rounded-xl bg-surface-container-low border border-outline-variant/40 shadow-sm flex flex-col items-center justify-center text-center gap-space-sm">
+        <div class="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+          <span class="material-symbols-outlined text-[26px]">layers</span>
+        </div>
+        <h2 class="font-headline-sm text-headline-sm font-bold text-on-surface">PiPGM Renderer</h2>
+        <p class="font-body-md text-body-md text-on-surface-variant max-w-md">
+          PiPGM renderer tab stub. Use the <strong>Outputs</strong> tab to route <code>pipgm 1</code> or <code>pipgm 2</code> to Pi 1 / Pi 2 outputs and control input-specific FTB and audio mute.
+        </p>
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm uppercase">
+          <span class="w-2 h-2 rounded-full bg-primary"></span>
+          STUB PLACEHOLDER
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- =================================================================== -->
+  <!-- AUXILIARY FEEDS MODAL (<dialog closedby="any"> per modern-web-guidance) -->
+  <!-- =================================================================== -->
+  <dialog id="aux-modal-overlay" closedby="any" aria-labelledby="aux-dialog-title" class="broadcast-dialog">
+    <div class="bg-surface-container-low rounded-2xl w-full p-4 shadow-xl border border-outline-variant/40 space-y-3">
+      <div class="flex items-center justify-between pb-2 border-b border-outline-variant/30">
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+            <span class="material-symbols-outlined text-[18px]">tune</span>
+          </div>
+          <div>
+            <h4 class="font-headline-sm text-[15px] font-bold text-on-surface leading-none" id="aux-dialog-title">Auxiliary Feeds Modal</h4>
+            <span class="font-label-sm text-[10px] text-on-surface-variant uppercase" id="aux-target-label">Assigning to Pi 1 (hdmi 0)</span>
+          </div>
+        </div>
+        <button type="button" class="w-7 h-7 rounded-full bg-surface-container-high hover:bg-surface-container-highest text-on-surface flex items-center justify-center" onclick="closeAuxModal()">
+          <span class="material-symbols-outlined text-[16px]">close</span>
+        </button>
+      </div>
+      <p class="font-body-sm text-[12px] text-on-surface-variant">Select a camera or multiview pipeline to route to this hardware output bus:</p>
+      <div class="grid grid-cols-2 gap-2">
+        <button type="button" class="h-11 rounded-lg bg-surface-container-high hover:bg-primary-container hover:text-on-primary transition-all flex items-center justify-center gap-1.5 font-label-md text-label-md uppercase font-semibold text-on-surface" onclick="confirmAuxPick('cam1')">
+          <span class="material-symbols-outlined text-[16px]">videocam</span>
+          <span>cam1</span>
+        </button>
+        <button type="button" class="h-11 rounded-lg bg-surface-container-high hover:bg-primary-container hover:text-on-primary transition-all flex items-center justify-center gap-1.5 font-label-md text-label-md uppercase font-semibold text-on-surface" onclick="confirmAuxPick('cam2')">
+          <span class="material-symbols-outlined text-[16px]">videocam</span>
+          <span>cam2</span>
+        </button>
+        <button type="button" class="h-11 rounded-lg bg-surface-container-high hover:bg-primary-container hover:text-on-primary transition-all flex items-center justify-center gap-1.5 font-label-md text-label-md uppercase font-semibold text-on-surface" onclick="confirmAuxPick('cam3')">
+          <span class="material-symbols-outlined text-[16px]">videocam</span>
+          <span>cam3</span>
+        </button>
+        <button type="button" class="h-11 rounded-lg bg-surface-container-high hover:bg-primary-container hover:text-on-primary transition-all flex flex-col items-center justify-center p-1 text-on-surface" onclick="confirmAuxPick('multiview', 'landscape')">
+          <div class="flex items-center gap-1 font-label-md text-[11px] uppercase font-bold">
+            <span class="material-symbols-outlined text-[14px]">grid_view</span>
+            <span>Multiview</span>
+          </div>
+          <span class="text-[9px] font-label-sm opacity-80 uppercase">4x2 Landscape</span>
+        </button>
+      </div>
+      <div class="pt-1 flex flex-col gap-1.5">
+        <button type="button" class="w-full h-9 rounded-lg bg-surface-container hover:bg-surface-container-high border border-outline-variant/30 text-on-surface font-label-sm text-[11px] uppercase font-semibold flex items-center justify-center gap-1.5" onclick="confirmAuxPick('multiview', 'portrait')">
+          <span class="material-symbols-outlined text-[14px]">view_week</span>
+          <span>Multiview 2x4 Vertical Orientation</span>
+        </button>
+        <button type="button" class="w-full h-8 rounded-lg bg-surface-container-highest/60 hover:bg-error-container hover:text-on-error-container text-on-surface-variant font-label-sm text-[10px] uppercase font-semibold flex items-center justify-center gap-1" onclick="confirmAuxPick(null)">
+          <span class="material-symbols-outlined text-[13px]">link_off</span>
+          <span>Unroute / Clear Output</span>
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- =================================================================== -->
+  <!-- RTSP ASSIGNMENT & QUALITY MODAL (<dialog closedby="any">)            -->
+  <!-- Opened by long-holding the Network Stream Out card or button        -->
+  <!-- =================================================================== -->
+  <dialog id="rtsp-modal-overlay" closedby="any" aria-labelledby="rtsp-dialog-title" class="broadcast-dialog">
+    <div class="bg-surface-container-low rounded-2xl w-full p-4 shadow-xl border border-outline-variant/40 space-y-3">
+      <div class="flex items-center justify-between pb-2 border-b border-outline-variant/30">
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+            <span class="material-symbols-outlined text-[18px]">podcasts</span>
+          </div>
+          <div>
+            <h4 class="font-headline-sm text-[15px] font-bold text-on-surface leading-none" id="rtsp-dialog-title">Network Stream Out Assignment</h4>
+            <span class="font-label-sm text-[10px] text-on-surface-variant uppercase">Source, Resolution &amp; Bitrate</span>
+          </div>
+        </div>
+        <button type="button" class="w-7 h-7 rounded-full bg-surface-container-high hover:bg-surface-container-highest text-on-surface flex items-center justify-center" onclick="closeRtspModal()">
+          <span class="material-symbols-outlined text-[16px]">close</span>
+        </button>
+      </div>
+
+      <!-- Source Assignment Grid -->
+      <div class="space-y-1.5">
+        <span class="font-label-sm text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">1. Select Input Source</span>
+        <div class="grid grid-cols-3 gap-1.5">
+          <button type="button" data-rtsp="hama" class="rtsp-choice-btn h-8 rounded-lg bg-surface-container-highest hover:bg-primary/20 text-on-surface font-label-md text-[11px] uppercase font-semibold transition-all shadow-xs" onclick="assignRtsp('hama')">hama</button>
+          <button type="button" data-rtsp="rtmp1" class="rtsp-choice-btn h-8 rounded-lg bg-primary text-on-primary font-label-md text-[11px] uppercase font-bold transition-all shadow-sm" onclick="assignRtsp('rtmp1')">rtmp1</button>
+          <button type="button" data-rtsp="rtmp2" class="rtsp-choice-btn h-8 rounded-lg bg-surface-container-highest hover:bg-primary/20 text-on-surface font-label-md text-[11px] uppercase font-semibold transition-all shadow-xs" onclick="assignRtsp('rtmp2')">rtmp2</button>
+          <button type="button" data-rtsp="PiPGM1" class="rtsp-choice-btn h-8 rounded-lg bg-surface-container-highest hover:bg-primary/20 text-on-surface font-label-md text-[11px] uppercase font-semibold transition-all shadow-xs" onclick="assignRtsp('PiPGM1')">pipgm 1</button>
+          <button type="button" data-rtsp="PiPGM2" class="rtsp-choice-btn h-8 rounded-lg bg-surface-container-highest hover:bg-primary/20 text-on-surface font-label-md text-[11px] uppercase font-semibold transition-all shadow-xs" onclick="assignRtsp('PiPGM2')">pipgm 2</button>
+          <button type="button" data-rtsp="cam1" class="rtsp-choice-btn h-8 rounded-lg bg-surface-container-highest hover:bg-primary/20 text-on-surface font-label-md text-[11px] uppercase font-semibold transition-all shadow-xs" onclick="assignRtsp('cam1')">cam1</button>
+          <button type="button" data-rtsp="cam2" class="rtsp-choice-btn h-8 rounded-lg bg-surface-container-highest hover:bg-primary/20 text-on-surface font-label-md text-[11px] uppercase font-semibold transition-all shadow-xs" onclick="assignRtsp('cam2')">cam2</button>
+          <button type="button" data-rtsp="cam3" class="rtsp-choice-btn h-8 rounded-lg bg-surface-container-highest hover:bg-primary/20 text-on-surface font-label-md text-[11px] uppercase font-semibold transition-all shadow-xs" onclick="assignRtsp('cam3')">cam3</button>
+          <div class="flex gap-1 col-span-1">
+            <button type="button" data-rtsp="multiview:landscape" class="rtsp-choice-btn flex-1 h-8 rounded-lg bg-surface-container-highest hover:bg-primary/20 text-on-surface font-label-sm text-[9px] uppercase font-semibold transition-all flex flex-col items-center justify-center leading-none p-0.5" onclick="assignRtsp('multiview', 'landscape')">
+              <span>MV</span>
+              <span class="text-primary font-bold">4x2</span>
+            </button>
+            <button type="button" data-rtsp="multiview:portrait" class="rtsp-choice-btn flex-1 h-8 rounded-lg bg-surface-container-highest hover:bg-primary/20 text-on-surface font-label-sm text-[9px] uppercase font-semibold transition-all flex flex-col items-center justify-center leading-none p-0.5" onclick="assignRtsp('multiview', 'portrait')">
+              <span>MV</span>
+              <span class="text-secondary font-bold">2x4</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Preview vs. Full Resolution / Bitrate Settings -->
+      <div class="space-y-2 pt-2 border-t border-outline-variant/30">
+        <span class="font-label-sm text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">2. Stream Profile (Preview vs. Full Resolution)</span>
+        <div class="grid grid-cols-2 gap-2">
+          <button type="button" id="rtsp-profile-preview" onclick="setRtspQualityProfile('preview')" class="p-2 rounded-lg border border-outline-variant/40 bg-surface-container-high text-left flex flex-col gap-0.5 transition-all">
+            <span class="font-label-md text-[11px] font-bold uppercase">Preview Stream</span>
+            <span class="font-label-sm text-[9px] opacity-80">640x360 • 800 kbps (Low BW)</span>
+          </button>
+          <button type="button" id="rtsp-profile-full" onclick="setRtspQualityProfile('full')" class="p-2 rounded-lg border border-primary bg-primary text-on-primary text-left flex flex-col gap-0.5 transition-all">
+            <span class="font-label-md text-[11px] font-bold uppercase">Full Resolution</span>
+            <span class="font-label-sm text-[9px] opacity-90">1920x1080 • 6200 kbps</span>
+          </button>
+        </div>
+
+        <!-- Granular Resolution & Bitrate Controls -->
+        <div class="grid grid-cols-2 gap-2 pt-1">
+          <div class="flex flex-col gap-1">
+            <label for="rtsp-resolution-select" class="font-label-sm text-[9px] uppercase text-on-surface-variant">Resolution</label>
+            <select id="rtsp-resolution-select" onchange="updateRtspCustomQuality()" class="h-8 px-2 rounded-lg bg-surface border border-outline-variant/40 font-label-sm text-[11px] text-on-surface">
+              <option value="640x360">640x360 (360p PVW)</option>
+              <option value="1280x720">1280x720 (720p HD)</option>
+              <option value="1920x1080" selected>1920x1080 (1080p FHD)</option>
+            </select>
+          </div>
+          <div class="flex flex-col gap-1">
+            <label for="rtsp-bitrate-select" class="font-label-sm text-[9px] uppercase text-on-surface-variant">Bitrate (kbps)</label>
+            <select id="rtsp-bitrate-select" onchange="updateRtspCustomQuality()" class="h-8 px-2 rounded-lg bg-surface border border-outline-variant/40 font-label-sm text-[11px] text-on-surface">
+              <option value="500">500 kbps (Ultra Low)</option>
+              <option value="800">800 kbps (Preview)</option>
+              <option value="2500">2500 kbps (Medium HD)</option>
+              <option value="6200" selected>6200 kbps (Full Broadcast)</option>
+              <option value="10000">10000 kbps (High Master)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="pt-1 flex justify-end">
+        <button type="button" onclick="closeRtspModal()" class="px-4 py-1.5 rounded-lg bg-primary text-on-primary font-label-sm text-[11px] font-bold uppercase">Done</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- TOAST NOTIFICATION -->
+  <div class="fixed bottom-20 left-1/2 -translate-x-1/2 bg-inverse-surface text-inverse-on-surface px-4 py-2 rounded-full font-label-md text-label-md shadow-xl pointer-events-none transition-all duration-200 z-50 flex items-center gap-2 opacity-0 translate-y-2" id="toast">
+    <span class="material-symbols-outlined text-[16px] text-primary-fixed-dim">verified</span>
+    <span id="toast-text">Ready</span>
+  </div>
+
+  <!-- BOTTOM FIXED NAVIGATION BAR -->
+  <nav class="fixed bottom-0 w-full z-40 pb-safe bg-surface-container-low/95 backdrop-blur-xl shadow-[0_-2px_10px_rgba(0,0,0,0.05)] border-t border-outline-variant/25">
+    <div class="flex items-center justify-around h-16 px-space-xs max-w-2xl mx-auto">
+      <a href="#outputs" id="nav-outputs" onclick="switchTab('outputs'); return false;" class="flex flex-col items-center justify-center min-w-[72px] h-11 px-space-xs rounded-lg transition-all">
+        <span class="material-symbols-outlined text-[20px]">settings_input_hdmi</span>
+        <span class="font-label-sm text-label-sm uppercase tracking-wider">Outputs</span>
+      </a>
+      <a href="#inputs" id="nav-inputs" onclick="switchTab('inputs'); return false;" class="flex flex-col items-center justify-center min-w-[72px] h-11 px-space-xs rounded-lg transition-all">
+        <span class="material-symbols-outlined text-[20px]">router</span>
+        <span class="font-label-sm text-label-sm uppercase tracking-wider">Inputs</span>
+      </a>
+      <a href="#cameras" id="nav-cameras" onclick="switchTab('cameras'); return false;" class="flex flex-col items-center justify-center min-w-[72px] h-11 px-space-xs rounded-lg transition-all">
+        <span class="material-symbols-outlined text-[20px]">videocam</span>
+        <span class="font-label-sm text-label-sm uppercase tracking-wider">Cameras</span>
+      </a>
+      <a href="#renderer" id="nav-renderer" onclick="switchTab('renderer'); return false;" class="flex flex-col items-center justify-center min-w-[72px] h-11 px-space-xs rounded-lg transition-all">
+        <span class="material-symbols-outlined text-[20px]">layers</span>
+        <span class="font-label-sm text-label-sm uppercase tracking-wider">Renderer</span>
+      </a>
+    </div>
+  </nav>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

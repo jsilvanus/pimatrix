@@ -167,6 +167,28 @@ export class CameraService {
     return snapshot;
   }
 
+  async savePresetThumbnail(id: string, presetId: number, thumbnail: string): Promise<CameraSnapshot> {
+    const cam = this.cameras.get(id);
+    if (!cam) {
+      throw new Error(`Camera '${id}' not found`);
+    }
+
+    await cam.savePresetThumbnail(presetId, thumbnail);
+    const snapshot = cam.getSnapshot();
+
+    this.eventBroker?.emit({
+      type: "camera",
+      data: {
+        id,
+        action: "preset:thumbnail",
+        presetId,
+        position: snapshot.position
+      }
+    });
+
+    return snapshot;
+  }
+
   async setSmartFrame(id: string, mode: SmartFrameMode): Promise<CameraSnapshot> {
     const cam = this.cameras.get(id);
     if (!cam) {
