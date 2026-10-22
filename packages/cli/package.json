@@ -14,7 +14,7 @@
     "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
-    "@pimatrix/api-client": "0.1.0"
+    "@pimatrix/api-client": "*"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",
