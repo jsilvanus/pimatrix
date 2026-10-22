@@ -187,7 +187,7 @@ export function getSources(
       const live = readyMediaPaths.has(source.id);
       return {
         id: source.id,
-        label: source.label,
+        label: source.label as string,
         kind: source.kind,
         hidden: source.defaultHidden && !options.unhiddenIds?.has(source.id),
         state: (live ? "live" : "unavailable") as SourceState,
