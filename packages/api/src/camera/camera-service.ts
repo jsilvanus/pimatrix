@@ -12,9 +12,11 @@ export interface CameraServiceOptions {
   mode: "simulation" | "production";
   eventBroker?: PiMatrixEventBroker | undefined;
   logger?: FastifyBaseLogger | undefined;
+  cam1Name?: string | undefined;
   cam1Host?: string | undefined;
   cam1ViscaPort?: number | undefined;
   cam1CgiPort?: number | undefined;
+  cam2Name?: string | undefined;
   cam2Host?: string | undefined;
   cam2ViscaPort?: number | undefined;
   cam2CgiPort?: number | undefined;
@@ -31,12 +33,15 @@ export class CameraService {
     this.eventBroker = options.eventBroker;
     this.logger = options.logger;
 
+    const cam1Label = options.cam1Name?.trim() || "Camera 1";
+    const cam2Label = options.cam2Name?.trim() || "Camera 2";
+
     if (options.mode === "production" && options.cam1Host) {
       this.cameras.set(
         "cam1",
         new UdpViscaCameraAdapter({
           id: "cam1",
-          label: "Camera 1",
+          label: cam1Label,
           host: options.cam1Host,
           viscaPort: options.cam1ViscaPort,
           cgiPort: options.cam1CgiPort,
@@ -46,7 +51,7 @@ export class CameraService {
         })
       );
     } else {
-      this.cameras.set("cam1", new SimulatedCameraAdapter("cam1", "Camera 1"));
+      this.cameras.set("cam1", new SimulatedCameraAdapter("cam1", cam1Label));
     }
 
     if (options.mode === "production" && options.cam2Host) {
@@ -54,7 +59,7 @@ export class CameraService {
         "cam2",
         new UdpViscaCameraAdapter({
           id: "cam2",
-          label: "Camera 2",
+          label: cam2Label,
           host: options.cam2Host,
           viscaPort: options.cam2ViscaPort,
           cgiPort: options.cam2CgiPort,
@@ -64,7 +69,7 @@ export class CameraService {
         })
       );
     } else {
-      this.cameras.set("cam2", new SimulatedCameraAdapter("cam2", "Camera 2"));
+      this.cameras.set("cam2", new SimulatedCameraAdapter("cam2", cam2Label));
     }
   }
 

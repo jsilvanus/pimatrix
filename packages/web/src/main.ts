@@ -18,6 +18,8 @@ const AUX_CAMERA_SOURCE_LIST: SourceId[] = ["cam1", "cam2", "cam3"];
 // NOTE: Future `hama2` source will be added alongside `hama` so we can route uncropped `hama`
 // to one destination and cropped `hama2` to another output independently.
 
+const viteEnv = (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {};
+
 const SOURCE_LABELS: Record<string, string> = {
   hama: "hama",
   // hama2: "hama 2 (crop)", // Planned duplicate Hama capture pipeline
@@ -26,11 +28,41 @@ const SOURCE_LABELS: Record<string, string> = {
   PiPGM1: "pipgm 1",
   PiPGM2: "pipgm 2",
   PiPGM3: "pipgm 3",
-  cam1: "cam1",
-  cam2: "cam2",
-  cam3: "cam3",
+  cam1: viteEnv.VITE_CAM1_NAME?.trim() || "cam1",
+  cam2: viteEnv.VITE_CAM2_NAME?.trim() || "cam2",
+  cam3: viteEnv.VITE_CAM3_NAME?.trim() || "cam3",
   multiview: "multiview"
 };
+
+function getCameraDisplayName(camId: "cam1" | "cam2" | "cam3"): string {
+  const fromCam = camerasMap.get(camId)?.label?.trim();
+  if (fromCam) return fromCam;
+  const fromSrc = sourcesMap.get(camId)?.label?.trim();
+  if (fromSrc) return fromSrc;
+  const envVal =
+    camId === "cam1"
+      ? viteEnv.VITE_CAM1_NAME
+      : camId === "cam2"
+        ? viteEnv.VITE_CAM2_NAME
+        : viteEnv.VITE_CAM3_NAME;
+  if (envVal?.trim()) return envVal.trim();
+  return camId === "cam1" ? "Camera 1" : camId === "cam2" ? "Camera 2" : "Camera 3";
+}
+
+function syncCameraLabelsFromEnvAndBackend(): void {
+  for (const camId of ["cam1", "cam2", "cam3"] as const) {
+    const label = getCameraDisplayName(camId);
+    // If custom env name was provided (not default "Camera N"), use it in SOURCE_LABELS too
+    const defaultLabel = camId === "cam1" ? "Camera 1" : camId === "cam2" ? "Camera 2" : "Camera 3";
+    if (label && label !== defaultLabel) {
+      SOURCE_LABELS[camId] = label;
+    }
+    const rtspBtn = document.querySelector<HTMLButtonElement>(`.rtsp-choice-btn[data-rtsp="${camId}"]`);
+    if (rtspBtn) {
+      rtspBtn.textContent = SOURCE_LABELS[camId] || camId;
+    }
+  }
+}
 
 const MATRIX_INPUT_NAMES: Record<number, string> = {
   1: "LECTERN",
@@ -1357,8 +1389,9 @@ function renderCameraFeedViewport(camId: "cam1" | "cam2", idx: 1 | 2): void {
   if (isReceiving && previewUrl) {
     feedBox.innerHTML = `<iframe src="${previewUrl}" class="w-full h-full border-0 pointer-events-none" allow="autoplay; fullscreen"></iframe>`;
   } else {
-    const imgUrl = buildNotConnectedDataUrl(idx === 1 ? "CAM 01" : "CAM 02");
-    feedBox.innerHTML = `<img src="${imgUrl}" alt="CAM 0${idx} Not Connected" class="w-full h-full object-cover"/>`;
+    const camTitle = getCameraDisplayName(camId).toUpperCase();
+    const imgUrl = buildNotConnectedDataUrl(camTitle);
+    feedBox.innerHTML = `<img src="${imgUrl}" alt="${camTitle} Not Connected" class="w-full h-full object-cover"/>`;
   }
 }
 
@@ -1369,6 +1402,10 @@ function renderCamerasTab(): void {
   const glow2 = document.getElementById("cam-glow-2");
   const badge1 = document.getElementById("cam-badge-1");
   const badge2 = document.getElementById("cam-badge-2");
+  const camName1El = document.getElementById("cam-name-1");
+  const camName2El = document.getElementById("cam-name-2");
+  const cam1PresetsLabel = document.getElementById("cam1-presets-label");
+  const cam2PresetsLabel = document.getElementById("cam2-presets-label");
   const targetInd = document.getElementById("target-indicator");
   const paramTitle = document.getElementById("param-matrix-title");
   const viewModeLabel = document.getElementById("viewModeLabel");
@@ -1376,6 +1413,13 @@ function renderCamerasTab(): void {
   const expandedConfigPanel = document.getElementById("expandedConfigPanel");
   const cam1PresetsSection = document.getElementById("cam1-presets-section");
   const cam2PresetsSection = document.getElementById("cam2-presets-section");
+
+  const cam1Name = getCameraDisplayName("cam1");
+  const cam2Name = getCameraDisplayName("cam2");
+  if (camName1El) camName1El.textContent = cam1Name;
+  if (camName2El) camName2El.textContent = cam2Name;
+  if (cam1PresetsLabel) cam1PresetsLabel.textContent = `(${cam1Name})`;
+  if (cam2PresetsLabel) cam2PresetsLabel.textContent = `(${cam2Name})`;
 
   const isCam1 = selectedCameraId === "cam1";
   if (glow1) glow1.className = `h-1.5 w-full transition-colors ${isCam1 ? "bg-primary" : "bg-surface-variant"}`;
@@ -1391,11 +1435,13 @@ function renderCamerasTab(): void {
 
   if (targetInd) {
     targetInd.textContent = isCam1
-      ? "TARGET: CAM 01 (STAGE LEFT)"
-      : "TARGET: CAM 02 (PULPIT / ALTAR)";
+      ? `TARGET: CAM 01 (${cam1Name.toUpperCase()})`
+      : `TARGET: CAM 02 (${cam2Name.toUpperCase()})`;
   }
   if (paramTitle) {
-    paramTitle.textContent = isCam1 ? "CAM 01 PARAMETER MATRIX" : "CAM 02 PARAMETER MATRIX";
+    paramTitle.textContent = isCam1
+      ? `CAM 01 (${cam1Name.toUpperCase()}) PARAMETER MATRIX`
+      : `CAM 02 (${cam2Name.toUpperCase()}) PARAMETER MATRIX`;
   }
 
   // Dual View vs. Single View visibility:
@@ -2134,6 +2180,7 @@ async function bootstrap(): Promise<void> {
   bindThumbCaptureButton();
 
   await fetchInitialFromApiIfNeeded();
+  syncCameraLabelsFromEnvAndBackend();
 
   switchTab(activeTab, false);
   renderOutputsTab();

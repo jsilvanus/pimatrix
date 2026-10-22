@@ -7,11 +7,27 @@ test("Vite-built Operator frontend routes render all updated Stitch screens and 
   const app = buildApp(
     loadConfig({
       PIMATRIX_MODE: "simulation",
-      PIMATRIX_DISPLAY_MODE: "simulated"
+      PIMATRIX_DISPLAY_MODE: "simulated",
+      PIMATRIX_CAM1_NAME: "Alttari PTZ",
+      PIMATRIX_CAM2_NAME: "Saarnastuoli PTZ",
+      PIMATRIX_CAM3_NAME: "Urut / Parvi"
     })
   );
 
   try {
+    const camsRes = await app.inject({ method: "GET", url: "/api/v1/cameras" });
+    assert.equal(camsRes.statusCode, 200);
+    const cams = camsRes.json().items as Array<{ id: string; label: string }>;
+    assert.equal(cams.find((c) => c.id === "cam1")?.label, "Alttari PTZ");
+    assert.equal(cams.find((c) => c.id === "cam2")?.label, "Saarnastuoli PTZ");
+
+    const srcsRes = await app.inject({ method: "GET", url: "/api/v1/sources" });
+    assert.equal(srcsRes.statusCode, 200);
+    const srcs = srcsRes.json().items as Array<{ id: string; label: string }>;
+    assert.equal(srcs.find((s) => s.id === "cam1")?.label, "Alttari PTZ");
+    assert.equal(srcs.find((s) => s.id === "cam2")?.label, "Saarnastuoli PTZ");
+    assert.equal(srcs.find((s) => s.id === "cam3")?.label, "Urut / Parvi");
+
     const rootRes = await app.inject({ method: "GET", url: "/" });
     assert.equal(rootRes.statusCode, 200);
     assert.ok(rootRes.headers["content-type"]?.includes("text/html"));

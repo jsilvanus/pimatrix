@@ -30,12 +30,15 @@ export interface AppConfig {
   amxMasterHost?: string;
   amxMasterPort: number;
   cameraMode: "simulated" | "hardware";
+  cam1Name: string;
   cam1Host?: string;
   cam1ViscaPort: number;
   cam1CgiPort: number;
+  cam2Name: string;
   cam2Host?: string;
   cam2ViscaPort: number;
   cam2CgiPort: number;
+  cam3Name: string;
   canvaApiBaseUrl?: string;
   canvaAccessToken?: string;
 }
@@ -125,12 +128,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('PIMATRIX_CAMERA_MODE must be "simulated" or "hardware"');
   }
   const cameraMode = rawCameraMode as "simulated" | "hardware";
+  const cam1Name = env.PIMATRIX_CAM1_NAME?.trim() || "Camera 1";
   const cam1Host = env.PIMATRIX_CAM1_HOST?.trim() || undefined;
   const cam1ViscaPort = validPort(env.PIMATRIX_CAM1_VISCA_PORT, 52381, "PIMATRIX_CAM1_VISCA_PORT");
   const cam1CgiPort = validPort(env.PIMATRIX_CAM1_CGI_PORT, 80, "PIMATRIX_CAM1_CGI_PORT");
+  const cam2Name = env.PIMATRIX_CAM2_NAME?.trim() || "Camera 2";
   const cam2Host = env.PIMATRIX_CAM2_HOST?.trim() || undefined;
   const cam2ViscaPort = validPort(env.PIMATRIX_CAM2_VISCA_PORT, 52381, "PIMATRIX_CAM2_VISCA_PORT");
   const cam2CgiPort = validPort(env.PIMATRIX_CAM2_CGI_PORT, 80, "PIMATRIX_CAM2_CGI_PORT");
+  const cam3Name = env.PIMATRIX_CAM3_NAME?.trim() || "Camera 3";
 
   const canvaAccessToken = env.CANVA_ACCESS_TOKEN?.trim() || undefined;
   const canvaApiBaseUrl =
@@ -174,10 +180,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(amxMasterHost ? { amxMasterHost } : {}),
     amxMasterPort,
     cameraMode,
+    cam1Name,
     cam1ViscaPort,
     cam1CgiPort,
+    cam2Name,
     cam2ViscaPort,
     cam2CgiPort,
+    cam3Name,
     ...(cam1Host ? { cam1Host } : {}),
     ...(cam2Host ? { cam2Host } : {}),
     ...(canvaApiBaseUrl ? { canvaApiBaseUrl } : {}),

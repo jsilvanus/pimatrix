@@ -95,9 +95,11 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     mode: config.mode,
     eventBroker,
     logger: app.log,
+    cam1Name: config.cam1Name,
     cam1Host: config.cam1Host,
     cam1ViscaPort: config.cam1ViscaPort,
     cam1CgiPort: config.cam1CgiPort,
+    cam2Name: config.cam2Name,
     cam2Host: config.cam2Host,
     cam2ViscaPort: config.cam2ViscaPort,
     cam2CgiPort: config.cam2CgiPort,
@@ -178,6 +180,18 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       includeHidden,
       unhiddenIds
     });
+
+    // Apply env-configured camera names (PIMATRIX_CAM1_NAME, PIMATRIX_CAM2_NAME, PIMATRIX_CAM3_NAME)
+    const camNameById: Record<string, string | undefined> = {
+      cam1: config.cam1Name,
+      cam2: config.cam2Name,
+      cam3: config.cam3Name
+    };
+    for (const item of items) {
+      if (camNameById[item.id]) {
+        item.label = camNameById[item.id]!;
+      }
+    }
 
     const capture = captureSupervisor.snapshot();
     const hama = items.find((source) => source.id === "hama");
