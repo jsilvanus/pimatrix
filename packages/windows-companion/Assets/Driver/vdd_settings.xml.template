@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<vdd_settings>
+  <monitors>
+    <count>2</count>
+  </monitors>
+  <global>
+    <g_refresh_rate>60</g_refresh_rate>
+    <g_refresh_rate>50</g_refresh_rate>
+    <g_refresh_rate>30</g_refresh_rate>
+  </global>
+  <resolutions>
+    <!-- Standard Full HD 16:9 -->
+    <resolution width="1920" height="1080" refresh_rate="60" />
+    <resolution width="1920" height="1080" refresh_rate="50" />
+    <!-- Standard HD 720p -->
+    <resolution width="1280" height="720" refresh_rate="60" />
+    <!-- Standard 16:10 -->
+    <resolution width="1920" height="1200" refresh_rate="60" />
+    <!-- Standard 4:3 -->
+    <resolution width="1024" height="768" refresh_rate="60" />
+    <!-- LED Matrix Banner Formats -->
+    <resolution width="1920" height="540" refresh_rate="60" />
+    <resolution width="1024" height="256" refresh_rate="60" />
+    <resolution width="1280" height="480" refresh_rate="60" />
+    <resolution width="384" height="192" refresh_rate="60" />
+  </resolutions>
+</vdd_settings>
