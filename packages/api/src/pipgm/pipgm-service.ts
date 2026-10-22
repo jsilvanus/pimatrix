@@ -5,7 +5,9 @@ import {
   createCanvaItemData,
   runCanvaConnectExport,
   type CanvaConnectConfig,
-  type CanvaPluginPushInput
+  type CanvaPluginPushInput,
+  type CanvaControlRequest,
+  type CanvaControlResult
 } from "./canva-adapter.js";
 import {
   buildHymnSteps,
@@ -17,6 +19,7 @@ import {
   type HymnItemData,
   type HymnStanza,
   type PiPgmAsset,
+  type PiPgmResolution,
   type PiPgmControlRequest,
   type PiPgmItem,
   type PiPgmMobileAlert,
@@ -34,6 +37,7 @@ interface PipelineInternalState {
   label: string;
   hidden: boolean;
   orientation: PiPgmOrientation;
+  resolution?: PiPgmResolution;
   fadeToBlack: boolean;
   fadeDurationMs: number;
   audioEnabled: boolean;
@@ -125,6 +129,7 @@ export class PiPgmService {
         label: def.label,
         hidden: def.defaultHidden,
         orientation: def.defaultOrientation,
+        resolution: getResolutionForOrientation(def.defaultOrientation),
         fadeToBlack: false,
         fadeDurationMs: 500,
         audioEnabled: false, // Muted by default ("usually we work muted, but sometimes sound is required")
@@ -196,6 +201,7 @@ export class PiPgmService {
     pipelineId: string,
     patch: {
       orientation?: PiPgmOrientation;
+      resolution?: PiPgmResolution;
       hidden?: boolean;
       linked?: boolean;
       fadeDurationMs?: number;
@@ -204,8 +210,12 @@ export class PiPgmService {
     const state = this.pipelines.get(pipelineId as PiPgmPipelineId);
     if (!state) return undefined;
 
-    if (patch.orientation !== undefined) {
+    if (patch.resolution !== undefined) {
+      state.resolution = patch.resolution;
+      state.orientation = patch.resolution.height >= patch.resolution.width ? "portrait" : "landscape";
+    } else if (patch.orientation !== undefined) {
       state.orientation = patch.orientation;
+      state.resolution = getResolutionForOrientation(patch.orientation);
     }
     if (patch.hidden !== undefined) {
       state.hidden = patch.hidden;
@@ -683,6 +693,123 @@ export class PiPgmService {
     return structuredClone(item);
   }
 
+
+  controlCanvaPresentation(request: CanvaControlRequest): CanvaControlResult {
+    const targetIds: PiPgmPipelineId[] = [];
+
+    if (request.targetPipelineId === "all") {
+      targetIds.push("PiPGM1", "PiPGM2", "PiPGM3");
+    } else if (request.targetPipelineId && this.isValidPipelineId(request.targetPipelineId)) {
+      targetIds.push(request.targetPipelineId as PiPgmPipelineId);
+    } else if (request.designId) {
+      for (const [pId, state] of this.pipelines.entries()) {
+        if (!state.activeItemId) continue;
+        const activeItem = state.playlist.find((i) => i.id === state.activeItemId) || this.library.get(state.activeItemId);
+        if (activeItem && activeItem.kind === "canva" && activeItem.canva?.designId === request.designId) {
+          targetIds.push(pId);
+        }
+      }
+    }
+
+    if (targetIds.length === 0) {
+      for (const [pId, state] of this.pipelines.entries()) {
+        if (!state.activeItemId) continue;
+        const activeItem = state.playlist.find((i) => i.id === state.activeItemId) || this.library.get(state.activeItemId);
+        if (activeItem && activeItem.kind === "canva") {
+          targetIds.push(pId);
+        }
+      }
+    }
+
+    if (targetIds.length === 0) {
+      targetIds.push("PiPGM1");
+    }
+
+    const updatedPipelines: PiPgmPipelineSnapshot[] = [];
+
+    for (const pipelineId of targetIds) {
+      const state = this.pipelines.get(pipelineId);
+      if (!state) continue;
+
+      switch (request.action) {
+        case "ftb": {
+          const res = this.setFadeToBlack(pipelineId, {
+            ...(typeof request.fadeToBlack === "boolean" ? { fadeToBlack: request.fadeToBlack } : {}),
+            toggle: request.ftbToggle ?? (request.fadeToBlack === undefined),
+            ...(typeof request.sync === "boolean" ? { sync: request.sync } : {})
+          });
+          if (res) updatedPipelines.push(res);
+          break;
+        }
+
+        case "mute": {
+          const res = this.setAudio(pipelineId, {
+            ...(typeof request.audioEnabled === "boolean" ? { audioEnabled: request.audioEnabled } : {}),
+            toggle: request.muteToggle ?? (request.audioEnabled === undefined),
+            ...(typeof request.sync === "boolean" ? { sync: request.sync } : {})
+          });
+          if (res) updatedPipelines.push(res);
+          break;
+        }
+
+        case "gotoPage": {
+          const stepIndex = Math.max(0, (request.pageNumber ?? 1) - 1);
+          const res = this.control(pipelineId, {
+            action: "gotoStep",
+            stepIndex,
+            ...(typeof request.sync === "boolean" ? { sync: request.sync } : {})
+          });
+          if (res) updatedPipelines.push(res);
+          break;
+        }
+
+        case "gotoStep": {
+          const res = this.control(pipelineId, {
+            action: "gotoStep",
+            stepIndex: request.stepIndex ?? 0,
+            ...(typeof request.sync === "boolean" ? { sync: request.sync } : {})
+          });
+          if (res) updatedPipelines.push(res);
+          break;
+        }
+
+        case "mode": {
+          if (request.mode && state.activeItemId) {
+            const activeItem = state.playlist.find((i) => i.id === state.activeItemId) || this.library.get(state.activeItemId);
+            if (activeItem && activeItem.kind === "canva" && activeItem.canva) {
+              activeItem.canva.mode = request.mode;
+              activeItem.steps = buildCanvaSteps(activeItem.canva);
+            }
+          }
+          const snap = this.toSnapshot(state);
+          this.emitPipelineEvent("config", snap);
+          updatedPipelines.push(snap);
+          break;
+        }
+
+        case "next":
+        case "prev":
+        case "play":
+        case "pause":
+        case "stop":
+        case "restart": {
+          const res = this.control(pipelineId, {
+            action: request.action,
+            ...(typeof request.sync === "boolean" ? { sync: request.sync } : {})
+          });
+          if (res) updatedPipelines.push(res);
+          break;
+        }
+      }
+    }
+
+    return {
+      success: true,
+      action: request.action,
+      pipelines: updatedPipelines
+    };
+  }
+
   async createOrPushCanvaItem(
     input: CanvaPluginPushInput,
     pushedFromCanvaApp = false
@@ -705,9 +832,15 @@ export class PiPgmService {
     this.library.set(item.id, item);
 
     if (input.targetPipelineId && this.isValidPipelineId(input.targetPipelineId)) {
-      if (input.orientation) {
-        this.updatePipelineConfig(input.targetPipelineId, { orientation: input.orientation });
+      let targetOrientation: PiPgmOrientation = input.orientation ?? "portrait";
+      const targetResolution: PiPgmResolution | undefined = canvaData.resolution;
+      if (targetResolution) {
+        targetOrientation = targetResolution.height >= targetResolution.width ? "portrait" : "landscape";
       }
+      this.updatePipelineConfig(input.targetPipelineId, {
+        orientation: targetOrientation,
+        ...(targetResolution ? { resolution: targetResolution } : {})
+      });
       this.addItemToPipeline(input.targetPipelineId, item.id, input.cueImmediately ?? true);
     }
 
@@ -832,7 +965,7 @@ export class PiPgmService {
       label: state.label,
       hidden: state.hidden,
       orientation: state.orientation,
-      resolution: getResolutionForOrientation(state.orientation),
+      resolution: state.resolution ?? getResolutionForOrientation(state.orientation),
       state: pipelineState,
       fadeToBlack: state.fadeToBlack,
       fadeDurationMs: state.fadeDurationMs,

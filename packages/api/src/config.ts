@@ -1,4 +1,4 @@
-export type RuntimeMode = "simulation" | "production";
+﻿export type RuntimeMode = "simulation" | "production";
 export type HamaVideoCodec = "copy" | "libx264";
 export type DisplayMode = "simulated" | "hardware" | "disabled";
 
@@ -41,6 +41,7 @@ export interface AppConfig {
   cam3Name: string;
   canvaApiBaseUrl?: string;
   canvaAccessToken?: string;
+  canvaSecretToken?: string;
 }
 
 function optionalHttpUrl(value: string | undefined, name: string): string | undefined {
@@ -142,6 +143,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const canvaApiBaseUrl =
     optionalHttpUrl(env.CANVA_API_BASE_URL, "CANVA_API_BASE_URL") ??
     (canvaAccessToken ? "https://api.canva.com/rest" : undefined);
+  const canvaSecretToken = env.PIMATRIX_CANVA_SECRET_TOKEN?.trim() || env.CANVA_SECRET_TOKEN?.trim() || undefined;
 
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("PIMATRIX_PORT must be an integer between 1 and 65535");
@@ -191,6 +193,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(cam2Host ? { cam2Host } : {}),
     ...(canvaApiBaseUrl ? { canvaApiBaseUrl } : {}),
     ...(canvaAccessToken ? { canvaAccessToken } : {}),
+    ...(canvaSecretToken ? { canvaSecretToken } : {}),
     ...(hamaInputFormat ? { hamaInputFormat } : {}),
     ...(hamaWidth !== undefined ? { hamaWidth } : {}),
     ...(hamaHeight !== undefined ? { hamaHeight } : {}),

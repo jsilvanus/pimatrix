@@ -5,6 +5,7 @@ import type {
   CanvaRenderMode,
   PiPgmOrientation,
   PiPgmPipelineId,
+  PiPgmResolution,
   PiPgmStepDescriptor
 } from "./pipgm-model.js";
 
@@ -28,6 +29,8 @@ export interface CanvaPluginPushInput {
   targetPipelineId?: PiPgmPipelineId;
   cueImmediately?: boolean;
   orientation?: PiPgmOrientation;
+  aspectRatio?: string;
+  customResolution?: { width: number; height: number };
 }
 
 export function normalizeCanvaDesign(input: {
@@ -123,6 +126,22 @@ export function createCanvaItemData(
     mode = format === "png" ? "exported_slides" : "exported_mp4";
   }
 
+  let targetResolution: PiPgmResolution | undefined;
+  if (input.aspectRatio === "10:16") {
+    targetResolution = { width: 1200, height: 1920 };
+  } else if (input.aspectRatio === "vertical" || input.aspectRatio === "9:16") {
+    targetResolution = { width: 1080, height: 1920 };
+  } else if (input.aspectRatio === "landscape" || input.aspectRatio === "16:9") {
+    targetResolution = { width: 1920, height: 1080 };
+  } else if (input.customResolution?.width && input.customResolution?.height) {
+    targetResolution = {
+      width: Math.max(100, Math.min(7680, Math.round(input.customResolution.width))),
+      height: Math.max(100, Math.min(7680, Math.round(input.customResolution.height)))
+    };
+  } else if (input.orientation) {
+    targetResolution = input.orientation === "portrait" ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 };
+  }
+
   const exportJob: CanvaExportJob = {
     jobId: exportUrls.length > 0 ? `canva-plugin-export-${Date.now()}` : null,
     status: exportUrls.length > 0 ? "completed" : "idle",
@@ -143,6 +162,8 @@ export function createCanvaItemData(
     pageCount,
     pages,
     pushedFromCanvaApp,
+    ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}),
+    ...(targetResolution ? { resolution: targetResolution } : {}),
     exportJob
   };
 }
@@ -266,4 +287,35 @@ export async function runCanvaConnectExport(
     updatedAt: now,
     error: null
   };
+}
+
+export interface CanvaControlRequest {
+  designId?: string;
+  targetPipelineId?: string;
+  action:
+    | "next"
+    | "prev"
+    | "gotoPage"
+    | "gotoStep"
+    | "ftb"
+    | "mute"
+    | "play"
+    | "pause"
+    | "stop"
+    | "restart"
+    | "mode";
+  pageNumber?: number;
+  stepIndex?: number;
+  fadeToBlack?: boolean;
+  ftbToggle?: boolean;
+  audioEnabled?: boolean;
+  muteToggle?: boolean;
+  mode?: CanvaRenderMode;
+  sync?: boolean;
+}
+
+export interface CanvaControlResult {
+  success: boolean;
+  action: string;
+  pipelines: import("./pipgm-model.js").PiPgmPipelineSnapshot[];
 }

@@ -277,6 +277,41 @@ export function renderPiPgmStageHtml(pipeline: PiPgmPipelineSnapshot): string {
 
     renderStage(currentPipeline);
 
+    // Listen for postMessage commands from Canva embed iframe or presenter window
+    window.addEventListener("message", async (event) => {
+      const data = event.data;
+      if (!data || typeof data !== "object") return;
+
+      if (
+        data.type === "pipgm:control" ||
+        data.type === "canva:control" ||
+        data.canvaAction ||
+        data.pipgmAction
+      ) {
+        const action = data.action || data.canvaAction || data.pipgmAction;
+        try {
+          await fetch("/api/v1/pipgm/canva/control", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              targetPipelineId: currentPipeline.id,
+              action: action,
+              pageNumber: data.pageNumber || data.page,
+              stepIndex: data.stepIndex,
+              fadeToBlack: data.fadeToBlack ?? data.ftb,
+              ftbToggle: data.ftbToggle ?? data.toggleFtb,
+              audioEnabled: data.audioEnabled,
+              muteToggle: data.muteToggle ?? data.toggleMute,
+              mode: data.mode
+            })
+          });
+        } catch (err) {
+          console.warn("Failed to forward postMessage control to PiPGM API:", err);
+        }
+      }
+    });
+
+
     const sse = new EventSource("/api/v1/events");
     sse.addEventListener("pipgm", (e) => {
       try {

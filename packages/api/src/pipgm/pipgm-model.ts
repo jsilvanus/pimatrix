@@ -92,6 +92,8 @@ export interface CanvaItemData {
   pageCount: number;
   pages: CanvaPage[];
   pushedFromCanvaApp: boolean;
+  aspectRatio?: string;
+  resolution?: PiPgmResolution;
   exportJob: CanvaExportJob;
 }
 

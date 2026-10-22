@@ -109,7 +109,7 @@ test("Hymns, PowerPoint (.pptx with animations), Canva push/export, YouTube, Vid
       payload: {
         hymnNumber: "Virsi 1",
         title: "Hoosianna",
-        rawText: "1.\nHoosianna, Daavidin Poika,\nkiitetty olkoon hän!\n\n2.\nSiunattu olkoon hän,\njoka tulee Herran nimeen!",
+        rawText: "1.\nHoosianna, Daavidin Poika,\nkiitetty olkoon hÃ¤n!\n\n2.\nSiunattu olkoon hÃ¤n,\njoka tulee Herran nimeen!",
         targetPipelineId: "PiPGM1",
         cueImmediately: true
       }
@@ -201,6 +201,75 @@ test("Hymns, PowerPoint (.pptx with animations), Canva push/export, YouTube, Vid
     assert.equal(canvaPushJson.item.canva.exportJob.status, "completed");
     assert.equal(canvaPushJson.item.steps.length, 3);
     assert.equal(canvaPushJson.pipeline.activeItemId, canvaPushJson.item.id);
+
+    // 3b. Canva Plugin & Embed Presentation Control (FTB, Mute, Next, GotoPage, Mode)
+    const canvaCtrlOptions = await app.inject({
+      method: "OPTIONS",
+      url: "/api/v1/pipgm/canva/control"
+    });
+    assert.equal(canvaCtrlOptions.statusCode, 204);
+    assert.equal(canvaCtrlOptions.headers["access-control-allow-origin"], "*");
+
+    // Toggle FTB via Canva control targeting designId
+    const canvaFtbRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/pipgm/canva/control",
+      payload: {
+        designId: "DAF_CHURCH_2026",
+        action: "ftb",
+        fadeToBlack: true
+      }
+    });
+    assert.equal(canvaFtbRes.statusCode, 200);
+    const canvaFtbJson = canvaFtbRes.json();
+    assert.equal(canvaFtbJson.success, true);
+    assert.equal(canvaFtbJson.action, "ftb");
+    assert.equal(canvaFtbJson.pipelines.find((p: any) => p.id === "PiPGM2")?.fadeToBlack, true);
+
+    // Toggle Audio Mute via Canva control targeting designId
+    const canvaMuteRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/pipgm/canva/control",
+      payload: {
+        designId: "DAF_CHURCH_2026",
+        action: "mute",
+        audioEnabled: false
+      }
+    });
+    assert.equal(canvaMuteRes.statusCode, 200);
+    assert.equal(canvaMuteRes.json().pipelines.find((p: any) => p.id === "PiPGM2")?.audioEnabled, false);
+
+    // Advance next slide via Canva control
+    const canvaNextRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/pipgm/canva/control",
+      payload: {
+        designId: "DAF_CHURCH_2026",
+        action: "next"
+      }
+    });
+    assert.equal(canvaNextRes.statusCode, 200);
+    assert.equal(canvaNextRes.json().pipelines.find((p: any) => p.id === "PiPGM2")?.currentStep, 1);
+
+    // Jump to specific pageNumber (1-based page 3 -> 0-based step 2)
+    const canvaPageRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/pipgm/canva/control",
+      payload: {
+        targetPipelineId: "PiPGM2",
+        action: "gotoPage",
+        pageNumber: 3
+      }
+    });
+    assert.equal(canvaPageRes.statusCode, 200);
+    assert.equal(canvaPageRes.json().pipelines.find((p: any) => p.id === "PiPGM2")?.currentStep, 2);
+
+    // Verify stage HTML includes the Canva embed postMessage listener
+    const stageRes = await app.inject({ method: "GET", url: "/pipgm/PiPGM2/stage" });
+    assert.equal(stageRes.statusCode, 200);
+    assert.ok(stageRes.payload.includes('addEventListener("message"'));
+    assert.ok(stageRes.payload.includes("/api/v1/pipgm/canva/control"));
+
 
     // 4. YouTube Video Embedding
     const ytRes = await app.inject({
@@ -344,6 +413,147 @@ test("Fade to Black (with mobile sign), Audio Mute/Unmute, Linked Pipeline Sync,
     });
     assert.ok(unmutedSpec.ffmpeg?.args.includes("color=c=black:s=1920x1080:r=30"));
     assert.ok(unmutedSpec.ffmpeg?.args.includes("volume=0.80"));
+  } finally {
+    await app.close();
+  }
+});
+
+
+test("Canva endpoints enforce PIMATRIX_CANVA_SECRET_TOKEN when exposed over Internet / router port", async () => {
+  const config = loadConfig({
+    PIMATRIX_MODE: "simulation",
+    PIMATRIX_CANVA_SECRET_TOKEN: "keskuskirkko-canva-secret-team"
+  });
+
+  const app = buildApp(config);
+  try {
+    // 1. Request without token -> 401 Unauthorized
+    const unauthRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/pipgm/canva/push",
+      payload: {
+        designId: "DAF_INTERNET_TEST",
+        title: "Unauthorized Push"
+      }
+    });
+    assert.equal(unauthRes.statusCode, 401);
+    assert.equal(unauthRes.json().error.code, "UNAUTHORIZED");
+
+    // 2. Request with wrong token -> 401 Unauthorized
+    const wrongTokenRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/pipgm/canva/control",
+      headers: {
+        authorization: "Bearer wrong-token"
+      },
+      payload: {
+        action: "ftb",
+        fadeToBlack: true
+      }
+    });
+    assert.equal(wrongTokenRes.statusCode, 401);
+
+    // 3. Request with correct Authorization Bearer token -> succeeds
+    const authPushRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/pipgm/canva/push",
+      headers: {
+        authorization: "Bearer keskuskirkko-canva-secret-team"
+      },
+      payload: {
+        designId: "DAF_INTERNET_TEST",
+        title: "Authorized Team Push"
+      }
+    });
+    assert.equal(authPushRes.statusCode, 201);
+    assert.equal(authPushRes.json().accepted, true);
+
+    // 4. Request with X-Canva-Secret header -> succeeds
+    const authCtrlRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/pipgm/canva/control",
+      headers: {
+        "x-canva-secret": "keskuskirkko-canva-secret-team"
+      },
+      payload: {
+        action: "next"
+      }
+    });
+    assert.equal(authCtrlRes.statusCode, 200);
+    assert.equal(authCtrlRes.json().success, true);
+  } finally {
+    await app.close();
+  }
+});
+
+test("PiPGM Canva push supports 10:16 Epson church projector, vertical, landscape, and custom resolutions", async () => {
+  const app = buildApp(loadConfig({ PIMATRIX_MODE: "simulation" }));
+  try {
+    // 1. Push with 10:16 Epson church projector format to PiPGM1
+    const epsonRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/pipgm/canva/push",
+      payload: {
+        designId: "DAF_EPSON_CHURCH",
+        title: "Sanctuary 10:16 Announcement",
+        targetPipelineId: "PiPGM1",
+        aspectRatio: "10:16"
+      }
+    });
+    assert.equal(epsonRes.statusCode, 201);
+    const epsonJson = epsonRes.json();
+    assert.equal(epsonJson.accepted, true);
+    assert.equal(epsonJson.pipeline.id, "PiPGM1");
+    assert.equal(epsonJson.pipeline.orientation, "portrait");
+    assert.deepEqual(epsonJson.pipeline.resolution, { width: 1200, height: 1920 });
+    assert.equal(epsonJson.item.canva.aspectRatio, "10:16");
+    assert.deepEqual(epsonJson.item.canva.resolution, { width: 1200, height: 1920 });
+
+    // 2. Push with Landscape 16:9 to PiPGM1
+    const landscapeRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/pipgm/canva/push",
+      payload: {
+        designId: "DAF_LANDSCAPE_TEST",
+        targetPipelineId: "PiPGM1",
+        aspectRatio: "landscape"
+      }
+    });
+    assert.equal(landscapeRes.statusCode, 201);
+    const landscapeJson = landscapeRes.json();
+    assert.equal(landscapeJson.pipeline.orientation, "landscape");
+    assert.deepEqual(landscapeJson.pipeline.resolution, { width: 1920, height: 1080 });
+
+    // 3. Push with Custom resolution (e.g. 1440x2560 vertical display)
+    const customRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/pipgm/canva/push",
+      payload: {
+        designId: "DAF_CUSTOM_RES",
+        targetPipelineId: "PiPGM1",
+        aspectRatio: "custom",
+        customResolution: { width: 1440, height: 2560 }
+      }
+    });
+    assert.equal(customRes.statusCode, 201);
+    const customJson = customRes.json();
+    assert.equal(customJson.pipeline.orientation, "portrait");
+    assert.deepEqual(customJson.pipeline.resolution, { width: 1440, height: 2560 });
+
+    // 4. Push with Standard Vertical 9:16
+    const verticalRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/pipgm/canva/push",
+      payload: {
+        designId: "DAF_VERTICAL_TEST",
+        targetPipelineId: "PiPGM1",
+        aspectRatio: "vertical"
+      }
+    });
+    assert.equal(verticalRes.statusCode, 201);
+    const verticalJson = verticalRes.json();
+    assert.equal(verticalJson.pipeline.orientation, "portrait");
+    assert.deepEqual(verticalJson.pipeline.resolution, { width: 1080, height: 1920 });
   } finally {
     await app.close();
   }

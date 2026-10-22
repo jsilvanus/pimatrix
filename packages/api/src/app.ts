@@ -67,7 +67,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     routes: {
       1: 1, // Projector 1 -> Lectern
       2: 2, // Projector 2 -> Rack PC
-      3: null, // Screen -> Ei vielä hankittu
+      3: null, // Screen -> Ei vielÃ¤ hankittu
       4: 3 // Videomikseri -> Pi 1
     }
   };
@@ -1299,6 +1299,8 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       targetPipelineId?: unknown;
       cueImmediately?: unknown;
       orientation?: unknown;
+      aspectRatio?: unknown;
+      customResolution?: unknown;
     };
   }>("/api/v1/pipgm/items/canva", async (request, reply) => {
     const body = request.body ?? {};
@@ -1334,6 +1336,15 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         ...(typeof body.cueImmediately === "boolean" ? { cueImmediately: body.cueImmediately } : {}),
         ...(body.orientation === "landscape" || body.orientation === "portrait"
           ? { orientation: body.orientation }
+          : {}),
+        ...(typeof body.aspectRatio === "string" ? { aspectRatio: body.aspectRatio } : {}),
+        ...(body.customResolution && typeof body.customResolution === "object"
+          ? {
+              customResolution: {
+                width: Number((body.customResolution as { width?: unknown }).width) || 1080,
+                height: Number((body.customResolution as { height?: unknown }).height) || 1920
+              }
+            }
           : {})
       },
       false
@@ -1349,11 +1360,102 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   });
 
   // CORS preflight for the Canva App plugin running inside Canva's editor iframe
+
+  app.options("/api/v1/pipgm/canva/control", async (_request, reply) => {
+    return reply
+      .header("Access-Control-Allow-Origin", "*")
+      .header("Access-Control-Allow-Methods", "POST, OPTIONS")
+      .header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Canva-Secret")
+      .code(204)
+      .send();
+  });
+
+  app.post<{
+    Body: {
+      designId?: unknown;
+      targetPipelineId?: unknown;
+      action?: unknown;
+      pageNumber?: unknown;
+      stepIndex?: unknown;
+      fadeToBlack?: unknown;
+      ftbToggle?: unknown;
+      audioEnabled?: unknown;
+      muteToggle?: unknown;
+      mode?: unknown;
+      sync?: unknown;
+    };
+  }>("/api/v1/pipgm/canva/control", async (request, reply) => {
+    reply.header("Access-Control-Allow-Origin", "*");
+    if (config.canvaSecretToken) {
+      const authHeader = request.headers.authorization || "";
+      const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+      const xSecret = typeof request.headers["x-canva-secret"] === "string" ? request.headers["x-canva-secret"].trim() : "";
+      if (bearerToken !== config.canvaSecretToken && xSecret !== config.canvaSecretToken) {
+        return reply.code(401).send({
+          error: { code: "UNAUTHORIZED", message: "Invalid or missing Canva secret token" }
+        });
+      }
+    }
+    const body = request.body ?? {};
+
+    const validActions = new Set([
+      "next",
+      "prev",
+      "gotoPage",
+      "gotoStep",
+      "ftb",
+      "mute",
+      "play",
+      "pause",
+      "stop",
+      "restart",
+      "mode"
+    ]);
+
+    if (typeof body.action !== "string" || !validActions.has(body.action)) {
+      return reply.code(422).send({
+        error: {
+          code: "INVALID_CANVA_CONTROL_ACTION",
+          message: "action must be one of: next, prev, gotoPage, gotoStep, ftb, mute, play, pause, stop, restart, mode"
+        }
+      });
+    }
+
+    if (
+      body.targetPipelineId !== undefined &&
+      body.targetPipelineId !== "all" &&
+      (typeof body.targetPipelineId !== "string" || !pipgmService.isValidPipelineId(body.targetPipelineId))
+    ) {
+      return reply.code(422).send({
+        error: {
+          code: "INVALID_PIPELINE_ID",
+          message: "targetPipelineId must be PiPGM1, PiPGM2, PiPGM3, or all"
+        }
+      });
+    }
+
+    const result = pipgmService.controlCanvaPresentation({
+      action: body.action as never,
+      ...(typeof body.designId === "string" ? { designId: body.designId } : {}),
+      ...(typeof body.targetPipelineId === "string" ? { targetPipelineId: body.targetPipelineId } : {}),
+      ...(typeof body.pageNumber === "number" ? { pageNumber: body.pageNumber } : {}),
+      ...(typeof body.stepIndex === "number" ? { stepIndex: body.stepIndex } : {}),
+      ...(typeof body.fadeToBlack === "boolean" ? { fadeToBlack: body.fadeToBlack } : {}),
+      ...(typeof body.ftbToggle === "boolean" ? { ftbToggle: body.ftbToggle } : {}),
+      ...(typeof body.audioEnabled === "boolean" ? { audioEnabled: body.audioEnabled } : {}),
+      ...(typeof body.muteToggle === "boolean" ? { muteToggle: body.muteToggle } : {}),
+      ...(body.mode === "embed" || body.mode === "exported_mp4" || body.mode === "exported_slides" ? { mode: body.mode } : {}),
+      ...(typeof body.sync === "boolean" ? { sync: body.sync } : {})
+    });
+
+    return reply.code(200).send(result);
+  });
+
   app.options("/api/v1/pipgm/canva/push", async (_request, reply) => {
     return reply
       .header("Access-Control-Allow-Origin", "*")
       .header("Access-Control-Allow-Methods", "POST, OPTIONS")
-      .header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+      .header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Canva-Secret")
       .code(204)
       .send();
   });
@@ -1374,9 +1476,21 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       targetPipelineId?: unknown;
       cueImmediately?: unknown;
       orientation?: unknown;
+      aspectRatio?: unknown;
+      customResolution?: unknown;
     };
   }>("/api/v1/pipgm/canva/push", async (request, reply) => {
     reply.header("Access-Control-Allow-Origin", "*");
+    if (config.canvaSecretToken) {
+      const authHeader = request.headers.authorization || "";
+      const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+      const xSecret = typeof request.headers["x-canva-secret"] === "string" ? request.headers["x-canva-secret"].trim() : "";
+      if (bearerToken !== config.canvaSecretToken && xSecret !== config.canvaSecretToken) {
+        return reply.code(401).send({
+          error: { code: "UNAUTHORIZED", message: "Invalid or missing Canva secret token" }
+        });
+      }
+    }
     const body = request.body ?? {};
 
     if (
@@ -1411,6 +1525,15 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         ...(typeof body.cueImmediately === "boolean" ? { cueImmediately: body.cueImmediately } : {}),
         ...(body.orientation === "landscape" || body.orientation === "portrait"
           ? { orientation: body.orientation }
+          : {}),
+        ...(typeof body.aspectRatio === "string" ? { aspectRatio: body.aspectRatio } : {}),
+        ...(body.customResolution && typeof body.customResolution === "object"
+          ? {
+              customResolution: {
+                width: Number((body.customResolution as { width?: unknown }).width) || 1080,
+                height: Number((body.customResolution as { height?: unknown }).height) || 1920
+              }
+            }
           : {})
       },
       true
