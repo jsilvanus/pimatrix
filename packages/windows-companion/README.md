@@ -85,6 +85,29 @@ cd packages/windows-companion
 dotnet build
 ```
 
+### Build Standalone Executable (No .NET Runtime Required on Target)
+
+To produce a single, portable `PiMatrixCompanion.exe` that runs on any 64-bit Windows 10/11 machine without needing .NET installed:
+
+```powershell
+cd packages/windows-companion
+.\publish.ps1
+```
+
+Or via direct `dotnet publish`:
+
+```powershell
+dotnet publish PiMatrixCompanion.csproj `
+    -c Release `
+    -r win-x64 `
+    --self-contained true `
+    -p:PublishSingleFile=true `
+    -p:IncludeNativeLibrariesForSelfExtract=true `
+    -o publish
+```
+
+This outputs a self-contained **`publish/PiMatrixCompanion.exe`** ready for distribution.
+
 ### Run Tests
 
 ```powershell
