@@ -142,32 +142,27 @@
       </div>
 
       <!-- 3. BOTTOM SECTION: Network Stream Out (RTSP) Card -->
-      <!-- Clean layout: Heading + Button under heading to open dialog + Start/Stop Stream button -->
-      <div class="w-full bg-surface-container-low rounded-xl p-space-md shadow-sm border border-outline-variant/30 select-none" id="rtsp-card">
-        <div class="flex items-center justify-between gap-2">
-          <div class="flex items-start gap-2.5 min-w-0 flex-1">
-            <div class="w-9 h-9 rounded-lg bg-primary-container text-on-primary flex items-center justify-center flex-shrink-0 mt-0.5" id="rtsp-icon-box">
-              <span class="material-symbols-outlined text-[20px]">podcasts</span>
-            </div>
-            <div class="flex flex-col gap-1.5 min-w-0">
-              <div class="flex items-center gap-1.5">
-                <h3 class="font-headline-sm text-[16px] font-bold text-on-surface truncate leading-tight">Network Stream Out (RTSP)</h3>
-                <span class="inline-block w-2 h-2 rounded-full bg-outline" id="rtsp-live-dot"></span>
-              </div>
-              <!-- Dedicated button under heading to open RTSP Assignment & Info Dialog -->
-              <div>
-                <button type="button" id="rtsp-open-dialog-btn" onclick="openRtspModal()" class="px-2.5 py-1 rounded-lg bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/40 text-primary font-label-sm text-[10px] font-bold uppercase transition-all inline-flex items-center gap-1 active:scale-95">
-                  <span class="material-symbols-outlined text-[13px]">tune</span>
-                  <span id="rtsp-config-btn-label">Source &amp; Settings (rtmp1)</span>
-                </button>
-              </div>
-            </div>
+      <!-- Row 1: Full-width heading; Row 2: Start Stream and Settings buttons on the same row -->
+      <div class="w-full bg-surface-container-low rounded-xl p-space-md shadow-sm border border-outline-variant/30 select-none flex flex-col gap-2.5" id="rtsp-card">
+        <div class="flex items-center gap-2.5 w-full">
+          <div class="w-8 h-8 rounded-lg bg-primary-container text-on-primary flex items-center justify-center flex-shrink-0" id="rtsp-icon-box">
+            <span class="material-symbols-outlined text-[19px]">podcasts</span>
           </div>
+          <div class="flex items-center gap-2 min-w-0 flex-1">
+            <h3 class="font-headline-sm text-[16px] font-bold text-on-surface leading-tight">Network Stream Out (RTSP)</h3>
+            <span class="inline-block w-2 h-2 rounded-full bg-outline flex-shrink-0" id="rtsp-live-dot"></span>
+          </div>
+        </div>
 
-          <!-- Start / Stop Stream Button -->
-          <button type="button" id="rtsp-stream-btn" onclick="toggleRtspStream()" class="px-3 py-2 rounded-lg bg-primary text-on-primary font-label-sm text-[11px] font-bold uppercase transition-all flex items-center gap-1.5 shadow-sm active:scale-95 flex-shrink-0">
+        <!-- Buttons Row under Heading: Start/Stop Stream + Settings on the same row -->
+        <div class="grid grid-cols-2 gap-2 w-full">
+          <button type="button" id="rtsp-stream-btn" onclick="toggleRtspStream()" class="h-9 px-3 rounded-lg bg-primary text-on-primary font-label-sm text-[11px] font-bold uppercase transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95">
             <span class="material-symbols-outlined text-[15px]" id="rtsp-stream-icon">play_arrow</span>
             <span id="rtsp-stream-label">Start Stream</span>
+          </button>
+          <button type="button" id="rtsp-open-dialog-btn" onclick="openRtspModal()" class="h-9 px-3 rounded-lg bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/40 text-on-surface font-label-sm text-[11px] font-bold uppercase transition-all flex items-center justify-center gap-1.5 active:scale-95">
+            <span class="material-symbols-outlined text-[15px] text-primary">tune</span>
+            <span id="rtsp-config-btn-label">Settings</span>
           </button>
         </div>
       </div>

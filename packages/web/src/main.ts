@@ -1039,16 +1039,16 @@ function renderRtspSection(): void {
 
   const qualityLabel = rtspOut.quality === "preview" ? "Preview" : "Full";
   if (configBtnLabel) {
-    configBtnLabel.textContent = `Source & Settings (${srcName})`;
+    configBtnLabel.textContent = "Settings";
   }
 
   if (dialogStatusPill) {
     if (rtspOut.streaming) {
-      dialogStatusPill.textContent = "STREAMING LIVE";
+      dialogStatusPill.textContent = `STREAMING • ${srcName.toUpperCase()}`;
       dialogStatusPill.className =
         "px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-600 font-bold uppercase text-[9px]";
     } else {
-      dialogStatusPill.textContent = "STOPPED";
+      dialogStatusPill.textContent = `STOPPED • ${srcName.toUpperCase()}`;
       dialogStatusPill.className =
         "px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-bold uppercase text-[9px]";
     }
@@ -1061,19 +1061,19 @@ function renderRtspSection(): void {
 
   if (liveDot) {
     liveDot.className = rtspOut.streaming
-      ? "inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"
-      : "inline-block w-2 h-2 rounded-full bg-outline";
+      ? "inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0"
+      : "inline-block w-2 h-2 rounded-full bg-outline flex-shrink-0";
   }
 
   if (streamBtn && streamIcon && streamLabel) {
     if (rtspOut.streaming) {
       streamBtn.className =
-        "px-3 py-2 rounded-lg bg-error text-on-error font-label-sm text-[11px] font-bold uppercase transition-all flex items-center gap-1.5 shadow-sm active:scale-95 flex-shrink-0";
+        "h-9 px-3 rounded-lg bg-error text-on-error font-label-sm text-[11px] font-bold uppercase transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95";
       streamIcon.textContent = "stop";
       streamLabel.textContent = "Stop Stream";
     } else {
       streamBtn.className =
-        "px-3 py-2 rounded-lg bg-primary text-on-primary font-label-sm text-[11px] font-bold uppercase transition-all flex items-center gap-1.5 shadow-sm active:scale-95 flex-shrink-0";
+        "h-9 px-3 rounded-lg bg-primary text-on-primary font-label-sm text-[11px] font-bold uppercase transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95";
       streamIcon.textContent = "play_arrow";
       streamLabel.textContent = "Start Stream";
     }
