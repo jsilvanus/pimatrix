@@ -40,6 +40,8 @@ export interface FrontendInitialState {
   multiview: MultiviewSnapshot;
   matrix: MatrixRouteState;
   rtspOut: RtspOutState;
+  authRequired?: boolean;
+  mediaMtxPassword?: string | null;
 }
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));

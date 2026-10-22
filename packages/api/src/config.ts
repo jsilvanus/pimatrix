@@ -41,6 +41,10 @@ export interface AppConfig {
   cam3Name: string;
   canvaApiBaseUrl?: string;
   canvaAccessToken?: string;
+  apiKey?: string;
+  amxAllowedHosts?: string[];
+  canvaAppToken?: string;
+  mediaMtxPassword?: string;
 }
 
 function optionalHttpUrl(value: string | undefined, name: string): string | undefined {
@@ -139,6 +143,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const cam3Name = env.PIMATRIX_CAM3_NAME?.trim() || "Camera 3";
 
   const canvaAccessToken = env.CANVA_ACCESS_TOKEN?.trim() || undefined;
+  const apiKey = env.PIMATRIX_API_KEY?.trim() || undefined;
+  const amxAllowedHosts = env.PIMATRIX_AMX_ALLOWED_HOSTS
+    ? env.PIMATRIX_AMX_ALLOWED_HOSTS.split(",").map((s) => s.trim()).filter(Boolean)
+    : undefined;
+  const canvaAppToken = env.PIMATRIX_CANVA_APP_TOKEN?.trim() || undefined;
+  const mediaMtxPassword = env.PIMATRIX_MEDIAMTX_PASSWORD?.trim() || undefined;
   const canvaApiBaseUrl =
     optionalHttpUrl(env.CANVA_API_BASE_URL, "CANVA_API_BASE_URL") ??
     (canvaAccessToken ? "https://api.canva.com/rest" : undefined);
@@ -202,6 +212,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(fffleetToken ? { fffleetToken } : {}),
     ...(fffleetClientId ? { fffleetClientId } : {}),
     ...(fffleetClientSecret ? { fffleetClientSecret } : {}),
-    ...(hamaRtspUrl ? { hamaRtspUrl } : {})
+    ...(hamaRtspUrl ? { hamaRtspUrl } : {}),
+    ...(apiKey ? { apiKey } : {}),
+    ...(amxAllowedHosts && amxAllowedHosts.length > 0 ? { amxAllowedHosts } : {}),
+    ...(canvaAppToken ? { canvaAppToken } : {}),
+    ...(mediaMtxPassword ? { mediaMtxPassword } : {})
   };
 }

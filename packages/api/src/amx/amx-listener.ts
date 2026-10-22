@@ -21,6 +21,7 @@ export interface AmxListenerOptions {
   listSources: () => Promise<Array<{ id: SourceId; state: string; preview: { available: boolean } }>>;
   mode: string;
   logger?: FastifyBaseLogger | undefined;
+  allowedIps?: string[] | undefined;
 }
 
 const KNOWN_COMMANDS = new Set(["DEV", "PING", "STATUS", "SOURCE", "OUTPUT", "PIPGM", "HELP"]);
@@ -81,6 +82,23 @@ export class AmxTcpListener {
   }
 
   private handleClient(socket: Socket): void {
+    const rawIp = socket.remoteAddress;
+    const remoteIp = rawIp ? rawIp.replace(/^::ffff:/, "") : undefined;
+    if (this.options.allowedIps && this.options.allowedIps.length > 0) {
+      const allowed = this.options.allowedIps.map((ip) => ip.trim());
+      const isAllowed = remoteIp && (
+        allowed.includes(remoteIp) ||
+        (allowed.includes("localhost") && (remoteIp === "127.0.0.1" || remoteIp === "::1"))
+      );
+      if (!isAllowed) {
+        this.options.logger?.warn(
+          { remoteAddress: rawIp, remoteIp },
+          "Rejected AMX connection from non-whitelisted address"
+        );
+        socket.destroy();
+        return;
+      }
+    }
     this.clients.add(socket);
     let buffer = "";
 

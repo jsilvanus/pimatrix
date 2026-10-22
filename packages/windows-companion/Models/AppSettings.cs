@@ -21,6 +21,7 @@ namespace PiMatrixCompanion.Models
         public int PiMatrixApiPort { get; set; } = 3000;
         public int PiMatrixSrtPort { get; set; } = 8890;
         public int PiMatrixRtmpPort { get; set; } = 1935;
+        public string PiMatrixApiKey { get; set; } = string.Empty;
 
         public bool PreviewAlwaysOnTop { get; set; } = true;
         public double PreviewOpacity { get; set; } = 0.95;

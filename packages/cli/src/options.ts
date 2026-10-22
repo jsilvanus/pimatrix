@@ -2,6 +2,7 @@ export interface CliOptions {
   server: string;
   json: boolean;
   command: string[];
+  apiKey?: string;
   panSpeed?: number;
   tiltSpeed?: number;
   speed?: number;
@@ -21,6 +22,7 @@ export interface CliOptions {
 
 export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env): CliOptions {
   let server = env.PIMATRIX_URL ?? "http://127.0.0.1:3000";
+  let apiKey: string | undefined = env.PIMATRIX_API_KEY?.trim() || undefined;
   let json = false;
   let panSpeed: number | undefined;
   let tiltSpeed: number | undefined;
@@ -47,6 +49,11 @@ export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env):
       const value = args[index + 1];
       if (!value || value.startsWith("--")) throw new Error("--server requires a URL");
       server = value;
+      index += 1;
+    } else if (arg === "--api-key" || arg === "--key" || arg === "--token") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value`);
+      apiKey = value;
       index += 1;
     } else if (arg === "--pan-speed") {
       const value = args[index + 1];
@@ -80,27 +87,27 @@ export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env):
       index += 1;
     } else if (arg === "--width" || arg === "--w") {
       const value = args[index + 1];
-      if (!value || value.startsWith("--")) throw new Error("--width requires a number");
+      if (!value || value.startsWith("--")) throw new Error(`${arg} requires a number`);
       width = Number(value);
       index += 1;
     } else if (arg === "--height" || arg === "--h") {
       const value = args[index + 1];
-      if (!value || value.startsWith("--")) throw new Error("--height requires a number");
+      if (!value || value.startsWith("--")) throw new Error(`${arg} requires a number`);
       height = Number(value);
       index += 1;
-    } else if (arg === "--source-width" || arg === "--sw") {
+    } else if (arg === "--source-width") {
       const value = args[index + 1];
       if (!value || value.startsWith("--")) throw new Error("--source-width requires a number");
       sourceWidth = Number(value);
       index += 1;
-    } else if (arg === "--source-height" || arg === "--sh") {
+    } else if (arg === "--source-height") {
       const value = args[index + 1];
       if (!value || value.startsWith("--")) throw new Error("--source-height requires a number");
       sourceHeight = Number(value);
       index += 1;
     } else if (arg === "--aspect") {
       const value = args[index + 1];
-      if (!value || value.startsWith("--")) throw new Error("--aspect requires a ratio (e.g. 9:16)");
+      if (!value || value.startsWith("--")) throw new Error("--aspect requires a ratio (e.g. 16:9)");
       aspectRatio = value;
       index += 1;
     } else if (arg === "--delta") {
@@ -113,9 +120,9 @@ export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env):
       if (!value || value.startsWith("--")) throw new Error("--factor requires a number");
       factor = Number(value);
       index += 1;
-    } else if (arg === "--rotation") {
+    } else if (arg === "--rotate") {
       const value = args[index + 1];
-      if (!value || value.startsWith("--")) throw new Error("--rotation requires a number");
+      if (!value || value.startsWith("--")) throw new Error("--rotate requires 0, 90, 180, or 270");
       rotation = Number(value);
       index += 1;
     } else if (arg === "--enabled") {
@@ -142,6 +149,7 @@ export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env):
     server: parsed.toString().replace(/\/$/, ""),
     json,
     command,
+    ...(apiKey !== undefined ? { apiKey } : {}),
     ...(panSpeed !== undefined ? { panSpeed } : {}),
     ...(tiltSpeed !== undefined ? { tiltSpeed } : {}),
     ...(speed !== undefined ? { speed } : {}),

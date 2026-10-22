@@ -45,12 +45,12 @@ function printTable(headers: string[], rows: string[][]): void {
 }
 
 async function run(options: CliOptions): Promise<void> {
-  configureApiClient({ baseUrl: options.server });
+  configureApiClient({ baseUrl: options.server, ...(options.apiKey ? { token: options.apiKey } : {}) });
   const [group, action, arg1, arg2, arg3] = options.command;
 
   if (group === "help" || options.command.length === 0) {
     console.log(
-      "Usage: pimatrix [--server <url>] [--json] <command>\n\n" +
+      "Usage: pimatrix [--server <url>] [--api-key <key>] [--json] <command>\n\n" +
       "Commands:\n" +
       "  status\n" +
       "  sources list\n" +

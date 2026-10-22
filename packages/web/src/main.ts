@@ -1,4 +1,27 @@
 import "./styles.css";
+
+// Global Fetch Interceptor for Authentication
+const originalFetch = window.fetch.bind(window);
+window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  const token = localStorage.getItem("pimatrix_auth_token");
+  if (token) {
+    init = init || {};
+    const headers = new Headers(init.headers || {});
+    if (!headers.has("Authorization")) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+    init.headers = headers;
+  }
+  const response = await originalFetch(input, init);
+  if (response.status === 401) {
+    const urlStr = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (!urlStr.includes("/api/v1/auth/verify")) {
+      openAuthModal();
+    }
+  }
+  return response;
+};
+
 import type {
   CameraSnapshot,
   EffectsPipeline,
@@ -2177,6 +2200,13 @@ window.openSourceCropModal = openSourceCropModal;
 window.closeCropModal = closeCropModal;
 window.applySourceCropPreset = applySourceCropPreset;
 window.moveSourceCrop = moveSourceCrop;
+window.openAuthModal = openAuthModal;
+window.closeAuthModal = closeAuthModal;
+window.submitAuthPassword = submitAuthPassword;
+window.clearAuthPassword = clearAuthPassword;
+window.showMediaMtxModal = showMediaMtxModal;
+window.closeMediaMtxModal = closeMediaMtxModal;
+window.copyMediaMtxPassword = copyMediaMtxPassword;
 window.resizeSourceCrop = resizeSourceCrop;
 window.toggleSourceCropLockAspect = toggleSourceCropLockAspect;
 window.openRtspModal = openRtspModal;
@@ -2199,7 +2229,144 @@ window.sendPTZZoom = sendPTZZoom;
 window.sendSmartFrame = sendSmartFrame;
 window.adjustPtzSpeed = adjustPtzSpeed;
 
+
+// =========================================================================
+// Authentication & MediaMTX Credentials UI Handlers
+// =========================================================================
+
+function updateAuthHeaderBadge(): void {
+  const token = localStorage.getItem("pimatrix_auth_token");
+  const authLabel = document.getElementById("top-auth-label");
+  const authIcon = document.getElementById("top-auth-icon");
+  if (!authLabel || !authIcon) return;
+
+  if (token) {
+    authLabel.textContent = "SAVED";
+    authIcon.textContent = "lock_open";
+    authIcon.classList.remove("text-error");
+    authIcon.classList.add("text-primary");
+  } else if (window.__PIMATRIX_INITIAL__?.authRequired) {
+    authLabel.textContent = "LOCKED";
+    authIcon.textContent = "lock";
+    authIcon.classList.remove("text-primary");
+    authIcon.classList.add("text-error");
+  } else {
+    authLabel.textContent = "OPEN";
+    authIcon.textContent = "lock_open";
+    authIcon.classList.remove("text-error");
+    authIcon.classList.add("text-primary");
+  }
+}
+
+export function openAuthModal(): void {
+  const modal = document.getElementById("auth-modal-overlay") as HTMLDialogElement | null;
+  if (!modal) return;
+  const input = document.getElementById("auth-key-input") as HTMLInputElement | null;
+  const errorMsg = document.getElementById("auth-error-msg");
+  if (input) {
+    input.value = localStorage.getItem("pimatrix_auth_token") || "";
+  }
+  if (errorMsg) {
+    errorMsg.classList.add("hidden");
+    errorMsg.textContent = "";
+  }
+  modal.showModal();
+}
+
+export function closeAuthModal(): void {
+  const modal = document.getElementById("auth-modal-overlay") as HTMLDialogElement | null;
+  modal?.close();
+}
+
+export async function submitAuthPassword(): Promise<void> {
+  const input = document.getElementById("auth-key-input") as HTMLInputElement | null;
+  const rememberCheck = document.getElementById("auth-remember-check") as HTMLInputElement | null;
+  const errorMsg = document.getElementById("auth-error-msg");
+  const key = input?.value?.trim() || "";
+
+  try {
+    const res = await originalFetch("/api/v1/auth/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key })
+    });
+
+    if (res.ok) {
+      if (rememberCheck?.checked) {
+        localStorage.setItem("pimatrix_auth_token", key);
+      } else {
+        localStorage.removeItem("pimatrix_auth_token");
+      }
+      updateAuthHeaderBadge();
+      closeAuthModal();
+    } else {
+      if (errorMsg) {
+        errorMsg.textContent = "Invalid API key / password for this PiMatrix node.";
+        errorMsg.classList.remove("hidden");
+      }
+    }
+  } catch (err) {
+    if (errorMsg) {
+      errorMsg.textContent = "Network error verifying password: " + String(err);
+      errorMsg.classList.remove("hidden");
+    }
+  }
+}
+
+export function clearAuthPassword(): void {
+  localStorage.removeItem("pimatrix_auth_token");
+  const input = document.getElementById("auth-key-input") as HTMLInputElement | null;
+  if (input) input.value = "";
+  updateAuthHeaderBadge();
+  const errorMsg = document.getElementById("auth-error-msg");
+  if (errorMsg) {
+    errorMsg.textContent = "Saved password cleared.";
+    errorMsg.classList.remove("hidden");
+  }
+}
+
+export function showMediaMtxModal(): void {
+  const modal = document.getElementById("mediamtx-modal-overlay") as HTMLDialogElement | null;
+  if (!modal) return;
+
+  const host = window.location.hostname || "127.0.0.1";
+  const rtmpElem = document.getElementById("rtmp-ingest-val");
+  const srtElem = document.getElementById("srt-ingest-val");
+  const passElem = document.getElementById("mediamtx-pass-val");
+
+  if (rtmpElem) rtmpElem.textContent = `rtmp://${host}:1935/<sourceId>`;
+  if (srtElem) srtElem.textContent = `srt://${host}:8890?streamid=publish:<sourceId>`;
+  if (passElem) {
+    const pw = window.__PIMATRIX_INITIAL__?.mediaMtxPassword;
+    passElem.textContent = pw ? pw : "None (Open)";
+  }
+
+  modal.showModal();
+}
+
+export function closeMediaMtxModal(): void {
+  const modal = document.getElementById("mediamtx-modal-overlay") as HTMLDialogElement | null;
+  modal?.close();
+}
+
+export function copyMediaMtxPassword(): void {
+  const pw = window.__PIMATRIX_INITIAL__?.mediaMtxPassword || "";
+  if (pw) {
+    navigator.clipboard.writeText(pw);
+  }
+}
+
+(window as unknown as { copyIngestVal: (id: string) => void }).copyIngestVal = (id: string) => {
+  const elem = document.getElementById(id);
+  if (elem?.textContent) {
+    navigator.clipboard.writeText(elem.textContent.trim());
+  }
+};
+
 async function bootstrap(): Promise<void> {
+  bindDialogBackdropDismiss("auth-modal-overlay");
+  bindDialogBackdropDismiss("mediamtx-modal-overlay");
+  updateAuthHeaderBadge();
   bindDialogBackdropDismiss("aux-modal-overlay");
   bindDialogBackdropDismiss("rtsp-modal-overlay");
   bindDialogBackdropDismiss("crop-modal-overlay");

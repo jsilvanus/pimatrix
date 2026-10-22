@@ -52,6 +52,10 @@
                             <TextBox Text="{Binding PiMatrixApiPort, UpdateSourceTrigger=PropertyChanged}"
                                      Background="Transparent" Foreground="#E4E4E7" BorderThickness="0"
                                      FontWeight="SemiBold" FontSize="12" Width="40"/>
+                            <TextBlock Text=" Key: " Foreground="#71717A" FontSize="12" Margin="6,0,0,0"/>
+                            <TextBox Text="{Binding PiMatrixApiKey, UpdateSourceTrigger=PropertyChanged}"
+                                     Background="Transparent" Foreground="#E4E4E7" BorderThickness="0"
+                                     FontWeight="SemiBold" FontSize="12" Width="75"/>
                             <Button Content="Connect" Command="{Binding ConnectPiMatrixCommand}"
                                     Background="#3F3F46" Foreground="#E4E4E7" BorderThickness="0"
                                     Margin="8,0,0,0" Padding="6,2" FontSize="11" Cursor="Hand"/>

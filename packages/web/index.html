@@ -34,6 +34,18 @@
           <span>Multiview</span>
         </a>
 
+        <!-- MediaMTX Ingest Credentials Key Button -->
+        <button id="top-mediamtx-btn" type="button" onclick="showMediaMtxModal()" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/40 text-[10px] font-label-sm font-bold uppercase transition-all active:scale-95 text-on-surface-variant" title="View MediaMTX RTMP/SRT stream credentials">
+          <span class="material-symbols-outlined text-[14px]">key</span>
+          <span>Ingest Key</span>
+        </button>
+
+        <!-- Auth Lock / Unlock Button -->
+        <button id="top-auth-btn" type="button" onclick="openAuthModal()" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/40 text-[10px] font-label-sm font-bold uppercase transition-all active:scale-95" title="Configure PiMatrix API Control Password">
+          <span class="material-symbols-outlined text-[14px] text-primary" id="top-auth-icon">lock_open</span>
+          <span class="text-on-surface" id="top-auth-label">UNLOCKED</span>
+        </button>
+
         <!-- Matrix Safety Lock Button (shown on Inputs/Matrix tab) -->
         <button id="lockToggleBtn" type="button" onclick="toggleMatrixLock()" class="hidden items-center gap-1 px-2.5 py-1 rounded-full bg-surface-container-high border border-outline-variant/40 text-[10px] font-label-sm font-bold uppercase transition-all active:scale-95">
           <span class="material-symbols-outlined text-[14px] text-tertiary" id="lockIcon">lock_open</span>
@@ -849,5 +861,110 @@
   </nav>
 
   <script type="module" src="/src/main.ts"></script>
+
+  <!-- =================================================================== -->
+  <!-- CONTROL AUTHENTICATION MODAL (<dialog>)                             -->
+  <!-- =================================================================== -->
+  <dialog id="auth-modal-overlay" class="broadcast-dialog" closedby="any" aria-labelledby="auth-dialog-title">
+    <div class="bg-surface-container-low rounded-2xl w-full max-w-sm p-4 shadow-xl border border-outline-variant/40 space-y-3">
+      <div class="flex items-center justify-between pb-2 border-b border-outline-variant/30">
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+            <span class="material-symbols-outlined text-[18px]">lock</span>
+          </div>
+          <div>
+            <h4 class="font-headline-sm text-[15px] font-bold text-on-surface leading-none" id="auth-dialog-title">Control Authentication</h4>
+            <span class="font-label-sm text-[10px] text-on-surface-variant uppercase">PiMatrix API Key</span>
+          </div>
+        </div>
+        <button type="button" class="w-7 h-7 rounded-full bg-surface-container-high hover:bg-surface-container-highest text-on-surface flex items-center justify-center" onclick="closeAuthModal()">
+          <span class="material-symbols-outlined text-[16px]">close</span>
+        </button>
+      </div>
+
+      <p class="font-body-sm text-[12px] text-on-surface-variant">Enter the control password or API key configured on this PiMatrix node to execute routing, PTZ, and pipeline actions:</p>
+
+      <div class="space-y-2">
+        <div class="relative">
+          <input type="password" id="auth-key-input" class="w-full h-10 px-3 bg-surface-container rounded-lg border border-outline-variant/50 text-on-surface font-mono text-sm placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary" placeholder="Enter API Key / Password">
+        </div>
+        <div class="flex items-center justify-between">
+          <label class="flex items-center gap-1.5 text-[11px] font-label-sm text-on-surface-variant cursor-pointer">
+            <input type="checkbox" id="auth-remember-check" checked class="rounded border-outline-variant text-primary focus:ring-0">
+            <span>Remember on this device</span>
+          </label>
+          <button type="button" onclick="clearAuthPassword()" class="text-[10px] font-label-sm text-error hover:underline uppercase font-bold">Clear Saved</button>
+        </div>
+        <div id="auth-error-msg" class="hidden text-[11px] text-error font-medium"></div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2 border-t border-outline-variant/20">
+        <button type="button" onclick="closeAuthModal()" class="px-3 py-1.5 rounded-lg bg-surface-container-high hover:bg-surface-container-highest text-on-surface text-[11px] font-bold uppercase">Cancel</button>
+        <button type="button" onclick="submitAuthPassword()" id="auth-submit-btn" class="px-4 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-on-primary text-[11px] font-bold uppercase flex items-center gap-1">
+          <span class="material-symbols-outlined text-[14px]">key</span>
+          <span>Unlock</span>
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- =================================================================== -->
+  <!-- MEDIAMTX INGEST CREDENTIALS MODAL (<dialog>)                        -->
+  <!-- =================================================================== -->
+  <dialog id="mediamtx-modal-overlay" class="broadcast-dialog" closedby="any" aria-labelledby="mediamtx-dialog-title">
+    <div class="bg-surface-container-low rounded-2xl w-full max-w-md p-4 shadow-xl border border-outline-variant/40 space-y-3">
+      <div class="flex items-center justify-between pb-2 border-b border-outline-variant/30">
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+            <span class="material-symbols-outlined text-[18px]">cell_tower</span>
+          </div>
+          <div>
+            <h4 class="font-headline-sm text-[15px] font-bold text-on-surface leading-none" id="mediamtx-dialog-title">MediaMTX Ingest Info</h4>
+            <span class="font-label-sm text-[10px] text-on-surface-variant uppercase">Stream Publisher Credentials</span>
+          </div>
+        </div>
+        <button type="button" class="w-7 h-7 rounded-full bg-surface-container-high hover:bg-surface-container-highest text-on-surface flex items-center justify-center" onclick="closeMediaMtxModal()">
+          <span class="material-symbols-outlined text-[16px]">close</span>
+        </button>
+      </div>
+
+      <div class="space-y-2 text-[11px] font-body-sm">
+        <div class="p-2.5 rounded-lg bg-surface-container border border-outline-variant/30 space-y-1">
+          <div class="flex items-center justify-between text-on-surface-variant">
+            <span class="uppercase font-bold text-[10px]">RTMP Ingest Format</span>
+            <button type="button" onclick="copyIngestVal('rtmp-ingest-val')" class="text-primary hover:underline text-[10px] uppercase font-bold">Copy</button>
+          </div>
+          <div class="font-mono text-on-surface select-all" id="rtmp-ingest-val">rtmp://&lt;host&gt;:1935/&lt;sourceId&gt;</div>
+        </div>
+
+        <div class="p-2.5 rounded-lg bg-surface-container border border-outline-variant/30 space-y-1">
+          <div class="flex items-center justify-between text-on-surface-variant">
+            <span class="uppercase font-bold text-[10px]">SRT Ingest Format</span>
+            <button type="button" onclick="copyIngestVal('srt-ingest-val')" class="text-primary hover:underline text-[10px] uppercase font-bold">Copy</button>
+          </div>
+          <div class="font-mono text-on-surface select-all" id="srt-ingest-val">srt://&lt;host&gt;:8890?streamid=publish:&lt;sourceId&gt;</div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div class="p-2 rounded-lg bg-surface-container border border-outline-variant/30">
+            <span class="text-on-surface-variant block uppercase font-bold text-[9px]">Username</span>
+            <span class="font-mono text-on-surface font-semibold text-[11px]" id="mediamtx-user-val">any</span>
+          </div>
+          <div class="p-2 rounded-lg bg-surface-container border border-outline-variant/30">
+            <div class="flex items-center justify-between text-on-surface-variant">
+              <span class="uppercase font-bold text-[9px]">Password / Key</span>
+              <button type="button" onclick="copyMediaMtxPassword()" class="text-primary hover:underline text-[9px] uppercase font-bold">Copy</button>
+            </div>
+            <span class="font-mono text-on-surface font-semibold text-[11px]" id="mediamtx-pass-val">None (Open)</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-end pt-2 border-t border-outline-variant/20">
+        <button type="button" onclick="closeMediaMtxModal()" class="px-4 py-1.5 rounded-lg bg-primary text-on-primary text-[11px] font-bold uppercase">Done</button>
+      </div>
+    </div>
+  </dialog>
+
 </body>
 </html>

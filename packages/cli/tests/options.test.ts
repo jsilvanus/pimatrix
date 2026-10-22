@@ -19,3 +19,9 @@ test("parses sources show and matrix route arguments", () => {
   assert.deepEqual(parseArgs(["sources", "show", "hama"], {}).command, ["sources", "show", "hama"]);
   assert.deepEqual(parseArgs(["matrix", "route", "1", "2"], {}).command, ["matrix", "route", "1", "2"]);
 });
+
+test("supports API key via argument and environment variable", () => {
+  assert.equal(parseArgs(["--api-key", "secret123", "status"], {}).apiKey, "secret123");
+  assert.equal(parseArgs(["--token", "tok456", "status"], {}).apiKey, "tok456");
+  assert.equal(parseArgs(["status"], { PIMATRIX_API_KEY: "envkey789" }).apiKey, "envkey789");
+});

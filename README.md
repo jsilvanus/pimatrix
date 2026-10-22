@@ -183,6 +183,17 @@ npm run dev --workspace @pimatrix/cli -- multiview layout portrait
 
 Once built, the `pimatrix` executable is available from the CLI workspace package. It supports `--server`, `PIMATRIX_URL`, and `--json`.
 
+## Security, Authentication & Remote Access
+
+PiMatrix provides fine-grained security tailored for AV production facilities:
+- **LAN Direct HTTP:** Local touchscreens, monitors, and companion apps communicate via fast, unencrypted HTTP without TLS certificate overhead or renewal failures.
+- **Remote Access (Canva / Internet):** A dedicated WAN port can be routed through an Nginx reverse proxy + Certbot TLS termination on port 8443, preserving security for external cloud integrations.
+- **Control Point Authentication:** Set PIMATRIX_API_KEY to protect HDMI routing, crop/effects, matrix switching, and PTZ camera movements.
+- **Web UI & Companion App:** The web console provides a password screen storing the token in localStorage. The Windows Companion app provides an API Key configuration field.
+- **AMX IP Whitelist:** Restrict AMX NetLinx TCP connections on port 6600 using PIMATRIX_AMX_ALLOWED_HOSTS.
+
+See the full [Security & Remote Access Guide](docs/security-and-remote-access.md) and [.env.example](.env.example) for setup instructions.
+
 ## Podman / Container Deployment
 
 Build container:

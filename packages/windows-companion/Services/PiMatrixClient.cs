@@ -10,6 +10,7 @@ namespace PiMatrixCompanion.Services
 {
     public interface IPiMatrixClient
     {
+        string ApiKey { get; set; }
         Task<PiMatrixStatus> GetStatusAsync(string host, int port, CancellationToken cancellationToken = default);
         Task<List<string>> GetSourcesAsync(string host, int port, CancellationToken cancellationToken = default);
         Task<bool> PingAsync(string host, int port, CancellationToken cancellationToken = default);
@@ -18,10 +19,22 @@ namespace PiMatrixCompanion.Services
     public class PiMatrixClient : IPiMatrixClient
     {
         private readonly HttpClient _httpClient;
+        public string ApiKey { get; set; } = string.Empty;
 
-        public PiMatrixClient(HttpClient? httpClient = null)
+        public PiMatrixClient(HttpClient? httpClient = null, string apiKey = "")
         {
             _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+            ApiKey = apiKey;
+        }
+
+        private HttpRequestMessage CreateRequest(HttpMethod method, string url)
+        {
+            var request = new HttpRequestMessage(method, url);
+            if (!string.IsNullOrWhiteSpace(ApiKey))
+            {
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", ApiKey.Trim());
+            }
+            return request;
         }
 
         public async Task<bool> PingAsync(string host, int port, CancellationToken cancellationToken = default)
@@ -29,7 +42,7 @@ namespace PiMatrixCompanion.Services
             try
             {
                 string url = $"http://{host}:{port}/health";
-                var response = await _httpClient.GetAsync(url, cancellationToken);
+                var response = await _httpClient.SendAsync(CreateRequest(HttpMethod.Get, url), cancellationToken);
                 return response.IsSuccessStatusCode;
             }
             catch
@@ -50,7 +63,7 @@ namespace PiMatrixCompanion.Services
             try
             {
                 string url = $"http://{host}:{port}/api/v1/status";
-                var response = await _httpClient.GetAsync(url, cancellationToken);
+                var response = await _httpClient.SendAsync(CreateRequest(HttpMethod.Get, url), cancellationToken);
                 if (response.IsSuccessStatusCode)
                 {
                     status.IsConnected = true;
@@ -94,7 +107,7 @@ namespace PiMatrixCompanion.Services
             try
             {
                 string url = $"http://{host}:{port}/api/v1/sources";
-                var response = await _httpClient.GetAsync(url, cancellationToken);
+                var response = await _httpClient.SendAsync(CreateRequest(HttpMethod.Get, url), cancellationToken);
                 if (response.IsSuccessStatusCode)
                 {
                     string json = await response.Content.ReadAsStringAsync(cancellationToken);

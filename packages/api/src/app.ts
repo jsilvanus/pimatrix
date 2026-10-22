@@ -254,7 +254,9 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       pipgmPipelines,
       multiview,
       matrix: matrixState,
-      rtspOut: rtspOutState
+      rtspOut: rtspOutState,
+      authRequired: Boolean(config.apiKey),
+      mediaMtxPassword: config.mediaMtxPassword ?? null
     });
   };
 
@@ -268,7 +270,10 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         eventBroker,
         listSources: () => listSources(false),
         mode: config.mode,
-        logger: app.log
+        logger: app.log,
+        ...(config.amxAllowedHosts && config.amxAllowedHosts.length > 0
+          ? { allowedIps: config.amxAllowedHosts }
+          : {})
       })
     : null;
 
@@ -288,6 +293,98 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       displayAdapter.close(),
       fleet?.close() ?? Promise.resolve()
     ]);
+  });
+
+  // Authentication hook for control points
+  app.addHook("onRequest", async (request, reply) => {
+    const method = request.method;
+    // Safe read methods and OPTIONS preflights never require auth
+    if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
+      return;
+    }
+
+    const url = request.url.split("?")[0] || "";
+    // Only protect /api/v1/ mutating endpoints
+    if (!url.startsWith("/api/v1/")) {
+      return;
+    }
+
+    // Skip auth verification endpoint itself
+    if (url === "/api/v1/auth/verify") {
+      return;
+    }
+
+    // If no credentials configured, allow control in open development mode
+    if (!config.apiKey && !config.canvaAppToken) {
+      return;
+    }
+
+    // Extract token from Bearer, x-api-key, or query parameter
+    const authHeader = request.headers.authorization;
+    let token: string | undefined;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.slice(7).trim();
+    } else if (typeof request.headers["x-api-key"] === "string") {
+      token = request.headers["x-api-key"].trim();
+    } else {
+      const q = request.query as Record<string, unknown> | undefined;
+      if (q && typeof q.token === "string") {
+        token = q.token.trim();
+      } else if (q && typeof q.apiKey === "string") {
+        token = q.apiKey.trim();
+      }
+    }
+
+    // Canva control points: accept either canvaAppToken or apiKey
+    if (url.startsWith("/api/v1/pipgm/canva") || url.includes("/canva")) {
+      if (config.canvaAppToken && token === config.canvaAppToken) {
+        return;
+      }
+      if (config.apiKey && token === config.apiKey) {
+        return;
+      }
+      return reply.status(401).send({
+        statusCode: 401,
+        error: "Unauthorized",
+        message: "Valid Canva application token or API key required"
+      });
+    }
+
+    // All other control points: verify apiKey
+    if (config.apiKey && token !== config.apiKey) {
+      return reply.status(401).send({
+        statusCode: 401,
+        error: "Unauthorized",
+        message: "Valid API key or Bearer token required for control operations"
+      });
+    }
+  });
+
+  app.get("/api/v1/auth/status", async () => ({
+    authRequired: Boolean(config.apiKey),
+    canvaAuthRequired: Boolean(config.canvaAppToken),
+    mediaMtxPassword: config.mediaMtxPassword ?? null
+  }));
+
+  app.post("/api/v1/auth/verify", async (request, reply) => {
+    if (!config.apiKey) {
+      return { valid: true, authRequired: false };
+    }
+    const body = (request.body as { key?: string }) ?? {};
+    const authHeader = request.headers.authorization;
+    const token = body.key?.trim() ||
+      (authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : undefined) ||
+      (typeof request.headers["x-api-key"] === "string" ? request.headers["x-api-key"].trim() : undefined);
+
+    if (token === config.apiKey) {
+      return { valid: true, authRequired: true };
+    }
+    return reply.status(401).send({
+      statusCode: 401,
+      valid: false,
+      error: "Unauthorized",
+      message: "Invalid API key"
+    });
   });
 
   // Expose services on Fastify instance for test inspections if needed

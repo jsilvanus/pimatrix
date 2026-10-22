@@ -114,6 +114,8 @@ export interface FrontendInitialState {
   };
   matrix: MatrixRouteState;
   rtspOut: RtspOutState;
+  authRequired?: boolean;
+  mediaMtxPassword?: string | null;
 }
 
 declare global {
@@ -123,6 +125,13 @@ declare global {
     selectHdmiSource: (outputNum: 1 | 2, sourceId: string) => Promise<void>;
     openAuxModal: (outputNum: 1 | 2) => void;
     closeAuxModal: () => void;
+    openAuthModal: () => void;
+    closeAuthModal: () => void;
+    submitAuthPassword: () => Promise<void>;
+    clearAuthPassword: () => void;
+    showMediaMtxModal: () => void;
+    closeMediaMtxModal: () => void;
+    copyMediaMtxPassword: () => void;
     confirmAuxPick: (sourceId: string | null, mvLayout?: "landscape" | "portrait") => Promise<void>;
     toggleOutputInputControl: (outputNum: 1 | 2, kind: "ftb" | "mute") => Promise<void>;
     toggleInputEffect: (sourceId: SourceId, kind: "ftb" | "mute") => Promise<void>;

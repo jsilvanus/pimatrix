@@ -11,8 +11,12 @@ export type * from "./generated/index.js";
 
 export interface ApiClientOptions {
   baseUrl: string;
+  token?: string;
 }
 
 export function configureApiClient(options: ApiClientOptions): void {
   OpenAPI.BASE = options.baseUrl.replace(/\/$/, "");
+  if (options.token) {
+    OpenAPI.TOKEN = options.token;
+  }
 }

@@ -134,6 +134,7 @@ namespace PiMatrixCompanion.ViewModels
             _piMatrixClient = piMatrixClient;
 
             _settings = _settingsManager.LoadSettings();
+            _piMatrixClient.ApiKey = _settings.PiMatrixApiKey;
 
             // Populate Monitor ViewModels
             foreach (var monitorConfig in _settings.Monitors)
