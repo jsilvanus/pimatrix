@@ -44,6 +44,18 @@ export interface PiPgmEventPayload {
   pipeline: PiPgmPipelineSnapshot;
 }
 
+export interface MatrixEventPayload {
+  locked: boolean;
+  routes: Record<number, number | null>;
+  lastChange?: { input: number; output: number };
+}
+
+export interface RtspOutEventPayload {
+  sourceId: string;
+  layout?: string;
+  url: string;
+}
+
 export type PiMatrixEvent =
   | { type: "source"; data: SourceEventPayload }
   | { type: "output"; data: OutputEventPayload }
@@ -51,6 +63,8 @@ export type PiMatrixEvent =
   | { type: "camera"; data: CameraEventPayload }
   | { type: "effects"; data: EffectsEventPayload }
   | { type: "pipgm"; data: PiPgmEventPayload }
+  | { type: "matrix"; data: MatrixEventPayload }
+  | { type: "rtsp"; data: RtspOutEventPayload }
   | { type: "ready"; data: { status: string; time: string } };
 
 export class PiMatrixEventBroker {

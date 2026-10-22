@@ -10,17 +10,19 @@ export function renderMultiviewHtml(
 
   const tilesHtml = multiview.tiles
     .map((tile) => {
+      const fx = effectsMap.get(tile.sourceId);
       const isLive = tile.state === "live";
-      const isFtb = tile.pipgm?.fadeToBlack === true;
-      const audioOn = tile.pipgm?.audioEnabled === true;
+      const isFtb = tile.pipgm?.fadeToBlack === true || fx?.fadeToBlack === true;
+      const audioOn = tile.pipgm ? tile.pipgm.audioEnabled === true : fx?.muted !== true;
       const statusClass = isFtb ? "ftb" : isLive ? "live" : "offline";
       const statusText = isFtb ? "⬛ FTB" : tile.state.toUpperCase();
       const previewUrl = tile.preview.url ?? (previewBaseUrl ? `${previewBaseUrl}/${encodeURIComponent(tile.sourceId)}` : null);
       const replacedNote = tile.replacedSourceId ? ` <small class="replaced-tag">(replaces ${tile.replacedSourceId})</small>` : "";
       const pipgmBadges = tile.pipgm
         ? `<span class="pipgm-meta" id="pipgm-meta-${tile.sourceId}">${audioOn ? "🔊 ON" : "🔇 MUTED"} • ${tile.pipgm.orientation === "portrait" ? "9:16" : "16:9"}</span>`
-        : "";
-      const fx = effectsMap.get(tile.sourceId);
+        : fx?.muted
+          ? `<span class="pipgm-meta" id="pipgm-meta-${tile.sourceId}">🔇 MUTED</span>`
+          : "";
       const cropBadge = fx?.crop.enabled
         ? `<span class="crop-badge active" id="crop-badge-${tile.sourceId}">CROP ${fx.crop.aspectRatio}</span>`
         : `<span class="crop-badge" id="crop-badge-${tile.sourceId}" style="display:none">CROP</span>`;
@@ -649,6 +651,21 @@ export function renderMultiviewHtml(
           } else {
             tileBadge.style.display = "none";
           }
+        }
+        const tile = document.getElementById("tile-" + payload.sourceId);
+        const badge = document.getElementById("status-" + payload.sourceId);
+        const banner = document.getElementById("ftb-banner-" + payload.sourceId);
+        if (tile) {
+          tile.classList.toggle("tile-ftb", payload.effects.fadeToBlack === true);
+        }
+        if (badge && payload.effects.fadeToBlack !== undefined) {
+          if (payload.effects.fadeToBlack) {
+            badge.textContent = "⬛ FTB";
+            badge.className = "status-badge ftb";
+          }
+        }
+        if (banner && payload.effects.fadeToBlack !== undefined) {
+          banner.style.display = payload.effects.fadeToBlack ? "flex" : "none";
         }
       } catch (err) {}
     });

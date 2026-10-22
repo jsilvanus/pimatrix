@@ -30,6 +30,8 @@ export interface EffectsPipeline {
   sourceId: SourceId;
   crop: CropSettings;
   rotation: RotationDegrees;
+  fadeToBlack: boolean;
+  muted: boolean;
   ffmpegFilter: string;
 }
 
@@ -37,7 +39,11 @@ function makeEven(value: number): number {
   return Math.round(value / 2) * 2;
 }
 
-export function buildFfmpegFilter(crop: CropSettings, rotation: RotationDegrees): string {
+export function buildFfmpegFilter(
+  crop: CropSettings,
+  rotation: RotationDegrees,
+  fadeToBlack = false
+): string {
   const parts: string[] = [];
 
   if (crop.enabled) {
@@ -54,6 +60,10 @@ export function buildFfmpegFilter(crop: CropSettings, rotation: RotationDegrees)
     parts.push("hflip,vflip");
   } else if (rotation === 270) {
     parts.push("transpose=2");
+  }
+
+  if (fadeToBlack) {
+    parts.push("drawbox=x=0:y=0:w=iw:h=ih:color=black@1.0:t=fill");
   }
 
   return parts.length > 0 ? parts.join(",") : "null";
@@ -293,11 +303,14 @@ export class EffectsStore {
   constructor(sourceIds: readonly SourceId[]) {
     for (const id of sourceIds) {
       const crop = defaultCropSettings();
+      const defaultMuted = id === "PiPGM1" || id === "PiPGM2" || id === "PiPGM3";
       this.pipelines.set(id, {
         sourceId: id,
         crop,
         rotation: 0,
-        ffmpegFilter: buildFfmpegFilter(crop, 0)
+        fadeToBlack: false,
+        muted: defaultMuted,
+        ffmpegFilter: buildFfmpegFilter(crop, 0, false)
       });
     }
   }
@@ -319,7 +332,7 @@ export class EffectsStore {
     const updated: EffectsPipeline = {
       ...current,
       crop: clamped,
-      ffmpegFilter: buildFfmpegFilter(clamped, current.rotation)
+      ffmpegFilter: buildFfmpegFilter(clamped, current.rotation, current.fadeToBlack)
     };
     this.pipelines.set(sourceId, updated);
     return { ...updated, crop: { ...updated.crop } };
@@ -333,7 +346,7 @@ export class EffectsStore {
     const updated: EffectsPipeline = {
       ...current,
       crop,
-      ffmpegFilter: buildFfmpegFilter(crop, current.rotation)
+      ffmpegFilter: buildFfmpegFilter(crop, current.rotation, current.fadeToBlack)
     };
     this.pipelines.set(sourceId, updated);
     return { ...updated, crop: { ...updated.crop } };
@@ -347,7 +360,7 @@ export class EffectsStore {
     const updated: EffectsPipeline = {
       ...current,
       crop,
-      ffmpegFilter: buildFfmpegFilter(crop, current.rotation)
+      ffmpegFilter: buildFfmpegFilter(crop, current.rotation, current.fadeToBlack)
     };
     this.pipelines.set(sourceId, updated);
     return { ...updated, crop: { ...updated.crop } };
@@ -361,7 +374,7 @@ export class EffectsStore {
     const updated: EffectsPipeline = {
       ...current,
       crop,
-      ffmpegFilter: buildFfmpegFilter(crop, current.rotation)
+      ffmpegFilter: buildFfmpegFilter(crop, current.rotation, current.fadeToBlack)
     };
     this.pipelines.set(sourceId, updated);
     return { ...updated, crop: { ...updated.crop } };
@@ -374,7 +387,52 @@ export class EffectsStore {
     const updated: EffectsPipeline = {
       ...current,
       rotation,
-      ffmpegFilter: buildFfmpegFilter(current.crop, rotation)
+      ffmpegFilter: buildFfmpegFilter(current.crop, rotation, current.fadeToBlack)
+    };
+    this.pipelines.set(sourceId, updated);
+    return { ...updated, crop: { ...updated.crop } };
+  }
+
+  setFadeToBlack(
+    sourceId: SourceId,
+    options: { fadeToBlack?: boolean; toggle?: boolean }
+  ): EffectsPipeline | undefined {
+    const current = this.pipelines.get(sourceId);
+    if (!current) return undefined;
+
+    const nextFtb =
+      options.toggle === true
+        ? !current.fadeToBlack
+        : options.fadeToBlack !== undefined
+          ? options.fadeToBlack
+          : current.fadeToBlack;
+
+    const updated: EffectsPipeline = {
+      ...current,
+      fadeToBlack: nextFtb,
+      ffmpegFilter: buildFfmpegFilter(current.crop, current.rotation, nextFtb)
+    };
+    this.pipelines.set(sourceId, updated);
+    return { ...updated, crop: { ...updated.crop } };
+  }
+
+  setMuted(
+    sourceId: SourceId,
+    options: { muted?: boolean; toggle?: boolean }
+  ): EffectsPipeline | undefined {
+    const current = this.pipelines.get(sourceId);
+    if (!current) return undefined;
+
+    const nextMuted =
+      options.toggle === true
+        ? !current.muted
+        : options.muted !== undefined
+          ? options.muted
+          : current.muted;
+
+    const updated: EffectsPipeline = {
+      ...current,
+      muted: nextMuted
     };
     this.pipelines.set(sourceId, updated);
     return { ...updated, crop: { ...updated.crop } };

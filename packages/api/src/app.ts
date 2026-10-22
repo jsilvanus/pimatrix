@@ -15,6 +15,12 @@ import {
   type MoveDirection,
   type RotationDegrees
 } from "./effects/effects-model.js";
+import {
+  renderOperatorFrontendHtml,
+  type FrontendTabId,
+  type MatrixRouteState,
+  type RtspOutState
+} from "./frontend-html.js";
 import { inspectMediaMtx } from "./media-mtx.js";
 import {
   createOutputStore,
@@ -53,6 +59,22 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   const eventBroker = new PiMatrixEventBroker();
   let multiviewLayout: MultiviewLayoutMode = "auto";
   const multiviewSlotOverrides = new Map<number, SourceId>();
+
+  const matrixState: MatrixRouteState = {
+    locked: false,
+    routes: {
+      1: 1, // Projector 1 -> Lectern
+      2: 2, // Projector 2 -> Rack PC
+      3: null, // Screen -> Ei vielä hankittu
+      4: 3 // Videomikseri -> Pi 1
+    }
+  };
+
+  let rtspOutState: RtspOutState = {
+    sourceId: "rtmp1",
+    layout: "landscape",
+    url: "rtsp://pimatrix.local:554/live"
+  };
 
   const pipgmService = new PiPgmService({
     eventBroker,
@@ -105,7 +127,10 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     localCaptureFleet,
     (attempt) => {
       const hamaEffects = effectsStore.get("hama");
-      const filter = hamaEffects?.crop.enabled ? hamaEffects.ffmpegFilter : undefined;
+      const filter =
+        hamaEffects && (hamaEffects.crop.enabled || hamaEffects.fadeToBlack)
+          ? hamaEffects.ffmpegFilter
+          : undefined;
       return buildHamaCaptureSpec(config, attempt, filter);
     },
     config.hamaEnabled,
@@ -192,6 +217,27 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     });
   };
 
+  const renderFrontendPage = async (activeTab: FrontendTabId) => {
+    const sources = await listSources(true);
+    const outputs = outputStore.list();
+    const effects = effectsStore.list();
+    const cameras = cameraService.list();
+    const pipgmPipelines = pipgmService.listPipelines(true);
+    const multiview = await buildCurrentMultiview();
+    return renderOperatorFrontendHtml({
+      activeTab,
+      mode: config.mode,
+      sources,
+      outputs,
+      effects,
+      cameras,
+      pipgmPipelines,
+      multiview,
+      matrix: matrixState,
+      rtspOut: rtspOutState
+    });
+  };
+
   const amxListener = config.amxTcpEnabled
     ? new AmxTcpListener({
         host: config.amxTcpHost,
@@ -231,6 +277,40 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   (app as unknown as { pipgmService: PiPgmService }).pipgmService = pipgmService;
   (app as unknown as { effectsStore: EffectsStore }).effectsStore = effectsStore;
   (app as unknown as { captureSupervisor: StreamSupervisor }).captureSupervisor = captureSupervisor;
+
+  // =========================================================================
+  // Operator Frontend UI Routes (Warm Broadcast Control - Stitch)
+  // =========================================================================
+
+  app.get("/", async (_request, reply) => {
+    const html = await renderFrontendPage("outputs");
+    return reply.type("text/html; charset=utf-8").send(html);
+  });
+
+  app.get("/outputs", async (_request, reply) => {
+    const html = await renderFrontendPage("outputs");
+    return reply.type("text/html; charset=utf-8").send(html);
+  });
+
+  app.get("/inputs", async (_request, reply) => {
+    const html = await renderFrontendPage("inputs");
+    return reply.type("text/html; charset=utf-8").send(html);
+  });
+
+  app.get("/cameras", async (_request, reply) => {
+    const html = await renderFrontendPage("cameras");
+    return reply.type("text/html; charset=utf-8").send(html);
+  });
+
+  app.get("/renderer", async (_request, reply) => {
+    const html = await renderFrontendPage("renderer");
+    return reply.type("text/html; charset=utf-8").send(html);
+  });
+
+  app.get("/pipgm", async (_request, reply) => {
+    const html = await renderFrontendPage("renderer");
+    return reply.type("text/html; charset=utf-8").send(html);
+  });
 
   app.get("/health", async () => ({ status: "ok", service: "pimatrix" }));
 
@@ -313,11 +393,12 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         });
       }
       const requestedSource = request.body.sourceId;
-      if (
-        requestedSource !== null &&
-        (typeof requestedSource !== "string" ||
-          !sourceDefinitions.some((source) => source.id === requestedSource))
-      ) {
+      const isValidLogicalSource =
+        requestedSource === "multiview" ||
+        (typeof requestedSource === "string" &&
+          sourceDefinitions.some((source) => source.id === requestedSource));
+
+      if (requestedSource !== null && !isValidLogicalSource) {
         return reply.code(422).send({
           error: { code: "INVALID_SOURCE", message: "sourceId must be a known logical source ID or null" }
         });
@@ -346,6 +427,55 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       });
 
       return reply.code(202).send(current);
+    }
+  );
+
+  // Network Stream Out (RTSP) assignment endpoints
+  app.get("/api/v1/outputs/rtsp", async () => rtspOutState);
+
+  app.put<{ Body: { sourceId?: unknown; layout?: unknown } }>(
+    "/api/v1/outputs/rtsp/source",
+    async (request, reply) => {
+      if (!Object.prototype.hasOwnProperty.call(request.body ?? {}, "sourceId")) {
+        return reply.code(422).send({
+          error: { code: "SOURCE_REQUIRED", message: "Request body must include sourceId (or null to clear)" }
+        });
+      }
+      const requestedSource = request.body.sourceId;
+      const isValidLogicalSource =
+        requestedSource === "multiview" ||
+        (typeof requestedSource === "string" &&
+          sourceDefinitions.some((source) => source.id === requestedSource));
+
+      if (requestedSource !== null && !isValidLogicalSource) {
+        return reply.code(422).send({
+          error: { code: "INVALID_SOURCE", message: "sourceId must be a known logical source ID, 'multiview', or null" }
+        });
+      }
+
+      const layoutRaw = request.body?.layout;
+      if (
+        layoutRaw !== undefined &&
+        layoutRaw !== "landscape" &&
+        layoutRaw !== "portrait"
+      ) {
+        return reply.code(422).send({
+          error: { code: "INVALID_LAYOUT", message: "layout must be 'landscape' or 'portrait'" }
+        });
+      }
+
+      rtspOutState = {
+        ...rtspOutState,
+        sourceId: (requestedSource as string | null) ?? "rtmp1",
+        ...(layoutRaw !== undefined ? { layout: layoutRaw } : {})
+      };
+
+      eventBroker.emit({
+        type: "rtsp",
+        data: { ...rtspOutState }
+      });
+
+      return reply.code(200).send(rtspOutState);
     }
   );
 
@@ -462,6 +592,29 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     });
   });
 
+  // =========================================================================
+  // Atlona Matrix State, Safety Lock, and Crosspoint Routing
+  // =========================================================================
+
+  app.get("/api/v1/matrix", async () => matrixState);
+
+  app.put<{ Body: { locked?: unknown } }>("/api/v1/matrix/lock", async (request, reply) => {
+    if (typeof request.body?.locked !== "boolean") {
+      return reply.code(422).send({
+        error: { code: "INVALID_LOCK_STATE", message: "locked must be a boolean" }
+      });
+    }
+    matrixState.locked = request.body.locked;
+    eventBroker.emit({
+      type: "matrix",
+      data: {
+        locked: matrixState.locked,
+        routes: { ...matrixState.routes }
+      }
+    });
+    return reply.code(200).send(matrixState);
+  });
+
   app.post<{ Body: { input?: unknown; output?: unknown } }>(
     "/api/v1/matrix/route",
     async (request, reply) => {
@@ -480,12 +633,37 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       }
 
       try {
-        const result = await amxClient.routeMatrix(input, output);
+        const amxStatus = await amxClient.getStatus();
+        let result;
+        if (config.mode === "simulation" && amxStatus === "not-configured") {
+          result = {
+            requestId: `sim-${Date.now()}`,
+            success: true,
+            input,
+            output,
+            confirmed: true,
+            message: "Simulated Atlona route confirmed"
+          };
+        } else {
+          result = await amxClient.routeMatrix(input, output);
+        }
+
         if (!result.success) {
           return reply.code(502).send({
             error: { code: "AMX_ROUTE_FAILED", message: result.message ?? "AMX request was not accepted" }
           });
         }
+
+        matrixState.routes[output] = input;
+        eventBroker.emit({
+          type: "matrix",
+          data: {
+            locked: matrixState.locked,
+            routes: { ...matrixState.routes },
+            lastChange: { input, output }
+          }
+        });
+
         return reply.code(200).send(result);
       } catch (err) {
         const message = err instanceof Error ? err.message : "AMX request failed";
@@ -676,6 +854,18 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       ...(typeof body.sync === "boolean" ? { sync: body.sync } : {})
     });
 
+    if (updated) {
+      const fx = effectsStore.setFadeToBlack(request.params.pipelineId as SourceId, {
+        fadeToBlack: updated.fadeToBlack
+      });
+      if (fx) {
+        eventBroker.emit({
+          type: "effects",
+          data: { sourceId: request.params.pipelineId as SourceId, effects: fx }
+        });
+      }
+    }
+
     return reply.code(200).send(updated);
   });
 
@@ -709,6 +899,18 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       ...(volume !== undefined ? { volume } : {}),
       ...(typeof body.sync === "boolean" ? { sync: body.sync } : {})
     });
+
+    if (updated) {
+      const fx = effectsStore.setMuted(request.params.pipelineId as SourceId, {
+        muted: !updated.audioEnabled
+      });
+      if (fx) {
+        eventBroker.emit({
+          type: "effects",
+          data: { sourceId: request.params.pipelineId as SourceId, effects: fx }
+        });
+      }
+    }
 
     return reply.code(200).send(updated);
   });
@@ -1761,6 +1963,118 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     if (sourceId === "hama" && captureSupervisor.snapshot().state === "running") {
       void captureSupervisor.restart().catch(() => undefined);
     }
+
+    return reply.code(200).send(updated);
+  });
+
+  // Input-specific Fade to Black (FTB) and Mute endpoints
+  app.post<{
+    Params: { sourceId: string };
+    Body: { fadeToBlack?: unknown; toggle?: unknown; durationMs?: unknown; sync?: unknown };
+  }>("/api/v1/sources/:sourceId/effects/ftb", async (request, reply) => {
+    const sourceId = request.params.sourceId as SourceId;
+    if (!sourceDefinitions.some((s) => s.id === sourceId)) {
+      return reply.code(404).send({
+        error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
+      });
+    }
+
+    const body = request.body ?? {};
+    if (body.fadeToBlack !== undefined && typeof body.fadeToBlack !== "boolean") {
+      return reply.code(422).send({
+        error: { code: "INVALID_FTB_VALUE", message: "fadeToBlack must be a boolean" }
+      });
+    }
+    if (body.toggle !== undefined && typeof body.toggle !== "boolean") {
+      return reply.code(422).send({
+        error: { code: "INVALID_TOGGLE_VALUE", message: "toggle must be a boolean" }
+      });
+    }
+
+    const current = effectsStore.get(sourceId);
+    const nextFtb =
+      typeof body.fadeToBlack === "boolean"
+        ? body.fadeToBlack
+        : body.toggle === true
+          ? !(current?.fadeToBlack ?? false)
+          : !(current?.fadeToBlack ?? false);
+
+    const updated = effectsStore.setFadeToBlack(sourceId, { fadeToBlack: nextFtb });
+    if (!updated) {
+      return reply.code(404).send({
+        error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
+      });
+    }
+
+    if (pipgmService.isValidPipelineId(sourceId)) {
+      pipgmService.setFadeToBlack(sourceId, {
+        fadeToBlack: nextFtb,
+        ...(typeof body.durationMs === "number" ? { durationMs: body.durationMs } : {}),
+        ...(typeof body.sync === "boolean" ? { sync: body.sync } : {})
+      });
+    }
+
+    eventBroker.emit({
+      type: "effects",
+      data: { sourceId, effects: updated }
+    });
+
+    if (sourceId === "hama" && captureSupervisor.snapshot().state === "running") {
+      void captureSupervisor.restart().catch(() => undefined);
+    }
+
+    return reply.code(200).send(updated);
+  });
+
+  app.post<{
+    Params: { sourceId: string };
+    Body: { muted?: unknown; toggle?: unknown; sync?: unknown };
+  }>("/api/v1/sources/:sourceId/effects/mute", async (request, reply) => {
+    const sourceId = request.params.sourceId as SourceId;
+    if (!sourceDefinitions.some((s) => s.id === sourceId)) {
+      return reply.code(404).send({
+        error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
+      });
+    }
+
+    const body = request.body ?? {};
+    if (body.muted !== undefined && typeof body.muted !== "boolean") {
+      return reply.code(422).send({
+        error: { code: "INVALID_MUTE_VALUE", message: "muted must be a boolean" }
+      });
+    }
+    if (body.toggle !== undefined && typeof body.toggle !== "boolean") {
+      return reply.code(422).send({
+        error: { code: "INVALID_TOGGLE_VALUE", message: "toggle must be a boolean" }
+      });
+    }
+
+    const current = effectsStore.get(sourceId);
+    const nextMuted =
+      typeof body.muted === "boolean"
+        ? body.muted
+        : body.toggle === true
+          ? !(current?.muted ?? false)
+          : !(current?.muted ?? false);
+
+    const updated = effectsStore.setMuted(sourceId, { muted: nextMuted });
+    if (!updated) {
+      return reply.code(404).send({
+        error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
+      });
+    }
+
+    if (pipgmService.isValidPipelineId(sourceId)) {
+      pipgmService.setAudio(sourceId, {
+        audioEnabled: !nextMuted,
+        ...(typeof body.sync === "boolean" ? { sync: body.sync } : {})
+      });
+    }
+
+    eventBroker.emit({
+      type: "effects",
+      data: { sourceId, effects: updated }
+    });
 
     return reply.code(200).send(updated);
   });
