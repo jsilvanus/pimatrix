@@ -355,6 +355,8 @@ async function run(options: CliOptions): Promise<void> {
     if (options.y !== undefined) req.y = options.y;
     if (options.width !== undefined) req.width = options.width;
     if (options.height !== undefined) req.height = options.height;
+    if (options.sourceWidth !== undefined) req.sourceWidth = options.sourceWidth;
+    if (options.sourceHeight !== undefined) req.sourceHeight = options.sourceHeight;
     if (options.aspectRatio !== undefined) {
       req.aspectRatio = options.aspectRatio as NonNullable<UpdateCropRequest["aspectRatio"]>;
     }

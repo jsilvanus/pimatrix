@@ -614,6 +614,8 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       y?: unknown;
       width?: unknown;
       height?: unknown;
+      sourceWidth?: unknown;
+      sourceHeight?: unknown;
       aspectRatio?: unknown;
       lockedAspectRatio?: unknown;
     };
@@ -675,6 +677,26 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         });
       }
       updates.height = height;
+    }
+
+    if (body.sourceWidth !== undefined) {
+      const sw = Number(body.sourceWidth);
+      if (!Number.isFinite(sw) || sw < 16) {
+        return reply.code(422).send({
+          error: { code: "INVALID_CROP_BOUNDS", message: "sourceWidth must be a positive number >= 16" }
+        });
+      }
+      updates.sourceWidth = sw;
+    }
+
+    if (body.sourceHeight !== undefined) {
+      const sh = Number(body.sourceHeight);
+      if (!Number.isFinite(sh) || sh < 16) {
+        return reply.code(422).send({
+          error: { code: "INVALID_CROP_BOUNDS", message: "sourceHeight must be a positive number >= 16" }
+        });
+      }
+      updates.sourceHeight = sh;
     }
 
     if (body.aspectRatio !== undefined) {
@@ -936,6 +958,8 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       y?: unknown;
       width?: unknown;
       height?: unknown;
+      sourceWidth?: unknown;
+      sourceHeight?: unknown;
       aspectRatio?: unknown;
       lockedAspectRatio?: unknown;
     };

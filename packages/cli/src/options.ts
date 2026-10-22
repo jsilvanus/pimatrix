@@ -10,6 +10,8 @@ export interface CliOptions {
   y?: number;
   width?: number;
   height?: number;
+  sourceWidth?: number;
+  sourceHeight?: number;
   aspectRatio?: string;
   delta?: number;
   factor?: number;
@@ -28,6 +30,8 @@ export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env):
   let y: number | undefined;
   let width: number | undefined;
   let height: number | undefined;
+  let sourceWidth: number | undefined;
+  let sourceHeight: number | undefined;
   let aspectRatio: string | undefined;
   let delta: number | undefined;
   let factor: number | undefined;
@@ -84,6 +88,16 @@ export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env):
       if (!value || value.startsWith("--")) throw new Error("--height requires a number");
       height = Number(value);
       index += 1;
+    } else if (arg === "--source-width" || arg === "--sw") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) throw new Error("--source-width requires a number");
+      sourceWidth = Number(value);
+      index += 1;
+    } else if (arg === "--source-height" || arg === "--sh") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) throw new Error("--source-height requires a number");
+      sourceHeight = Number(value);
+      index += 1;
     } else if (arg === "--aspect") {
       const value = args[index + 1];
       if (!value || value.startsWith("--")) throw new Error("--aspect requires a ratio (e.g. 9:16)");
@@ -136,6 +150,8 @@ export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env):
     ...(y !== undefined ? { y } : {}),
     ...(width !== undefined ? { width } : {}),
     ...(height !== undefined ? { height } : {}),
+    ...(sourceWidth !== undefined ? { sourceWidth } : {}),
+    ...(sourceHeight !== undefined ? { sourceHeight } : {}),
     ...(aspectRatio !== undefined ? { aspectRatio } : {}),
     ...(delta !== undefined ? { delta } : {}),
     ...(factor !== undefined ? { factor } : {}),

@@ -1155,6 +1155,10 @@ components:
           type: number
         height:
           type: number
+        sourceWidth:
+          type: number
+        sourceHeight:
+          type: number
         aspectRatio:
           $ref: "#/components/schemas/AspectRatioPreset"
         lockedAspectRatio:

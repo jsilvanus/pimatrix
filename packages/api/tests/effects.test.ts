@@ -208,5 +208,60 @@ test("Effects REST API endpoints handle get, crop update, presets, move, and res
   });
   assert.equal(unknownSourceRes.statusCode, 404);
 
+  // 12. 4K Input to Vertical HD Crop test
+  // Configure cam1 with a 4K UHD source canvas (3840x2160)
+  const set4kRes = await app.inject({
+    method: "PUT",
+    url: "/api/v1/sources/cam1/effects/crop",
+    payload: {
+      sourceWidth: 3840,
+      sourceHeight: 2160,
+      width: 3840,
+      height: 2160,
+      x: 0,
+      y: 0,
+      enabled: false
+    }
+  });
+  assert.equal(set4kRes.statusCode, 200);
+  const set4kJson = JSON.parse(set4kRes.payload);
+  assert.equal(set4kJson.crop.sourceWidth, 3840);
+  assert.equal(set4kJson.crop.sourceHeight, 2160);
+
+  // Applying 9:16 vertical preset on 4K yields 1216x2160 (4x the pixels of 1080p's 608x1080)
+  const preset4kRes = await app.inject({
+    method: "POST",
+    url: "/api/v1/sources/cam1/effects/crop/preset",
+    payload: { preset: "force-vertical-9-16" }
+  });
+  assert.equal(preset4kRes.statusCode, 200);
+  const preset4kJson = JSON.parse(preset4kRes.payload);
+  assert.equal(preset4kJson.crop.width, 1216);
+  assert.equal(preset4kJson.crop.height, 2160);
+  assert.equal(preset4kJson.crop.x, 1312);
+  assert.equal(preset4kJson.crop.y, 0);
+  assert.equal(preset4kJson.ffmpegFilter, "crop=1216:2160:1312:0,transpose=1");
+
+  // Setting a pixel-perfect unscaled 1080x1920 Full HD portrait crop within 4K
+  const nativeHdCropRes = await app.inject({
+    method: "PUT",
+    url: "/api/v1/sources/cam1/effects/crop",
+    payload: {
+      enabled: true,
+      x: 1380,
+      y: 120,
+      width: 1080,
+      height: 1920,
+      aspectRatio: "9:16",
+      lockedAspectRatio: true
+    }
+  });
+  assert.equal(nativeHdCropRes.statusCode, 200);
+  const nativeHdJson = JSON.parse(nativeHdCropRes.payload);
+  assert.equal(nativeHdJson.crop.width, 1080);
+  assert.equal(nativeHdJson.crop.height, 1920);
+  assert.equal(nativeHdJson.crop.sourceWidth, 3840);
+  assert.equal(nativeHdJson.crop.sourceHeight, 2160);
+
   await app.close();
 });
