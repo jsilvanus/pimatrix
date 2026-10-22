@@ -2,6 +2,8 @@ import type { PiPgmMobileSignCode, PiPgmOrientation } from "./pipgm/pipgm-model.
 
 export const sourceDefinitions = [
   { id: "hama", label: "Hama capture", kind: "capture", defaultHidden: false },
+  // NOTE: Future `hama2` virtual/duplicate source will be added here so we can send
+  // the uncropped `hama` signal to one destination and `hama2` (as cropped) to another.
   { id: "rtmp1", label: "RTMP 1", kind: "rtmp", defaultHidden: false },
   { id: "rtmp2", label: "RTMP 2", kind: "rtmp", defaultHidden: false },
   { id: "cam1", label: "Camera 1", kind: "camera", defaultHidden: false },

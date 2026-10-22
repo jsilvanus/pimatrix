@@ -298,6 +298,9 @@ export function resizeCropRectangle(
 }
 
 export class EffectsStore {
+  // NOTE: When `hama2` is introduced as a duplicate virtual source of `hama`,
+  // EffectsStore will maintain an independent EffectsPipeline for `hama2` so `hama`
+  // can be routed uncropped to one output while `hama2` is cropped for another output.
   private readonly pipelines = new Map<SourceId, EffectsPipeline>();
 
   constructor(sourceIds: readonly SourceId[]) {

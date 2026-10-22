@@ -318,6 +318,24 @@ export function renderMultiviewHtml(
     }
 
     /* Preview Canvas representation */
+    .crop-zoomed-wrap {
+      width: 100%;
+      height: 110px;
+      background: #030712;
+      border: 1px solid #1f2937;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      position: relative;
+    }
+    .crop-zoomed-box {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid #3b82f6;
+      background: #0b132b;
+    }
     .preview-box {
       width: 100%;
       aspect-ratio: 16 / 9;
@@ -326,13 +344,15 @@ export function renderMultiviewHtml(
       border-radius: 4px;
       position: relative;
       overflow: hidden;
+      touch-action: none;
+      cursor: grab;
     }
+    .preview-box:active { cursor: grabbing; }
     .crop-rect {
       position: absolute;
       border: 2px dashed #3b82f6;
       background: rgba(59, 130, 246, 0.15);
       box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
-      transition: all 0.15s ease-out;
       pointer-events: none;
     }
     .crop-rect-label {
@@ -421,8 +441,18 @@ export function renderMultiviewHtml(
         <button class="modal-close" onclick="closeCropModal()">&times;</button>
       </div>
 
-      <!-- Live Crop Box Preview -->
+      <!-- Duplicated Cropped Output Preview (above cropper so finger doesn't obstruct) -->
+      <div class="ctrl-label">Cropped Output Preview (Unobstructed)</div>
+      <div class="crop-zoomed-wrap">
+        <div class="crop-zoomed-box" id="crop-zoomed-box">
+          <div id="crop-zoomed-inner" style="position:absolute;top:0;left:0;transform-origin:0 0;pointer-events:none;"></div>
+        </div>
+      </div>
+
+      <!-- Live Crop Box Preview (Drag with finger/mouse) -->
+      <div class="ctrl-label">Interactive Full Frame (Drag Crop Box)</div>
       <div class="preview-box" id="preview-box">
+        <div id="preview-box-bg" style="width:100%;height:100%;pointer-events:none;"></div>
         <div class="crop-rect" id="crop-rect">
           <span class="crop-rect-label" id="crop-rect-label">9:16</span>
         </div>
@@ -524,6 +554,34 @@ export function renderMultiviewHtml(
       label.textContent = crop.aspectRatio + (crop.enabled ? " [ACTIVE]" : " [OFF]");
       coords.textContent = "x: " + crop.x + ", y: " + crop.y + ", w: " + crop.width + ", h: " + crop.height + " | FFmpeg: " + fx.ffmpegFilter;
 
+      // Update upper duplicated cropped output view
+      const zoomedBox = document.getElementById("crop-zoomed-box");
+      const zoomedInner = document.getElementById("crop-zoomed-inner");
+      const previewBg = document.getElementById("preview-box-bg");
+      const cw = Math.max(32, crop.width || sw);
+      const ch = Math.max(32, crop.height || sh);
+      const maxH = 102;
+      const maxW = 460;
+      let boxH = maxH;
+      let boxW = Math.round((cw / ch) * boxH);
+      if (boxW > maxW) {
+        boxW = maxW;
+        boxH = Math.round((ch / cw) * boxW);
+      }
+      if (zoomedBox && zoomedInner) {
+        zoomedBox.style.width = boxW + "px";
+        zoomedBox.style.height = boxH + "px";
+        const scaleX = boxW / cw;
+        const scaleY = boxH / ch;
+        zoomedInner.style.width = sw + "px";
+        zoomedInner.style.height = sh + "px";
+        zoomedInner.style.transform = "scale(" + scaleX + ", " + scaleY + ") translate(" + (-crop.x) + "px, " + (-crop.y) + "px)";
+        zoomedInner.innerHTML = '<div style="width:100%;height:100%;background:radial-gradient(circle at 50% 45%, #1e3a8a, #0f172a 70%);display:flex;align-items:center;justify-content:center;color:#93c5fd;font-size:48px;font-weight:800;letter-spacing:4px;">' + activeSourceId.toUpperCase() + ' LIVE</div>';
+      }
+      if (previewBg) {
+        previewBg.innerHTML = '<div style="width:100%;height:100%;background:radial-gradient(circle at 50% 45%, #1e3a8a, #0f172a 70%);display:flex;align-items:center;justify-content:center;color:rgba(147,197,253,0.45);font-size:18px;font-weight:800;letter-spacing:2px;">' + activeSourceId.toUpperCase() + '</div>';
+      }
+
       // Update tile badge
       const tileBadge = document.getElementById("crop-badge-" + activeSourceId);
       if (tileBadge) {
@@ -607,6 +665,66 @@ export function renderMultiviewHtml(
         }
       } catch (err) {}
     }
+
+    // Dragging support on #preview-box so mobile finger drags crop box while upper view stays unobstructed
+    (function bindPreviewDrag() {
+      const box = document.getElementById("preview-box");
+      if (!box) return;
+      let dragging = false;
+      let startClientX = 0;
+      let startClientY = 0;
+      let startCropX = 0;
+      let startCropY = 0;
+
+      box.addEventListener("pointerdown", (e) => {
+        if (!activeSourceId) return;
+        const fx = currentEffects.get(activeSourceId);
+        if (!fx) return;
+        dragging = true;
+        startClientX = e.clientX;
+        startClientY = e.clientY;
+        startCropX = fx.crop.x;
+        startCropY = fx.crop.y;
+        if (box.setPointerCapture) box.setPointerCapture(e.pointerId);
+      });
+
+      box.addEventListener("pointermove", (e) => {
+        if (!dragging || !activeSourceId) return;
+        const fx = currentEffects.get(activeSourceId);
+        if (!fx) return;
+        const rect = box.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        const sw = fx.crop.sourceWidth || 1920;
+        const sh = fx.crop.sourceHeight || 1080;
+        const dx = Math.round(((e.clientX - startClientX) / rect.width) * sw);
+        const dy = Math.round(((e.clientY - startClientY) / rect.height) * sh);
+        fx.crop.x = Math.max(0, Math.min(sw - fx.crop.width, Math.round((startCropX + dx) / 2) * 2));
+        fx.crop.y = Math.max(0, Math.min(sh - fx.crop.height, Math.round((startCropY + dy) / 2) * 2));
+        fx.crop.enabled = true;
+        updateCropDisplay();
+      });
+
+      const finishDrag = async () => {
+        if (!dragging || !activeSourceId) return;
+        dragging = false;
+        const fx = currentEffects.get(activeSourceId);
+        if (!fx) return;
+        try {
+          const res = await fetch("/api/v1/sources/" + activeSourceId + "/effects/crop", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled: true, x: fx.crop.x, y: fx.crop.y })
+          });
+          if (res.ok) {
+            const updated = await res.json();
+            currentEffects.set(activeSourceId, updated);
+            updateCropDisplay();
+          }
+        } catch (err) {}
+      };
+      box.addEventListener("pointerup", finishDrag);
+      box.addEventListener("pointercancel", finishDrag);
+    })();
 
     // Connect to SSE for real-time live/offline indicator and effects changes
     const sse = new EventSource("/api/v1/events");

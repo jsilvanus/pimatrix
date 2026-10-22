@@ -2,6 +2,8 @@ export type FrontendTabId = "outputs" | "inputs" | "cameras" | "renderer";
 
 export type SourceId =
   | "hama"
+  // NOTE: Future `hama2` virtual/duplicate source will be added here so we can send
+  // the uncropped `hama` signal to one output and `hama2` (as cropped) to another.
   | "rtmp1"
   | "rtmp2"
   | "cam1"
@@ -123,6 +125,14 @@ declare global {
     closeAuxModal: () => void;
     confirmAuxPick: (sourceId: string | null, mvLayout?: "landscape" | "portrait") => Promise<void>;
     toggleOutputInputControl: (outputNum: 1 | 2, kind: "ftb" | "mute") => Promise<void>;
+    toggleInputEffect: (sourceId: SourceId, kind: "ftb" | "mute") => Promise<void>;
+    openOutputCropModal: (outputNum: 1 | 2) => void;
+    openSourceCropModal: (sourceId: SourceId) => void;
+    closeCropModal: () => void;
+    applySourceCropPreset: (preset: string) => Promise<void>;
+    moveSourceCrop: (direction: "left" | "right" | "up" | "down" | "center") => Promise<void>;
+    resizeSourceCrop: (action: "in" | "out") => Promise<void>;
+    toggleSourceCropLockAspect: () => Promise<void>;
     openRtspModal: () => void;
     closeRtspModal: () => void;
     assignRtsp: (sourceId: string, mvLayout?: "landscape" | "portrait") => Promise<void>;

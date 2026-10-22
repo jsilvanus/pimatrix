@@ -13,9 +13,14 @@ import type {
 } from "./types.js";
 
 const DIRECT_HDMI_SOURCES = new Set(["hama", "rtmp1", "rtmp2", "PiPGM1", "PiPGM2"]);
+const DIRECT_HDMI_SOURCE_LIST: SourceId[] = ["hama", "rtmp1", "rtmp2", "PiPGM1", "PiPGM2"];
+const AUX_CAMERA_SOURCE_LIST: SourceId[] = ["cam1", "cam2", "cam3"];
+// NOTE: Future `hama2` source will be added alongside `hama` so we can route uncropped `hama`
+// to one destination and cropped `hama2` to another output independently.
 
 const SOURCE_LABELS: Record<string, string> = {
   hama: "hama",
+  // hama2: "hama 2 (crop)", // Planned duplicate Hama capture pipeline
   rtmp1: "rtmp1",
   rtmp2: "rtmp2",
   PiPGM1: "pipgm 1",
@@ -265,134 +270,196 @@ function isSourceMuted(sourceId: string): boolean {
   return false;
 }
 
+function isSourceCropped(sourceId: string): boolean {
+  if (!sourceId || sourceId === "multiview") return false;
+  const fx = effectsMap.get(sourceId);
+  return Boolean(fx?.crop?.enabled);
+}
+
+function getSourceCropAspect(sourceId: string): string {
+  const fx = effectsMap.get(sourceId);
+  return fx?.crop?.aspectRatio || "16:9";
+}
+
 function renderOutputsTab(): void {
   renderHdmiColumn(1);
   renderHdmiColumn(2);
+  renderAuxModalCameras();
   renderRoutedToBadges();
   renderRtspSection();
+  if (activeCropSourceId) {
+    renderCropModal();
+  }
+}
+
+// Helper to build a single input row with:
+// - Left main button: tap to route, long-press (or right-click) to open Cropper
+// - Right inline buttons: Mute button + FTB button (both live indicators & pre-activation toggles)
+function buildInputRowWithInlineControls(
+  outputNum: 1 | 2,
+  src: SourceId,
+  isSelected: boolean,
+  customLabel?: string,
+  onSelectExpr?: string
+): string {
+  const label = customLabel || SOURCE_LABELS[src] || src;
+  const srcFtb = isSourceFtb(src);
+  const srcMuted = isSourceMuted(src);
+  const srcCropped = isSourceCropped(src);
+  const cropRatio = getSourceCropAspect(src);
+  const selectCall = onSelectExpr || `selectHdmiSource(${outputNum}, '${src}')`;
+
+  const rowBg = isSelected
+    ? "bg-primary text-on-primary shadow-sm border-primary"
+    : "bg-surface-container-high hover:bg-surface-container-highest text-on-surface border-outline-variant/25 shadow-xs";
+
+  const muteBtnClass = srcMuted
+    ? "bg-tertiary text-on-tertiary shadow-xs"
+    : isSelected
+      ? "bg-black/20 hover:bg-black/30 text-on-primary/80"
+      : "bg-surface-container hover:bg-surface-container-lowest text-on-surface-variant";
+
+  const ftbBtnClass = srcFtb
+    ? "bg-error text-on-error shadow-xs animate-pulse"
+    : isSelected
+      ? "bg-black/20 hover:bg-error hover:text-on-error text-on-primary/85"
+      : "bg-surface-container hover:bg-error/20 text-on-surface-variant hover:text-error";
+
+  const cropBadgeHtml = srcCropped
+    ? `<span class="px-1 py-0.2 rounded text-[8px] font-bold ${isSelected ? "bg-white/25 text-on-primary" : "bg-primary/15 text-primary"}">${cropRatio}</span>`
+    : "";
+
+  return `
+    <div class="hdmi${outputNum}-row flex items-center gap-1 w-full h-8 p-0.5 rounded-lg border transition-all ${rowBg}" data-source="${src}">
+      <button
+        type="button"
+        data-crop-source="${src}"
+        onclick="${selectCall}"
+        oncontextmenu="event.preventDefault(); openSourceCropModal('${src}')"
+        title="Tap to route ${label.toUpperCase()} • Hold to open Cropper"
+        class="hdmi${outputNum}-btn flex-1 h-full px-1.5 rounded-md font-label-md text-[11px] uppercase ${isSelected ? "font-bold" : "font-semibold"} text-left flex items-center justify-between min-w-0 active:scale-[0.98] transition-all"
+      >
+        <span class="truncate flex items-center gap-1">
+          ${isSelected ? '<span class="material-symbols-outlined text-[12px]">radio_button_checked</span>' : ""}
+          <span>${label}</span>
+        </span>
+        <span class="flex items-center gap-1 flex-shrink-0">${cropBadgeHtml}</span>
+      </button>
+      <div class="flex items-center gap-0.5 pr-0.5 flex-shrink-0">
+        <button
+          type="button"
+          onclick="event.stopPropagation(); toggleInputEffect('${src}', 'mute')"
+          title="${srcMuted ? "Unmute" : "Mute"} ${label.toUpperCase()} (can pre-mute before activating)"
+          class="w-6 h-6 rounded flex items-center justify-center transition-all active:scale-90 ${muteBtnClass}"
+        >
+          <span class="material-symbols-outlined text-[13px]">${srcMuted ? "volume_off" : "volume_up"}</span>
+        </button>
+        <button
+          type="button"
+          onclick="event.stopPropagation(); toggleInputEffect('${src}', 'ftb')"
+          title="${srcFtb ? "Disable FTB on" : "Pre-FTB / Fade to Black"} ${label.toUpperCase()}"
+          class="px-1.5 h-6 rounded font-label-sm text-[9px] font-bold uppercase flex items-center justify-center transition-all active:scale-90 ${ftbBtnClass}"
+        >
+          FTB
+        </button>
+      </div>
+    </div>
+  `;
 }
 
 function renderHdmiColumn(outputNum: 1 | 2): void {
   const activeSource = getEffectiveOutputSource(outputNum);
   const activeLabel = document.getElementById(`hdmi${outputNum}-active-label`);
-  const ctrlTarget = document.getElementById(`hdmi${outputNum}-ctrl-target`);
   const ftbPill = document.getElementById(`hdmi${outputNum}-ftb-pill`);
+  const cropPill = document.getElementById(`hdmi${outputNum}-crop-pill`);
+  const inputsListEl = document.getElementById(`hdmi${outputNum}-inputs-list`);
+  const auxContainerEl = document.getElementById(`hdmi${outputNum}-aux-container`);
 
   const friendlyName = SOURCE_LABELS[activeSource] || activeSource || "--";
   if (activeLabel) activeLabel.textContent = friendlyName;
-  if (ctrlTarget) ctrlTarget.textContent = friendlyName;
-
-  // Update direct source buttons
-  const btns = document.querySelectorAll<HTMLButtonElement>(`.hdmi${outputNum}-btn`);
-  btns.forEach((btn) => {
-    const src = btn.getAttribute("data-source") || "";
-    const isSelected = src === activeSource;
-    const srcFtb = isSourceFtb(src);
-    const srcMuted = isSourceMuted(src);
-
-    if (isSelected) {
-      btn.className = `hdmi${outputNum}-btn w-full h-8 px-2 rounded-lg bg-primary text-on-primary font-label-md text-[12px] uppercase font-bold transition-all flex items-center justify-between shadow-sm active:scale-[0.98]`;
-    } else {
-      btn.className = `hdmi${outputNum}-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs`;
-    }
-
-    const ind = btn.querySelector(".btn-indicators");
-    if (ind) {
-      const tags: string[] = [];
-      if (srcFtb) {
-        tags.push(
-          `<span class="px-1 py-0.2 rounded text-[8px] font-bold ${isSelected ? "bg-error text-on-error" : "bg-error/15 text-error"}">FTB</span>`
-        );
-      }
-      if (srcMuted) {
-        tags.push(
-          `<span class="material-symbols-outlined text-[12px] ${isSelected ? "text-on-primary/90" : "text-tertiary"}">volume_off</span>`
-        );
-      }
-      if (isSelected) {
-        tags.push('<span class="material-symbols-outlined text-[14px]">check_circle</span>');
-      }
-      ind.innerHTML = tags.join("");
-    }
-  });
-
-  // Update Auxiliary button if an aux source (cam1/2/3 or multiview) is active
-  const auxBtn = document.getElementById(`hdmi${outputNum}-aux-btn`);
-  const auxLabel = document.getElementById(`hdmi${outputNum}-aux-label`);
-  const auxIcon = document.getElementById(`hdmi${outputNum}-aux-icon`);
-  const isAuxSelected = Boolean(activeSource && !DIRECT_HDMI_SOURCES.has(activeSource));
-
-  if (auxBtn && auxLabel && auxIcon) {
-    if (isAuxSelected) {
-      auxBtn.className =
-        "w-full p-1.5 rounded-lg border border-primary bg-primary text-on-primary text-left active:scale-[0.98] transition-all flex flex-col gap-0.5 shadow-sm";
-      const suffix =
-        activeSource === "multiview"
-          ? multiviewLayout === "portrait"
-            ? " (2x4)"
-            : " (4x2)"
-          : "";
-      auxLabel.className = "font-label-md text-[11px] font-bold text-on-primary uppercase flex items-center gap-1";
-      auxLabel.innerHTML = `<span class="material-symbols-outlined text-[13px]">grid_view</span>Aux: ${friendlyName}${suffix}`;
-      auxIcon.className = "material-symbols-outlined text-[14px] text-on-primary";
-      auxIcon.textContent = "verified";
-    } else {
-      auxBtn.className =
-        "w-full p-1.5 rounded-lg border border-dashed border-primary/40 bg-surface-container hover:bg-surface-container-high text-left active:scale-[0.98] transition-all flex flex-col gap-0.5";
-      auxLabel.className = "font-label-md text-[11px] font-bold text-primary uppercase flex items-center gap-1";
-      auxLabel.innerHTML = '<span class="material-symbols-outlined text-[13px]">tune</span>Auxiliary';
-      auxIcon.className = "material-symbols-outlined text-[14px] text-primary";
-      auxIcon.textContent = "touch_app";
-    }
-  }
-
-  // Update Input-Specific FTB & Mute buttons for this output's selected source
-  const ftbBtn = document.getElementById(`btn-ftb-${outputNum}`) as HTMLButtonElement | null;
-  const muteBtn = document.getElementById(`btn-mute-${outputNum}`) as HTMLButtonElement | null;
-  const muteIcon = document.getElementById(`icon-mute-${outputNum}`);
-  const muteLabel = document.getElementById(`label-mute-${outputNum}`);
 
   const activeFtb = isSourceFtb(activeSource);
-  const activeMuted = isSourceMuted(activeSource);
-  const isMultiview = activeSource === "multiview";
+  const activeCropped = isSourceCropped(activeSource);
 
   if (ftbPill) {
     ftbPill.classList.toggle("hidden", !activeFtb);
   }
-
-  if (ftbBtn) {
-    ftbBtn.disabled = isMultiview;
-    if (isMultiview) {
-      ftbBtn.className =
-        "flex-1 h-8 rounded-lg bg-surface-container text-outline font-label-sm text-[11px] font-bold flex items-center justify-center gap-1 opacity-50 cursor-not-allowed";
-    } else if (activeFtb) {
-      ftbBtn.className =
-        "flex-1 h-8 rounded-lg bg-error text-on-error font-label-sm text-[11px] font-bold flex items-center justify-center gap-1 transition-all shadow-sm animate-pulse";
-    } else {
-      ftbBtn.className =
-        "flex-1 h-8 rounded-lg bg-surface-container-high hover:bg-error/20 active:scale-[0.98] text-error font-label-sm text-[11px] font-bold flex items-center justify-center gap-1 transition-all shadow-xs";
+  if (cropPill) {
+    cropPill.classList.toggle("hidden", !activeCropped);
+    if (activeCropped) {
+      cropPill.textContent = `CROP ${getSourceCropAspect(activeSource)}`;
     }
   }
 
-  if (muteBtn && muteIcon && muteLabel) {
-    muteBtn.disabled = isMultiview;
-    if (isMultiview) {
-      muteBtn.className =
-        "flex-1 h-8 rounded-lg bg-surface-container text-outline font-label-sm text-[11px] font-bold flex items-center justify-center gap-1 opacity-50 cursor-not-allowed";
-      muteIcon.textContent = "volume_up";
-      muteLabel.textContent = "Mute";
-    } else if (activeMuted) {
-      muteBtn.className =
-        "flex-1 h-8 rounded-lg bg-tertiary text-on-tertiary font-label-sm text-[11px] font-bold flex items-center justify-center gap-1 transition-all shadow-sm";
-      muteIcon.textContent = "volume_off";
-      muteLabel.textContent = "Muted";
+  // Render direct inputs list with inline Mute & FTB buttons on the right
+  if (inputsListEl) {
+    inputsListEl.innerHTML = DIRECT_HDMI_SOURCE_LIST.map((src) =>
+      buildInputRowWithInlineControls(outputNum, src, src === activeSource)
+    ).join("");
+    bindLongPressForCropInside(inputsListEl);
+  }
+
+  // Render Auxiliary container
+  const isAuxSelected = Boolean(activeSource && !DIRECT_HDMI_SOURCES.has(activeSource));
+  if (auxContainerEl) {
+    if (isAuxSelected && activeSource !== "multiview") {
+      // Active Aux camera (cam1, cam2, cam3): show inline Mute & FTB + button to switch Aux
+      const auxSrc = activeSource as SourceId;
+      auxContainerEl.innerHTML = `
+        <div class="flex flex-col gap-1">
+          ${buildInputRowWithInlineControls(
+            outputNum,
+            auxSrc,
+            true,
+            `Aux: ${friendlyName}`,
+            `openAuxModal(${outputNum})`
+          )}
+        </div>
+      `;
+      bindLongPressForCropInside(auxContainerEl);
+    } else if (isAuxSelected && activeSource === "multiview") {
+      const suffix = multiviewLayout === "portrait" ? " (2x4)" : " (4x2)";
+      auxContainerEl.innerHTML = `
+        <button type="button" id="hdmi${outputNum}-aux-btn" class="w-full p-1.5 rounded-lg border border-primary bg-primary text-on-primary text-left active:scale-[0.98] transition-all flex flex-col gap-0.5 shadow-sm" onclick="openAuxModal(${outputNum})">
+          <div class="flex items-center justify-between w-full">
+            <span class="font-label-md text-[11px] font-bold text-on-primary uppercase flex items-center gap-1">
+              <span class="material-symbols-outlined text-[13px]">grid_view</span>Aux: ${friendlyName}${suffix}
+            </span>
+            <span class="material-symbols-outlined text-[14px] text-on-primary">verified</span>
+          </div>
+          <span class="font-label-sm text-[9px] text-on-primary/80 leading-none">cam 1-3 • multiview</span>
+        </button>
+      `;
     } else {
-      muteBtn.className =
-        "flex-1 h-8 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface-variant font-label-sm text-[11px] font-bold flex items-center justify-center gap-1 transition-all shadow-xs";
-      muteIcon.textContent = "volume_up";
-      muteLabel.textContent = "Mute";
+      auxContainerEl.innerHTML = `
+        <button type="button" id="hdmi${outputNum}-aux-btn" class="w-full p-1.5 rounded-lg border border-dashed border-primary/40 bg-surface-container hover:bg-surface-container-high text-left active:scale-[0.98] transition-all flex flex-col gap-0.5" onclick="openAuxModal(${outputNum})">
+          <div class="flex items-center justify-between w-full">
+            <span class="font-label-md text-[11px] font-bold text-primary uppercase flex items-center gap-1">
+              <span class="material-symbols-outlined text-[13px]">tune</span>Auxiliary
+            </span>
+            <span class="material-symbols-outlined text-[14px] text-primary">touch_app</span>
+          </div>
+          <span class="font-label-sm text-[9px] text-on-surface-variant leading-none">cam 1-3 • multiview</span>
+        </button>
+      `;
     }
   }
+}
+
+function renderAuxModalCameras(): void {
+  const listEl = document.getElementById("aux-modal-cam-list");
+  if (!listEl) return;
+  const activeSource = getEffectiveOutputSource(auxModalTargetOutput);
+  listEl.innerHTML = AUX_CAMERA_SOURCE_LIST.map((camId) =>
+    buildInputRowWithInlineControls(
+      auxModalTargetOutput,
+      camId,
+      activeSource === camId,
+      SOURCE_LABELS[camId] || camId,
+      `confirmAuxPick('${camId}')`
+    )
+  ).join("");
+  bindLongPressForCropInside(listEl);
 }
 
 function renderRoutedToBadges(): void {
@@ -449,6 +516,7 @@ function openAuxModal(outputNum: 1 | 2): void {
   auxModalTargetOutput = outputNum;
   const label = document.getElementById("aux-target-label");
   if (label) label.textContent = `Assigning to Pi ${outputNum} (hdmi ${outputNum - 1})`;
+  renderAuxModalCameras();
   const dialog = document.getElementById("aux-modal-overlay") as HTMLDialogElement | null;
   if (dialog && typeof dialog.showModal === "function") {
     if (!dialog.open) dialog.showModal();
@@ -521,7 +589,424 @@ async function toggleInputEffect(sourceId: SourceId, kind: "ftb" | "mute"): Prom
 }
 
 // ============================================================================
-// Network Stream Out (RTSP): Start/Stop Stream + Long-Hold Assignment Modal
+// Crop & Effects Modal Outside Multiview (Long-press Output/Input + Drag View)
+// ============================================================================
+let activeCropSourceId: SourceId | null = null;
+
+function buildSimulatedCropSceneSvg(sourceId: string): string {
+  const label = (SOURCE_LABELS[sourceId] || sourceId).toUpperCase();
+  const hue =
+    sourceId === "hama"
+      ? 210
+      : sourceId.startsWith("rtmp")
+        ? 160
+        : sourceId.startsWith("cam")
+          ? 268
+          : 28;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="100%" height="100%" preserveAspectRatio="none">
+    <defs>
+      <linearGradient id="cbg-${sourceId}" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="hsl(${hue}, 42%, 22%)"/>
+        <stop offset="50%" stop-color="hsl(${hue}, 35%, 15%)"/>
+        <stop offset="100%" stop-color="hsl(${hue}, 30%, 10%)"/>
+      </linearGradient>
+    </defs>
+    <rect width="1920" height="1080" fill="url(#cbg-${sourceId})"/>
+    <g stroke="rgba(255,255,255,0.14)" stroke-width="3">
+      <line x1="640" y1="0" x2="640" y2="1080"/>
+      <line x1="1280" y1="0" x2="1280" y2="1080"/>
+      <line x1="0" y1="360" x2="1920" y2="360"/>
+      <line x1="0" y1="720" x2="1920" y2="720"/>
+      <rect x="240" y="135" width="1440" height="810" fill="none" stroke-dasharray="16 12"/>
+      <circle cx="960" cy="540" r="220" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="4"/>
+      <line x1="960" y1="260" x2="960" y2="820"/>
+      <line x1="680" y1="540" x2="1240" y2="540"/>
+    </g>
+    <!-- Reference subject markers so user can clearly see what is inside the cropped region -->
+    <rect x="700" y="210" width="520" height="660" rx="24" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="4"/>
+    <circle cx="960" cy="390" r="85" fill="rgba(255,255,255,0.2)"/>
+    <path d="M810 680 C810 545 1110 545 1110 680 Z" fill="rgba(255,255,255,0.2)"/>
+    <text x="960" y="810" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono, monospace" font-size="64" font-weight="800" letter-spacing="6">${label} FEED</text>
+    <text x="120" y="110" fill="rgba(255,255,255,0.5)" font-family="JetBrains Mono, monospace" font-size="40">NW (0,0)</text>
+    <text x="1800" y="110" text-anchor="end" fill="rgba(255,255,255,0.5)" font-family="JetBrains Mono, monospace" font-size="40">NE (1920,0)</text>
+    <text x="120" y="1010" fill="rgba(255,255,255,0.5)" font-family="JetBrains Mono, monospace" font-size="40">SW (0,1080)</text>
+    <text x="1800" y="1010" text-anchor="end" fill="rgba(255,255,255,0.5)" font-family="JetBrains Mono, monospace" font-size="40">SE (1920,1080)</text>
+  </svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function ensureSourceEffects(sourceId: SourceId): EffectsPipeline {
+  let fx = effectsMap.get(sourceId);
+  if (!fx) {
+    fx = {
+      sourceId,
+      crop: {
+        enabled: false,
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        sourceWidth: 1920,
+        sourceHeight: 1080,
+        aspectRatio: "16:9",
+        lockedAspectRatio: false
+      },
+      rotation: 0,
+      fadeToBlack: false,
+      muted: false,
+      ffmpegFilter: "null"
+    };
+    effectsMap.set(sourceId, fx);
+  }
+  return fx;
+}
+
+function openOutputCropModal(outputNum: 1 | 2): void {
+  const src = getEffectiveOutputSource(outputNum);
+  if (!src || src === "multiview") {
+    showToast("Select a video input source to crop");
+    return;
+  }
+  openSourceCropModal(src as SourceId);
+}
+
+function openSourceCropModal(sourceId: SourceId): void {
+  activeCropSourceId = sourceId;
+  ensureSourceEffects(sourceId);
+  renderCropModal();
+  const dialog = document.getElementById("crop-modal-overlay") as HTMLDialogElement | null;
+  if (dialog && typeof dialog.showModal === "function") {
+    if (!dialog.open) dialog.showModal();
+  }
+  // Re-render after modal layout settles so clientWidth/clientHeight of the upper preview are accurate
+  requestAnimationFrame(() => renderCropModal());
+}
+
+function closeCropModal(): void {
+  const dialog = document.getElementById("crop-modal-overlay") as HTMLDialogElement | null;
+  if (dialog && dialog.open) {
+    dialog.close();
+  }
+  activeCropSourceId = null;
+}
+
+function renderCropModal(): void {
+  if (!activeCropSourceId) return;
+  const fx = ensureSourceEffects(activeCropSourceId);
+  const crop = fx.crop;
+  const sw = crop.sourceWidth || 1920;
+  const sh = crop.sourceHeight || 1080;
+  const cw = Math.max(32, crop.width || sw);
+  const ch = Math.max(32, crop.height || sh);
+  const cx = Math.max(0, Math.min(sw - cw, crop.x || 0));
+  const cy = Math.max(0, Math.min(sh - ch, crop.y || 0));
+
+  const friendly = (SOURCE_LABELS[activeCropSourceId] || activeCropSourceId).toUpperCase();
+  const titleEl = document.getElementById("crop-dialog-title");
+  const zoomedBadge = document.getElementById("crop-zoomed-badge");
+  const coordsEl = document.getElementById("crop-coords-readout");
+  const rectEl = document.getElementById("crop-interactive-rect");
+  const rectTag = document.getElementById("crop-rect-tag");
+  const lockIcon = document.getElementById("crop-lock-aspect-icon");
+  const lockLabel = document.getElementById("crop-lock-aspect-label");
+
+  if (titleEl) {
+    titleEl.textContent = `Crop & Effects: ${friendly}`;
+  }
+  if (zoomedBadge) {
+    zoomedBadge.textContent = `${crop.aspectRatio}${crop.enabled ? " [ACTIVE]" : " [FULL]"} • ${cw}x${ch}`;
+  }
+  if (coordsEl) {
+    coordsEl.textContent = `x:${cx} y:${cy} w:${cw} h:${ch}`;
+  }
+  if (rectEl) {
+    rectEl.style.left = `${(cx / sw) * 100}%`;
+    rectEl.style.top = `${(cy / sh) * 100}%`;
+    rectEl.style.width = `${(cw / sw) * 100}%`;
+    rectEl.style.height = `${(ch / sh) * 100}%`;
+  }
+  if (rectTag) {
+    rectTag.textContent = `${crop.aspectRatio}${crop.enabled ? " • ON" : ""}`;
+  }
+  if (lockIcon && lockLabel) {
+    lockIcon.textContent = crop.lockedAspectRatio ? "lock" : "lock_open";
+    lockLabel.textContent = `Lock Aspect: ${crop.lockedAspectRatio ? "ON" : "OFF"}`;
+  }
+
+  // Render background feed into both #crop-full-feed (lower interactive box) and #crop-zoomed-feed (upper unobstructed cropped preview)
+  const srcItem = sourcesMap.get(activeCropSourceId);
+  const liveUrl = srcItem?.preview?.available && srcItem.preview.url ? srcItem.preview.url : null;
+  const fallbackImgUrl = buildSimulatedCropSceneSvg(activeCropSourceId);
+
+  const fullFeedEl = document.getElementById("crop-full-feed");
+  if (fullFeedEl && fullFeedEl.getAttribute("data-rendered-source") !== `${activeCropSourceId}:${liveUrl || "sim"}`) {
+    fullFeedEl.setAttribute("data-rendered-source", `${activeCropSourceId}:${liveUrl || "sim"}`);
+    if (liveUrl) {
+      fullFeedEl.innerHTML = `<iframe src="${liveUrl}" class="w-full h-full border-0 pointer-events-none" allow="autoplay"></iframe>`;
+    } else {
+      fullFeedEl.innerHTML = `<img src="${fallbackImgUrl}" alt="${friendly}" class="w-full h-full object-cover pointer-events-none" />`;
+    }
+  }
+
+  const zoomedViewport = document.getElementById("crop-zoomed-viewport");
+  const zoomedFeed = document.getElementById("crop-zoomed-feed");
+  if (zoomedViewport && zoomedFeed) {
+    if (zoomedFeed.getAttribute("data-rendered-source") !== `${activeCropSourceId}:${liveUrl || "sim"}`) {
+      zoomedFeed.setAttribute("data-rendered-source", `${activeCropSourceId}:${liveUrl || "sim"}`);
+      if (liveUrl) {
+        zoomedFeed.innerHTML = `<iframe src="${liveUrl}" class="w-full h-full border-0 pointer-events-none" allow="autoplay"></iframe>`;
+      } else {
+        zoomedFeed.innerHTML = `<img src="${fallbackImgUrl}" alt="${friendly} Cropped" class="w-full h-full object-cover pointer-events-none" />`;
+      }
+    }
+
+    // Fit zoomedViewport inside its 144px-tall parent while matching the exact (cw : ch) aspect ratio
+    const parent = zoomedViewport.parentElement;
+    const maxW = (parent?.clientWidth || 380) - 8;
+    const maxH = (parent?.clientHeight || 140) - 8;
+    let targetH = maxH;
+    let targetW = Math.round((cw / ch) * targetH);
+    if (targetW > maxW) {
+      targetW = maxW;
+      targetH = Math.max(24, Math.round((ch / cw) * targetW));
+    }
+
+    zoomedViewport.style.width = `${targetW}px`;
+    zoomedViewport.style.height = `${targetH}px`;
+
+    // Scale and translate the 1920x1080 source coordinate space so only (cx, cy, cw, ch) fills zoomedViewport
+    const scaleX = targetW / cw;
+    const scaleY = targetH / ch;
+    zoomedFeed.style.width = `${sw}px`;
+    zoomedFeed.style.height = `${sh}px`;
+    zoomedFeed.style.transform = `scale(${scaleX}, ${scaleY}) translate(${-cx}px, ${-cy}px)`;
+  }
+}
+
+function bindLongPressForCropInside(container: HTMLElement): void {
+  const buttons = container.querySelectorAll<HTMLElement>("[data-crop-source]");
+  buttons.forEach((btn) => {
+    const src = btn.getAttribute("data-crop-source") as SourceId | null;
+    if (!src) return;
+    let holdTimer: ReturnType<typeof setTimeout> | null = null;
+    let longPressFired = false;
+
+    btn.addEventListener("pointerdown", () => {
+      longPressFired = false;
+      holdTimer = setTimeout(() => {
+        longPressFired = true;
+        holdTimer = null;
+        openSourceCropModal(src);
+      }, 450);
+    });
+
+    const cancel = () => {
+      if (holdTimer) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+    };
+    btn.addEventListener("pointerup", cancel);
+    btn.addEventListener("pointerleave", cancel);
+    btn.addEventListener("pointercancel", cancel);
+    btn.addEventListener(
+      "click",
+      (e) => {
+        if (longPressFired) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          longPressFired = false;
+        }
+      },
+      true
+    );
+  });
+}
+
+function bindOutputHeadersLongPressForCrop(): void {
+  for (const outputNum of [1, 2] as const) {
+    const headerZone = document.getElementById(`hdmi${outputNum}-header-zone`);
+    if (!headerZone) continue;
+    let holdTimer: ReturnType<typeof setTimeout> | null = null;
+    headerZone.addEventListener("pointerdown", () => {
+      holdTimer = setTimeout(() => {
+        holdTimer = null;
+        openOutputCropModal(outputNum);
+      }, 450);
+    });
+    const cancel = () => {
+      if (holdTimer) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+    };
+    headerZone.addEventListener("pointerup", cancel);
+    headerZone.addEventListener("pointerleave", cancel);
+    headerZone.addEventListener("pointercancel", cancel);
+    headerZone.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      openOutputCropModal(outputNum);
+    });
+  }
+}
+
+function bindCropInteractiveDrag(): void {
+  const box = document.getElementById("crop-interactive-box");
+  if (!box) return;
+
+  let dragging = false;
+  let startClientX = 0;
+  let startClientY = 0;
+  let startCropX = 0;
+  let startCropY = 0;
+
+  box.addEventListener("pointerdown", (e) => {
+    if (!activeCropSourceId) return;
+    const fx = ensureSourceEffects(activeCropSourceId);
+    dragging = true;
+    startClientX = e.clientX;
+    startClientY = e.clientY;
+    startCropX = fx.crop.x;
+    startCropY = fx.crop.y;
+    if (typeof box.setPointerCapture === "function") {
+      try {
+        box.setPointerCapture(e.pointerId);
+      } catch {
+        // ignore synthetic pointer events without active pointerId
+      }
+    }
+  });
+
+  box.addEventListener("pointermove", (e) => {
+    if (!dragging || !activeCropSourceId) return;
+    const fx = ensureSourceEffects(activeCropSourceId);
+    const rect = box.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const sw = fx.crop.sourceWidth || 1920;
+    const sh = fx.crop.sourceHeight || 1080;
+    const dx = Math.round(((e.clientX - startClientX) / rect.width) * sw);
+    const dy = Math.round(((e.clientY - startClientY) / rect.height) * sh);
+
+    const nextX = Math.max(0, Math.min(sw - fx.crop.width, Math.round((startCropX + dx) / 2) * 2));
+    const nextY = Math.max(0, Math.min(sh - fx.crop.height, Math.round((startCropY + dy) / 2) * 2));
+
+    fx.crop.x = nextX;
+    fx.crop.y = nextY;
+    fx.crop.enabled = true;
+    renderCropModal();
+  });
+
+  const commitDrag = async () => {
+    if (!dragging || !activeCropSourceId) return;
+    dragging = false;
+    const sourceId = activeCropSourceId;
+    const fx = ensureSourceEffects(sourceId);
+    try {
+      const res = await fetch(`/api/v1/sources/${encodeURIComponent(sourceId)}/effects/crop`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: true,
+          x: fx.crop.x,
+          y: fx.crop.y
+        })
+      });
+      if (res.ok) {
+        const updated = (await res.json()) as EffectsPipeline;
+        effectsMap.set(sourceId, updated);
+        renderOutputsTab();
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  box.addEventListener("pointerup", () => void commitDrag());
+  box.addEventListener("pointercancel", () => void commitDrag());
+}
+
+async function applySourceCropPreset(preset: string): Promise<void> {
+  if (!activeCropSourceId) return;
+  const sourceId = activeCropSourceId;
+  try {
+    const res = await fetch(`/api/v1/sources/${encodeURIComponent(sourceId)}/effects/crop/preset`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preset })
+    });
+    if (res.ok) {
+      const updated = (await res.json()) as EffectsPipeline;
+      effectsMap.set(sourceId, updated);
+      renderOutputsTab();
+      showToast(`${(SOURCE_LABELS[sourceId] || sourceId).toUpperCase()} Crop → ${ updated.crop.enabled ? updated.crop.aspectRatio : "RESET"}`);
+    }
+  } catch {
+    showToast("Failed to apply crop preset");
+  }
+}
+
+async function moveSourceCrop(direction: "left" | "right" | "up" | "down" | "center"): Promise<void> {
+  if (!activeCropSourceId) return;
+  const sourceId = activeCropSourceId;
+  try {
+    const res = await fetch(`/api/v1/sources/${encodeURIComponent(sourceId)}/effects/crop/move`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ direction, delta: 32 })
+    });
+    if (res.ok) {
+      const updated = (await res.json()) as EffectsPipeline;
+      effectsMap.set(sourceId, updated);
+      renderOutputsTab();
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function resizeSourceCrop(action: "in" | "out"): Promise<void> {
+  if (!activeCropSourceId) return;
+  const sourceId = activeCropSourceId;
+  try {
+    const res = await fetch(`/api/v1/sources/${encodeURIComponent(sourceId)}/effects/crop/resize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, factor: 0.1 })
+    });
+    if (res.ok) {
+      const updated = (await res.json()) as EffectsPipeline;
+      effectsMap.set(sourceId, updated);
+      renderOutputsTab();
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function toggleSourceCropLockAspect(): Promise<void> {
+  if (!activeCropSourceId) return;
+  const sourceId = activeCropSourceId;
+  const fx = ensureSourceEffects(sourceId);
+  const nextLocked = !fx.crop.lockedAspectRatio;
+  try {
+    const res = await fetch(`/api/v1/sources/${encodeURIComponent(sourceId)}/effects/crop`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lockedAspectRatio: nextLocked })
+    });
+    if (res.ok) {
+      const updated = (await res.json()) as EffectsPipeline;
+      effectsMap.set(sourceId, updated);
+      renderOutputsTab();
+    }
+  } catch {
+    // ignore
+  }
+}
+
+// ============================================================================
+// Network Stream Out (RTSP): Dedicated Dialog Button under Heading + Start/Stop
 // ============================================================================
 function openRtspModal(): void {
   renderRtspSection();
@@ -539,7 +1024,8 @@ function closeRtspModal(): void {
 }
 
 function renderRtspSection(): void {
-  const summaryEl = document.getElementById("rtsp-summary-text");
+  const configBtnLabel = document.getElementById("rtsp-config-btn-label");
+  const dialogStatusPill = document.getElementById("rtsp-dialog-status-pill");
   const streamBtn = document.getElementById("rtsp-stream-btn");
   const streamIcon = document.getElementById("rtsp-stream-icon");
   const streamLabel = document.getElementById("rtsp-stream-label");
@@ -552,8 +1038,20 @@ function renderRtspSection(): void {
       : SOURCE_LABELS[rtspOut.sourceId] || rtspOut.sourceId;
 
   const qualityLabel = rtspOut.quality === "preview" ? "Preview" : "Full";
-  if (summaryEl) {
-    summaryEl.textContent = `${srcName} • ${rtspOut.resolution} (${qualityLabel}) • ${rtspOut.bitrateKbps} kbps • Hold to configure`;
+  if (configBtnLabel) {
+    configBtnLabel.textContent = `Source & Settings (${srcName})`;
+  }
+
+  if (dialogStatusPill) {
+    if (rtspOut.streaming) {
+      dialogStatusPill.textContent = "STREAMING LIVE";
+      dialogStatusPill.className =
+        "px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-600 font-bold uppercase text-[9px]";
+    } else {
+      dialogStatusPill.textContent = "STOPPED";
+      dialogStatusPill.className =
+        "px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-bold uppercase text-[9px]";
+    }
   }
 
   if (qualityBadge) {
@@ -718,70 +1216,6 @@ async function toggleRtspStream(): Promise<void> {
     }
   } catch {
     showToast("Failed to toggle RTSP stream");
-  }
-}
-
-function bindRtspHoldAndClickHandlers(): void {
-  const holdZone = document.getElementById("rtsp-hold-zone");
-  const streamBtn = document.getElementById("rtsp-stream-btn");
-
-  // Hold zone: long-press (or click on the left info zone) opens modal
-  if (holdZone) {
-    let holdTimer: ReturnType<typeof setTimeout> | null = null;
-    holdZone.addEventListener("pointerdown", () => {
-      holdTimer = setTimeout(() => {
-        holdTimer = null;
-        openRtspModal();
-      }, 450);
-    });
-    const cancelHold = () => {
-      if (holdTimer) {
-        clearTimeout(holdTimer);
-        holdTimer = null;
-      }
-    };
-    holdZone.addEventListener("pointerup", cancelHold);
-    holdZone.addEventListener("pointerleave", cancelHold);
-    holdZone.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      openRtspModal();
-    });
-  }
-
-  // Start/Stop button: short click toggles stream; long hold (>= 500ms) opens assignment modal!
-  if (streamBtn) {
-    let btnHoldTimer: ReturnType<typeof setTimeout> | null = null;
-    let longPressTriggered = false;
-
-    streamBtn.addEventListener("pointerdown", () => {
-      longPressTriggered = false;
-      btnHoldTimer = setTimeout(() => {
-        longPressTriggered = true;
-        btnHoldTimer = null;
-        openRtspModal();
-      }, 500);
-    });
-
-    const clearBtnHold = () => {
-      if (btnHoldTimer) {
-        clearTimeout(btnHoldTimer);
-        btnHoldTimer = null;
-      }
-    };
-    streamBtn.addEventListener("pointerup", clearBtnHold);
-    streamBtn.addEventListener("pointerleave", clearBtnHold);
-    streamBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (longPressTriggered) {
-        longPressTriggered = false;
-        return;
-      }
-      void toggleRtspStream();
-    });
-    streamBtn.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      openRtspModal();
-    });
   }
 }
 
@@ -1663,6 +2097,14 @@ window.openAuxModal = openAuxModal;
 window.closeAuxModal = closeAuxModal;
 window.confirmAuxPick = confirmAuxPick;
 window.toggleOutputInputControl = toggleOutputInputControl;
+window.toggleInputEffect = toggleInputEffect;
+window.openOutputCropModal = openOutputCropModal;
+window.openSourceCropModal = openSourceCropModal;
+window.closeCropModal = closeCropModal;
+window.applySourceCropPreset = applySourceCropPreset;
+window.moveSourceCrop = moveSourceCrop;
+window.resizeSourceCrop = resizeSourceCrop;
+window.toggleSourceCropLockAspect = toggleSourceCropLockAspect;
 window.openRtspModal = openRtspModal;
 window.closeRtspModal = closeRtspModal;
 window.assignRtsp = assignRtsp;
@@ -1686,7 +2128,9 @@ window.adjustPtzSpeed = adjustPtzSpeed;
 async function bootstrap(): Promise<void> {
   bindDialogBackdropDismiss("aux-modal-overlay");
   bindDialogBackdropDismiss("rtsp-modal-overlay");
-  bindRtspHoldAndClickHandlers();
+  bindDialogBackdropDismiss("crop-modal-overlay");
+  bindOutputHeadersLongPressForCrop();
+  bindCropInteractiveDrag();
   bindThumbCaptureButton();
 
   await fetchInitialFromApiIfNeeded();

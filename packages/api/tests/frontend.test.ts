@@ -20,20 +20,26 @@ test("Vite-built Operator frontend routes render all updated Stitch screens and 
     assert.match(rootRes.payload, /id="top-multiview-btn"/);
     // Outputs screen elements: Pi 1 / Pi 2 main heading and hdmi 0 / hdmi 1 subtitle
     assert.match(rootRes.payload, />Pi 1</);
-    assert.match(rootRes.payload, />hdmi 0</);
+    assert.match(rootRes.payload, /hdmi 0/);
     assert.match(rootRes.payload, />Pi 2</);
-    assert.match(rootRes.payload, />hdmi 1</);
+    assert.match(rootRes.payload, /hdmi 1/);
     assert.doesNotMatch(rootRes.payload, /\(hdmi0\)/);
     assert.doesNotMatch(rootRes.payload, /\(hdmi1\)/);
+    assert.match(rootRes.payload, /id="hdmi1-inputs-list"/);
+    assert.match(rootRes.payload, /id="hdmi2-inputs-list"/);
 
-    // Network Stream Out has Start Stream button and hold-triggered RTSP modal with Preview vs Full Resolution
+    // Network Stream Out has dedicated button under heading + Start Stream button, with all info in dialog
+    assert.match(rootRes.payload, /id="rtsp-open-dialog-btn"/);
     assert.match(rootRes.payload, /id="rtsp-stream-btn"/);
     assert.match(rootRes.payload, /Start Stream/);
     assert.match(rootRes.payload, /<dialog[^>]*id="rtsp-modal-overlay"[^>]*closedby="any"/);
     assert.match(rootRes.payload, /Preview Stream/);
     assert.match(rootRes.payload, /Full Resolution/);
-    // Native dialog with closedby="any" for Auxiliary modal
+    // Native dialog with closedby="any" for Auxiliary modal and Cropper modal
     assert.match(rootRes.payload, /<dialog[^>]*id="aux-modal-overlay"[^>]*closedby="any"/);
+    assert.match(rootRes.payload, /<dialog[^>]*id="crop-modal-overlay"[^>]*closedby="any"/);
+    assert.match(rootRes.payload, /id="crop-zoomed-viewport"/);
+    assert.match(rootRes.payload, /id="crop-interactive-box"/);
 
     // Multiview has back button to go back to home
     const mvRes = await app.inject({ method: "GET", url: "/multiview" });

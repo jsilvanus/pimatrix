@@ -66,15 +66,17 @@
       <div class="grid grid-cols-2 gap-space-sm w-full">
 
         <!-- COLUMN 1: Pi 1 (hdmi 0) -->
-        <div class="bg-surface-container-low rounded-xl p-3 flex flex-col justify-between shadow-sm border border-outline-variant/30 space-y-3" id="hdmi-card-1">
-          <!-- Header -->
-          <div class="flex items-start justify-between gap-1">
+        <!-- NOTE: Future `hama2` source will be listed alongside `hama` so uncropped `hama` can be sent to one output and cropped `hama2` to another. -->
+        <div class="bg-surface-container-low rounded-xl p-2.5 flex flex-col justify-between shadow-sm border border-outline-variant/30 space-y-2.5" id="hdmi-card-1">
+          <!-- Header (Long-press header to open Cropper for Pi 1's active source) -->
+          <div class="flex items-start justify-between gap-1 cursor-pointer" id="hdmi1-header-zone" title="Long-press to open Cropper for active output">
             <div class="min-w-0">
               <div class="flex items-center gap-1.5">
                 <h2 class="font-headline-sm text-[17px] font-bold text-on-surface leading-tight">Pi 1</h2>
                 <span id="hdmi1-ftb-pill" class="hidden px-1.5 py-0.5 rounded-full bg-error text-on-error text-[9px] font-label-sm font-bold uppercase animate-pulse">FTB</span>
+                <span id="hdmi1-crop-pill" class="hidden px-1.5 py-0.5 rounded-full bg-secondary-container text-on-secondary-container text-[9px] font-label-sm font-bold uppercase">CROP</span>
               </div>
-              <span class="font-label-sm text-[10px] text-on-surface-variant">hdmi 0</span>
+              <span class="font-label-sm text-[10px] text-on-surface-variant">hdmi 0 • hold to crop</span>
             </div>
             <div class="flex flex-col items-end gap-1 flex-shrink-0">
               <span class="font-label-sm text-[9px] text-on-surface-variant uppercase tracking-wider font-semibold leading-none">Routed To</span>
@@ -84,76 +86,34 @@
             </div>
           </div>
 
-          <!-- Tactical Inputs Vertical List -->
+          <!-- Tactical Inputs Vertical List with Inline Mute & FTB buttons -->
           <div class="flex flex-col gap-1.5">
             <div class="flex items-center justify-between">
               <span class="font-label-sm text-[10px] text-on-surface-variant uppercase tracking-wider">Select Input:</span>
-              <span class="font-label-sm text-[9px] text-primary font-semibold uppercase" id="hdmi1-active-label">--</span>
-            </div>
-
-            <button type="button" data-source="hama" class="hdmi1-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(1, 'hama')">
-              <span>hama</span>
-              <span class="btn-indicators flex items-center gap-1"></span>
-            </button>
-            <button type="button" data-source="rtmp1" class="hdmi1-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(1, 'rtmp1')">
-              <span>rtmp1</span>
-              <span class="btn-indicators flex items-center gap-1"></span>
-            </button>
-            <button type="button" data-source="rtmp2" class="hdmi1-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(1, 'rtmp2')">
-              <span>rtmp2</span>
-              <span class="btn-indicators flex items-center gap-1"></span>
-            </button>
-            <button type="button" data-source="PiPGM1" class="hdmi1-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(1, 'PiPGM1')">
-              <span>pipgm 1</span>
-              <span class="btn-indicators flex items-center gap-1"></span>
-            </button>
-            <button type="button" data-source="PiPGM2" class="hdmi1-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(1, 'PiPGM2')">
-              <span>pipgm 2</span>
-              <span class="btn-indicators flex items-center gap-1"></span>
-            </button>
-
-            <!-- Auxiliary Button with Dialog trigger -->
-            <div class="relative pt-0.5">
-              <button type="button" id="hdmi1-aux-btn" class="w-full p-1.5 rounded-lg border border-dashed border-primary/40 bg-surface-container hover:bg-surface-container-high text-left active:scale-[0.98] transition-all flex flex-col gap-0.5" onclick="openAuxModal(1)">
-                <div class="flex items-center justify-between">
-                  <span class="font-label-md text-[11px] font-bold text-primary uppercase flex items-center gap-1" id="hdmi1-aux-label">
-                    <span class="material-symbols-outlined text-[13px]">tune</span>Auxiliary
-                  </span>
-                  <span class="material-symbols-outlined text-[14px] text-primary" id="hdmi1-aux-icon">touch_app</span>
-                </div>
+              <button type="button" onclick="openOutputCropModal(1)" class="font-label-sm text-[9px] text-primary hover:underline font-semibold uppercase inline-flex items-center gap-0.5" title="Open Cropper for active source">
+                <span class="material-symbols-outlined text-[11px]">crop</span>
+                <span id="hdmi1-active-label">--</span>
               </button>
             </div>
-          </div>
 
-          <!-- Dedicated Output Controls (Input-Specific FTB & Mute for Pi 1's selected input) -->
-          <div class="pt-2 border-t border-outline-variant/30 flex flex-col gap-1">
-            <div class="flex items-center justify-between text-[9px] font-label-sm text-on-surface-variant uppercase">
-              <span>Input Controls</span>
-              <span id="hdmi1-ctrl-target" class="font-bold text-primary">pipgm 1</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <button type="button" class="flex-1 h-8 rounded-lg bg-surface-container-high hover:bg-error/20 active:scale-[0.98] text-error font-label-sm text-[11px] font-bold flex items-center justify-center gap-1 transition-all shadow-xs" id="btn-ftb-1" onclick="toggleOutputInputControl(1, 'ftb')">
-                <span class="material-symbols-outlined text-[13px]">power_settings_new</span>
-                <span>FTB</span>
-              </button>
-              <button type="button" class="flex-1 h-8 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface-variant font-label-sm text-[11px] font-bold flex items-center justify-center gap-1 transition-all shadow-xs" id="btn-mute-1" onclick="toggleOutputInputControl(1, 'mute')">
-                <span class="material-symbols-outlined text-[13px]" id="icon-mute-1">volume_up</span>
-                <span id="label-mute-1">Mute</span>
-              </button>
-            </div>
+            <div class="flex flex-col gap-1.5" id="hdmi1-inputs-list"></div>
+
+            <!-- Auxiliary Button with Dialog trigger + inline controls when camera active -->
+            <div class="relative pt-0.5" id="hdmi1-aux-container"></div>
           </div>
         </div>
 
         <!-- COLUMN 2: Pi 2 (hdmi 1) -->
-        <div class="bg-surface-container-low rounded-xl p-3 flex flex-col justify-between shadow-sm border border-outline-variant/30 space-y-3" id="hdmi-card-2">
-          <!-- Header -->
-          <div class="flex items-start justify-between gap-1">
+        <div class="bg-surface-container-low rounded-xl p-2.5 flex flex-col justify-between shadow-sm border border-outline-variant/30 space-y-2.5" id="hdmi-card-2">
+          <!-- Header (Long-press header to open Cropper for Pi 2's active source) -->
+          <div class="flex items-start justify-between gap-1 cursor-pointer" id="hdmi2-header-zone" title="Long-press to open Cropper for active output">
             <div class="min-w-0">
               <div class="flex items-center gap-1.5">
                 <h2 class="font-headline-sm text-[17px] font-bold text-on-surface leading-tight">Pi 2</h2>
                 <span id="hdmi2-ftb-pill" class="hidden px-1.5 py-0.5 rounded-full bg-error text-on-error text-[9px] font-label-sm font-bold uppercase animate-pulse">FTB</span>
+                <span id="hdmi2-crop-pill" class="hidden px-1.5 py-0.5 rounded-full bg-secondary-container text-on-secondary-container text-[9px] font-label-sm font-bold uppercase">CROP</span>
               </div>
-              <span class="font-label-sm text-[10px] text-on-surface-variant">hdmi 1</span>
+              <span class="font-label-sm text-[10px] text-on-surface-variant">hdmi 1 • hold to crop</span>
             </div>
             <div class="flex flex-col items-end gap-1 flex-shrink-0">
               <span class="font-label-sm text-[9px] text-on-surface-variant uppercase tracking-wider font-semibold leading-none">Routed To</span>
@@ -163,99 +123,52 @@
             </div>
           </div>
 
-          <!-- Tactical Inputs Vertical List -->
+          <!-- Tactical Inputs Vertical List with Inline Mute & FTB buttons -->
           <div class="flex flex-col gap-1.5">
             <div class="flex items-center justify-between">
               <span class="font-label-sm text-[10px] text-on-surface-variant uppercase tracking-wider">Select Input:</span>
-              <span class="font-label-sm text-[9px] text-primary font-semibold uppercase" id="hdmi2-active-label">--</span>
-            </div>
-
-            <button type="button" data-source="hama" class="hdmi2-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(2, 'hama')">
-              <span>hama</span>
-              <span class="btn-indicators flex items-center gap-1"></span>
-            </button>
-            <button type="button" data-source="rtmp1" class="hdmi2-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(2, 'rtmp1')">
-              <span>rtmp1</span>
-              <span class="btn-indicators flex items-center gap-1"></span>
-            </button>
-            <button type="button" data-source="rtmp2" class="hdmi2-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(2, 'rtmp2')">
-              <span>rtmp2</span>
-              <span class="btn-indicators flex items-center gap-1"></span>
-            </button>
-            <button type="button" data-source="PiPGM1" class="hdmi2-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(2, 'PiPGM1')">
-              <span>pipgm 1</span>
-              <span class="btn-indicators flex items-center gap-1"></span>
-            </button>
-            <button type="button" data-source="PiPGM2" class="hdmi2-btn w-full h-8 px-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface font-label-md text-[12px] uppercase transition-all flex items-center justify-between shadow-xs" onclick="selectHdmiSource(2, 'PiPGM2')">
-              <span>pipgm 2</span>
-              <span class="btn-indicators flex items-center gap-1"></span>
-            </button>
-
-            <!-- Auxiliary Button with Dialog trigger -->
-            <div class="relative pt-0.5">
-              <button type="button" id="hdmi2-aux-btn" class="w-full p-1.5 rounded-lg border border-dashed border-primary/40 bg-surface-container hover:bg-surface-container-high text-left active:scale-[0.98] transition-all flex flex-col gap-0.5" onclick="openAuxModal(2)">
-                <div class="flex items-center justify-between">
-                  <span class="font-label-md text-[11px] font-bold text-primary uppercase flex items-center gap-1" id="hdmi2-aux-label">
-                    <span class="material-symbols-outlined text-[13px]">tune</span>Auxiliary
-                  </span>
-                  <span class="material-symbols-outlined text-[14px] text-primary" id="hdmi2-aux-icon">touch_app</span>
-                </div>
+              <button type="button" onclick="openOutputCropModal(2)" class="font-label-sm text-[9px] text-primary hover:underline font-semibold uppercase inline-flex items-center gap-0.5" title="Open Cropper for active source">
+                <span class="material-symbols-outlined text-[11px]">crop</span>
+                <span id="hdmi2-active-label">--</span>
               </button>
             </div>
-          </div>
 
-          <!-- Dedicated Output Controls (Input-Specific FTB & Mute for Pi 2's selected input) -->
-          <div class="pt-2 border-t border-outline-variant/30 flex flex-col gap-1">
-            <div class="flex items-center justify-between text-[9px] font-label-sm text-on-surface-variant uppercase">
-              <span>Input Controls</span>
-              <span id="hdmi2-ctrl-target" class="font-bold text-primary">multiview</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <button type="button" class="flex-1 h-8 rounded-lg bg-surface-container-high hover:bg-error/20 active:scale-[0.98] text-error font-label-sm text-[11px] font-bold flex items-center justify-center gap-1 transition-all shadow-xs" id="btn-ftb-2" onclick="toggleOutputInputControl(2, 'ftb')">
-                <span class="material-symbols-outlined text-[13px]">power_settings_new</span>
-                <span>FTB</span>
-              </button>
-              <button type="button" class="flex-1 h-8 rounded-lg bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface-variant font-label-sm text-[11px] font-bold flex items-center justify-center gap-1 transition-all shadow-xs" id="btn-mute-2" onclick="toggleOutputInputControl(2, 'mute')">
-                <span class="material-symbols-outlined text-[13px]" id="icon-mute-2">volume_up</span>
-                <span id="label-mute-2">Mute</span>
-              </button>
-            </div>
+            <div class="flex flex-col gap-1.5" id="hdmi2-inputs-list"></div>
+
+            <!-- Auxiliary Button with Dialog trigger + inline controls when camera active -->
+            <div class="relative pt-0.5" id="hdmi2-aux-container"></div>
           </div>
         </div>
       </div>
 
       <!-- 3. BOTTOM SECTION: Network Stream Out (RTSP) Card -->
-      <!-- Start/Stop Stream button + Hold to open Assignment & Quality Modal -->
-      <div class="w-full bg-surface-container-low rounded-xl p-space-md shadow-sm border border-outline-variant/30 space-y-2 select-none" id="rtsp-card">
+      <!-- Clean layout: Heading + Button under heading to open dialog + Start/Stop Stream button -->
+      <div class="w-full bg-surface-container-low rounded-xl p-space-md shadow-sm border border-outline-variant/30 select-none" id="rtsp-card">
         <div class="flex items-center justify-between gap-2">
-          <div class="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer" id="rtsp-hold-zone" title="Hold to open RTSP Assignment & Quality Modal">
-            <div class="w-9 h-9 rounded-lg bg-primary-container text-on-primary flex items-center justify-center flex-shrink-0" id="rtsp-icon-box">
+          <div class="flex items-start gap-2.5 min-w-0 flex-1">
+            <div class="w-9 h-9 rounded-lg bg-primary-container text-on-primary flex items-center justify-center flex-shrink-0 mt-0.5" id="rtsp-icon-box">
               <span class="material-symbols-outlined text-[20px]">podcasts</span>
             </div>
-            <div class="min-w-0">
+            <div class="flex flex-col gap-1.5 min-w-0">
               <div class="flex items-center gap-1.5">
-                <h3 class="font-headline-sm text-[16px] font-bold text-on-surface truncate">Network Stream Out (RTSP)</h3>
+                <h3 class="font-headline-sm text-[16px] font-bold text-on-surface truncate leading-tight">Network Stream Out (RTSP)</h3>
                 <span class="inline-block w-2 h-2 rounded-full bg-outline" id="rtsp-live-dot"></span>
               </div>
-              <p class="font-label-sm text-[11px] text-primary font-medium flex items-center gap-1">
-                <span class="material-symbols-outlined text-[12px]">touch_long</span>
-                <span id="rtsp-summary-text">rtmp1 • 1920x1080 (Full) • 6200 kbps • Hold to configure</span>
-              </p>
+              <!-- Dedicated button under heading to open RTSP Assignment & Info Dialog -->
+              <div>
+                <button type="button" id="rtsp-open-dialog-btn" onclick="openRtspModal()" class="px-2.5 py-1 rounded-lg bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/40 text-primary font-label-sm text-[10px] font-bold uppercase transition-all inline-flex items-center gap-1 active:scale-95">
+                  <span class="material-symbols-outlined text-[13px]">tune</span>
+                  <span id="rtsp-config-btn-label">Source &amp; Settings (rtmp1)</span>
+                </button>
+              </div>
             </div>
           </div>
 
-          <!-- Start / Stop Stream Button (also supports long-hold to open modal) -->
-          <button type="button" id="rtsp-stream-btn" class="px-3 py-2 rounded-lg bg-primary text-on-primary font-label-sm text-[11px] font-bold uppercase transition-all flex items-center gap-1.5 shadow-sm active:scale-95 flex-shrink-0">
+          <!-- Start / Stop Stream Button -->
+          <button type="button" id="rtsp-stream-btn" onclick="toggleRtspStream()" class="px-3 py-2 rounded-lg bg-primary text-on-primary font-label-sm text-[11px] font-bold uppercase transition-all flex items-center gap-1.5 shadow-sm active:scale-95 flex-shrink-0">
             <span class="material-symbols-outlined text-[15px]" id="rtsp-stream-icon">play_arrow</span>
             <span id="rtsp-stream-label">Start Stream</span>
           </button>
-        </div>
-
-        <div class="flex items-center justify-between pt-1 border-t border-outline-variant/20 text-[10px] font-label-sm text-on-surface-variant">
-          <span class="flex items-center gap-1" id="rtsp-url-readout">
-            <span class="material-symbols-outlined text-[13px] text-primary">dns</span>rtsp://pimatrix.local:554/live
-          </span>
-          <span class="text-on-surface-variant font-semibold" id="rtsp-quality-badge">FULL 1080p • 6.2 Mbps</span>
         </div>
       </div>
     </section>
@@ -668,33 +581,25 @@
           <span class="material-symbols-outlined text-[16px]">close</span>
         </button>
       </div>
-      <p class="font-body-sm text-[12px] text-on-surface-variant">Select a camera or multiview pipeline to route to this hardware output bus:</p>
-      <div class="grid grid-cols-2 gap-2">
-        <button type="button" class="h-11 rounded-lg bg-surface-container-high hover:bg-primary-container hover:text-on-primary transition-all flex items-center justify-center gap-1.5 font-label-md text-label-md uppercase font-semibold text-on-surface" onclick="confirmAuxPick('cam1')">
-          <span class="material-symbols-outlined text-[16px]">videocam</span>
-          <span>cam1</span>
-        </button>
-        <button type="button" class="h-11 rounded-lg bg-surface-container-high hover:bg-primary-container hover:text-on-primary transition-all flex items-center justify-center gap-1.5 font-label-md text-label-md uppercase font-semibold text-on-surface" onclick="confirmAuxPick('cam2')">
-          <span class="material-symbols-outlined text-[16px]">videocam</span>
-          <span>cam2</span>
-        </button>
-        <button type="button" class="h-11 rounded-lg bg-surface-container-high hover:bg-primary-container hover:text-on-primary transition-all flex items-center justify-center gap-1.5 font-label-md text-label-md uppercase font-semibold text-on-surface" onclick="confirmAuxPick('cam3')">
-          <span class="material-symbols-outlined text-[16px]">videocam</span>
-          <span>cam3</span>
-        </button>
-        <button type="button" class="h-11 rounded-lg bg-surface-container-high hover:bg-primary-container hover:text-on-primary transition-all flex flex-col items-center justify-center p-1 text-on-surface" onclick="confirmAuxPick('multiview', 'landscape')">
+      <p class="font-body-sm text-[12px] text-on-surface-variant">Tap a camera or multiview to route, or pre-toggle Mute / FTB on cameras:</p>
+      <div class="flex flex-col gap-1.5" id="aux-modal-cam-list"></div>
+      <div class="grid grid-cols-2 gap-2 pt-1">
+        <button type="button" class="h-10 rounded-lg bg-surface-container-high hover:bg-primary-container hover:text-on-primary transition-all flex flex-col items-center justify-center p-1 text-on-surface" onclick="confirmAuxPick('multiview', 'landscape')">
           <div class="flex items-center gap-1 font-label-md text-[11px] uppercase font-bold">
             <span class="material-symbols-outlined text-[14px]">grid_view</span>
-            <span>Multiview</span>
+            <span>Multiview 4x2</span>
           </div>
-          <span class="text-[9px] font-label-sm opacity-80 uppercase">4x2 Landscape</span>
+          <span class="text-[9px] font-label-sm opacity-80 uppercase">Landscape</span>
+        </button>
+        <button type="button" class="h-10 rounded-lg bg-surface-container-high hover:bg-primary-container hover:text-on-primary transition-all flex flex-col items-center justify-center p-1 text-on-surface" onclick="confirmAuxPick('multiview', 'portrait')">
+          <div class="flex items-center gap-1 font-label-md text-[11px] uppercase font-bold">
+            <span class="material-symbols-outlined text-[14px]">view_week</span>
+            <span>Multiview 2x4</span>
+          </div>
+          <span class="text-[9px] font-label-sm opacity-80 uppercase">Vertical</span>
         </button>
       </div>
-      <div class="pt-1 flex flex-col gap-1.5">
-        <button type="button" class="w-full h-9 rounded-lg bg-surface-container hover:bg-surface-container-high border border-outline-variant/30 text-on-surface font-label-sm text-[11px] uppercase font-semibold flex items-center justify-center gap-1.5" onclick="confirmAuxPick('multiview', 'portrait')">
-          <span class="material-symbols-outlined text-[14px]">view_week</span>
-          <span>Multiview 2x4 Vertical Orientation</span>
-        </button>
+      <div class="pt-1">
         <button type="button" class="w-full h-8 rounded-lg bg-surface-container-highest/60 hover:bg-error-container hover:text-on-error-container text-on-surface-variant font-label-sm text-[10px] uppercase font-semibold flex items-center justify-center gap-1" onclick="confirmAuxPick(null)">
           <span class="material-symbols-outlined text-[13px]">link_off</span>
           <span>Unroute / Clear Output</span>
@@ -704,8 +609,8 @@
   </dialog>
 
   <!-- =================================================================== -->
-  <!-- RTSP ASSIGNMENT & QUALITY MODAL (<dialog closedby="any">)            -->
-  <!-- Opened by long-holding the Network Stream Out card or button        -->
+  <!-- RTSP ASSIGNMENT, QUALITY & INFO MODAL (<dialog closedby="any">)      -->
+  <!-- Opened via the button under the Network Stream Out heading          -->
   <!-- =================================================================== -->
   <dialog id="rtsp-modal-overlay" closedby="any" aria-labelledby="rtsp-dialog-title" class="broadcast-dialog">
     <div class="bg-surface-container-low rounded-2xl w-full p-4 shadow-xl border border-outline-variant/40 space-y-3">
@@ -715,13 +620,27 @@
             <span class="material-symbols-outlined text-[18px]">podcasts</span>
           </div>
           <div>
-            <h4 class="font-headline-sm text-[15px] font-bold text-on-surface leading-none" id="rtsp-dialog-title">Network Stream Out Assignment</h4>
-            <span class="font-label-sm text-[10px] text-on-surface-variant uppercase">Source, Resolution &amp; Bitrate</span>
+            <h4 class="font-headline-sm text-[15px] font-bold text-on-surface leading-none" id="rtsp-dialog-title">Network Stream Out (RTSP)</h4>
+            <span class="font-label-sm text-[10px] text-on-surface-variant uppercase">Stream Info, Source &amp; Quality</span>
           </div>
         </div>
         <button type="button" class="w-7 h-7 rounded-full bg-surface-container-high hover:bg-surface-container-highest text-on-surface flex items-center justify-center" onclick="closeRtspModal()">
           <span class="material-symbols-outlined text-[16px]">close</span>
         </button>
+      </div>
+
+      <!-- Stream Endpoint & Status Info Box (all details inside dialog) -->
+      <div class="p-2.5 rounded-xl bg-surface-container border border-outline-variant/30 flex flex-col gap-1 text-[10px] font-label-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-on-surface-variant uppercase">RTSP Endpoint</span>
+          <span id="rtsp-dialog-status-pill" class="px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-bold uppercase text-[9px]">STOPPED</span>
+        </div>
+        <div class="flex items-center justify-between text-on-surface font-bold">
+          <span class="flex items-center gap-1" id="rtsp-url-readout">
+            <span class="material-symbols-outlined text-[13px] text-primary">dns</span>rtsp://pimatrix.local:554/live
+          </span>
+          <span class="text-primary" id="rtsp-quality-badge">FULL 1920x1080 • 6.2 Mbps</span>
+        </div>
       </div>
 
       <!-- Source Assignment Grid -->
@@ -788,6 +707,120 @@
 
       <div class="pt-1 flex justify-end">
         <button type="button" onclick="closeRtspModal()" class="px-4 py-1.5 rounded-lg bg-primary text-on-primary font-label-sm text-[11px] font-bold uppercase">Done</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- =================================================================== -->
+  <!-- CROP & EFFECTS MODAL (<dialog closedby="any">)                      -->
+  <!-- Opened via long-press on output/input or tapping the crop badge.    -->
+  <!-- Features a duplicated Cropped Area Live View ABOVE the interactive  -->
+  <!-- draggable cropper so a mobile finger never obstructs the crop view. -->
+  <!-- =================================================================== -->
+  <dialog id="crop-modal-overlay" closedby="any" aria-labelledby="crop-dialog-title" class="broadcast-dialog">
+    <div class="bg-surface-container-low rounded-2xl w-full p-3.5 shadow-xl border border-outline-variant/40 space-y-2.5 select-none">
+      <div class="flex items-center justify-between pb-2 border-b border-outline-variant/30">
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+            <span class="material-symbols-outlined text-[18px]">crop</span>
+          </div>
+          <div>
+            <h4 class="font-headline-sm text-[15px] font-bold text-on-surface leading-none" id="crop-dialog-title">Crop &amp; Effects: hama</h4>
+            <span class="font-label-sm text-[10px] text-on-surface-variant uppercase" id="crop-dialog-subtitle">Drag lower box • Upper view shows unobstructed crop</span>
+          </div>
+        </div>
+        <button type="button" class="w-7 h-7 rounded-full bg-surface-container-high hover:bg-surface-container-highest text-on-surface flex items-center justify-center" onclick="closeCropModal()">
+          <span class="material-symbols-outlined text-[16px]">close</span>
+        </button>
+      </div>
+
+      <!-- 1. TOP PANE: Duplicated Cropped Output Feed (Unobstructed by Finger!) -->
+      <div class="space-y-1">
+        <div class="flex items-center justify-between">
+          <span class="font-label-sm text-[9px] uppercase tracking-wider font-bold text-primary flex items-center gap-1">
+            <span class="material-symbols-outlined text-[12px]">visibility</span>
+            Cropped Output Preview (Unobstructed)
+          </span>
+          <span class="font-label-sm text-[9px] text-on-surface-variant" id="crop-zoomed-badge">16:9 • 1920x1080</span>
+        </div>
+        <div class="w-full h-36 rounded-xl bg-inverse-surface border border-outline-variant/40 flex items-center justify-center overflow-hidden relative shadow-inner">
+          <!-- This inner viewport dynamically matches the cropped aspect ratio and scales/translates the duplicated feed -->
+          <div id="crop-zoomed-viewport" class="relative overflow-hidden bg-black shadow-md border border-primary/60" style="width: 100%; height: 100%;">
+            <div id="crop-zoomed-feed" class="absolute top-0 left-0 origin-top-left pointer-events-none"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. BOTTOM PANE: Interactive Full-Frame Cropper (Touch/Drag with Finger) -->
+      <div class="space-y-1">
+        <div class="flex items-center justify-between">
+          <span class="font-label-sm text-[9px] uppercase tracking-wider font-bold text-on-surface-variant flex items-center gap-1">
+            <span class="material-symbols-outlined text-[12px]">pan_tool_alt</span>
+            Interactive Full Frame (Drag Crop Box Below)
+          </span>
+          <span class="font-label-sm text-[9px] text-on-surface-variant font-mono" id="crop-coords-readout">x:0 y:0 w:1920 h:1080</span>
+        </div>
+        <div id="crop-interactive-box" class="w-full aspect-video rounded-xl bg-inverse-surface border border-outline-variant/40 relative overflow-hidden cursor-grab active:cursor-grabbing touch-none shadow-inner">
+          <!-- Duplicated full-frame feed background -->
+          <div id="crop-full-feed" class="w-full h-full pointer-events-none"></div>
+          <!-- Draggable Crop Rectangle -->
+          <div id="crop-interactive-rect" class="absolute border-2 border-dashed border-primary bg-primary/15 shadow-[0_0_0_9999px_rgba(0,0,0,0.62)] pointer-events-none flex items-start justify-between p-1">
+            <span id="crop-rect-tag" class="px-1.5 py-0.5 rounded bg-primary text-on-primary font-label-sm text-[9px] font-bold uppercase shadow-xs">16:9</span>
+            <span class="material-symbols-outlined text-[14px] text-white/90 drop-shadow">open_with</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Aspect Ratio Presets -->
+      <div class="space-y-1">
+        <span class="font-label-sm text-[9px] uppercase tracking-wider font-bold text-on-surface-variant">Aspect Ratio Presets</span>
+        <div class="grid grid-cols-4 gap-1.5">
+          <button type="button" onclick="applySourceCropPreset('force-vertical-9-16')" class="h-8 px-1.5 rounded-lg bg-surface-container-high hover:bg-primary hover:text-on-primary text-on-surface font-label-sm text-[10px] font-bold uppercase transition-all active:scale-95">9:16 Vert</button>
+          <button type="button" onclick="applySourceCropPreset('force-vertical-10-16')" class="h-8 px-1.5 rounded-lg bg-surface-container-high hover:bg-primary hover:text-on-primary text-on-surface font-label-sm text-[10px] font-bold uppercase transition-all active:scale-95">10:16 Proj</button>
+          <button type="button" onclick="applySourceCropPreset('force-landscape-16-9')" class="h-8 px-1.5 rounded-lg bg-surface-container-high hover:bg-primary hover:text-on-primary text-on-surface font-label-sm text-[10px] font-bold uppercase transition-all active:scale-95">16:9 Full</button>
+          <button type="button" onclick="applySourceCropPreset('reset')" class="h-8 px-1.5 rounded-lg bg-error-container text-on-error-container font-label-sm text-[10px] font-bold uppercase transition-all active:scale-95">Reset</button>
+        </div>
+      </div>
+
+      <!-- 4. Fine Nudge D-Pad & Zoom / Aspect Lock -->
+      <div class="flex items-center justify-between gap-3 pt-1 border-t border-outline-variant/30">
+        <div class="grid grid-cols-3 gap-1 w-28 flex-shrink-0">
+          <div></div>
+          <button type="button" onclick="moveSourceCrop('up')" class="h-7 rounded bg-surface-container-high hover:bg-primary hover:text-on-primary text-on-surface flex items-center justify-center active:scale-95">
+            <span class="material-symbols-outlined text-[15px]">keyboard_arrow_up</span>
+          </button>
+          <div></div>
+          <button type="button" onclick="moveSourceCrop('left')" class="h-7 rounded bg-surface-container-high hover:bg-primary hover:text-on-primary text-on-surface flex items-center justify-center active:scale-95">
+            <span class="material-symbols-outlined text-[15px]">keyboard_arrow_left</span>
+          </button>
+          <button type="button" onclick="moveSourceCrop('center')" class="h-7 rounded bg-surface-container-highest hover:bg-primary hover:text-on-primary text-on-surface font-label-sm text-[9px] font-bold flex items-center justify-center active:scale-95" title="Center Crop">CTR</button>
+          <button type="button" onclick="moveSourceCrop('right')" class="h-7 rounded bg-surface-container-high hover:bg-primary hover:text-on-primary text-on-surface flex items-center justify-center active:scale-95">
+            <span class="material-symbols-outlined text-[15px]">keyboard_arrow_right</span>
+          </button>
+          <div></div>
+          <button type="button" onclick="moveSourceCrop('down')" class="h-7 rounded bg-surface-container-high hover:bg-primary hover:text-on-primary text-on-surface flex items-center justify-center active:scale-95">
+            <span class="material-symbols-outlined text-[15px]">keyboard_arrow_down</span>
+          </button>
+          <div></div>
+        </div>
+
+        <div class="flex flex-col gap-1.5 flex-1">
+          <div class="grid grid-cols-2 gap-1.5">
+            <button type="button" onclick="resizeSourceCrop('in')" class="h-8 rounded-lg bg-surface-container-high hover:bg-primary hover:text-on-primary text-on-surface font-label-sm text-[10px] font-bold uppercase flex items-center justify-center gap-1 active:scale-95">
+              <span class="material-symbols-outlined text-[14px]">zoom_in</span>Tighter
+            </button>
+            <button type="button" onclick="resizeSourceCrop('out')" class="h-8 rounded-lg bg-surface-container-high hover:bg-primary hover:text-on-primary text-on-surface font-label-sm text-[10px] font-bold uppercase flex items-center justify-center gap-1 active:scale-95">
+              <span class="material-symbols-outlined text-[14px]">zoom_out</span>Wider
+            </button>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button type="button" id="crop-lock-aspect-btn" onclick="toggleSourceCropLockAspect()" class="flex-1 h-8 rounded-lg bg-surface-container-high text-on-surface font-label-sm text-[10px] font-bold uppercase flex items-center justify-center gap-1 active:scale-95">
+              <span class="material-symbols-outlined text-[13px]" id="crop-lock-aspect-icon">lock</span>
+              <span id="crop-lock-aspect-label">Lock Aspect: ON</span>
+            </button>
+            <button type="button" onclick="closeCropModal()" class="px-3 h-8 rounded-lg bg-primary text-on-primary font-label-sm text-[10px] font-bold uppercase">Done</button>
+          </div>
+        </div>
       </div>
     </div>
   </dialog>
