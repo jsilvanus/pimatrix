@@ -5,7 +5,9 @@ import {
   createCanvaItemData,
   runCanvaConnectExport,
   type CanvaConnectConfig,
-  type CanvaPluginPushInput
+  type CanvaPluginPushInput,
+  type CanvaControlRequest,
+  type CanvaControlResult
 } from "./canva-adapter.js";
 import {
   buildHymnSteps,
@@ -681,6 +683,116 @@ export class PiPgmService {
     }
 
     return structuredClone(item);
+  }
+
+
+  controlCanvaPresentation(request: CanvaControlRequest): CanvaControlResult {
+    const targetIds: PiPgmPipelineId[] = [];
+
+    if (request.targetPipelineId === "all") {
+      targetIds.push("PiPGM1", "PiPGM2", "PiPGM3");
+    } else if (request.targetPipelineId && this.isValidPipelineId(request.targetPipelineId)) {
+      targetIds.push(request.targetPipelineId as PiPgmPipelineId);
+    } else if (request.designId) {
+      for (const [pId, state] of this.pipelines.entries()) {
+        if (!state.activeItemId) continue;
+        const activeItem = state.playlist.find((i) => i.id === state.activeItemId) || this.library.get(state.activeItemId);
+        if (activeItem && activeItem.kind === "canva" && activeItem.canva?.designId === request.designId) {
+          targetIds.push(pId);
+        }
+      }
+    }
+
+    if (targetIds.length === 0) {
+      for (const [pId, state] of this.pipelines.entries()) {
+        if (!state.activeItemId) continue;
+        const activeItem = state.playlist.find((i) => i.id === state.activeItemId) || this.library.get(state.activeItemId);
+        if (activeItem && activeItem.kind === "canva") {
+          targetIds.push(pId);
+        }
+      }
+    }
+
+    if (targetIds.length === 0) {
+      targetIds.push("PiPGM1");
+    }
+
+    const updatedPipelines: PiPgmPipelineSnapshot[] = [];
+
+    for (const pipelineId of targetIds) {
+      const state = this.pipelines.get(pipelineId);
+      if (!state) continue;
+
+      switch (request.action) {
+        case "ftb": {
+          const res = this.setFadeToBlack(pipelineId, {
+            fadeToBlack: request.fadeToBlack,
+            toggle: request.ftbToggle ?? (request.fadeToBlack === undefined),
+            sync: request.sync
+          });
+          if (res) updatedPipelines.push(res);
+          break;
+        }
+
+        case "mute": {
+          const res = this.setAudio(pipelineId, {
+            audioEnabled: request.audioEnabled,
+            toggle: request.muteToggle ?? (request.audioEnabled === undefined),
+            sync: request.sync
+          });
+          if (res) updatedPipelines.push(res);
+          break;
+        }
+
+        case "gotoPage": {
+          const stepIndex = Math.max(0, (request.pageNumber ?? 1) - 1);
+          const res = this.control(pipelineId, { action: "gotoStep", stepIndex, sync: request.sync });
+          if (res) updatedPipelines.push(res);
+          break;
+        }
+
+        case "gotoStep": {
+          const res = this.control(pipelineId, {
+            action: "gotoStep",
+            stepIndex: request.stepIndex ?? 0,
+            sync: request.sync
+          });
+          if (res) updatedPipelines.push(res);
+          break;
+        }
+
+        case "mode": {
+          if (request.mode && state.activeItemId) {
+            const activeItem = state.playlist.find((i) => i.id === state.activeItemId) || this.library.get(state.activeItemId);
+            if (activeItem && activeItem.kind === "canva" && activeItem.canva) {
+              activeItem.canva.mode = request.mode;
+              activeItem.steps = buildCanvaSteps(activeItem.canva);
+            }
+          }
+          const snap = this.toSnapshot(state);
+          this.emitPipelineEvent("config", snap);
+          updatedPipelines.push(snap);
+          break;
+        }
+
+        case "next":
+        case "prev":
+        case "play":
+        case "pause":
+        case "stop":
+        case "restart": {
+          const res = this.control(pipelineId, { action: request.action, sync: request.sync });
+          if (res) updatedPipelines.push(res);
+          break;
+        }
+      }
+    }
+
+    return {
+      success: true,
+      action: request.action,
+      pipelines: updatedPipelines
+    };
   }
 
   async createOrPushCanvaItem(

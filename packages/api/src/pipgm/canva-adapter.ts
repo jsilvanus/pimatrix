@@ -267,3 +267,34 @@ export async function runCanvaConnectExport(
     error: null
   };
 }
+
+export interface CanvaControlRequest {
+  designId?: string;
+  targetPipelineId?: string;
+  action:
+    | "next"
+    | "prev"
+    | "gotoPage"
+    | "gotoStep"
+    | "ftb"
+    | "mute"
+    | "play"
+    | "pause"
+    | "stop"
+    | "restart"
+    | "mode";
+  pageNumber?: number;
+  stepIndex?: number;
+  fadeToBlack?: boolean;
+  ftbToggle?: boolean;
+  audioEnabled?: boolean;
+  muteToggle?: boolean;
+  mode?: CanvaRenderMode;
+  sync?: boolean;
+}
+
+export interface CanvaControlResult {
+  success: boolean;
+  action: string;
+  pipelines: import("./pipgm-model.js").PiPgmPipelineSnapshot[];
+}

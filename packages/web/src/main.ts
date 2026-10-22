@@ -15,6 +15,7 @@ import type {
 const DIRECT_HDMI_SOURCES = new Set(["hama", "rtmp1", "rtmp2", "PiPGM1", "PiPGM2"]);
 const DIRECT_HDMI_SOURCE_LIST: SourceId[] = ["hama", "rtmp1", "rtmp2", "PiPGM1", "PiPGM2"];
 const AUX_CAMERA_SOURCE_LIST: SourceId[] = ["cam1", "cam2", "cam3"];
+const AUX_SOURCE_LIST: SourceId[] = ["cam1", "cam2", "cam3", "PiPGM3"];
 // NOTE: Future `hama2` source will be added alongside `hama` so we can route uncropped `hama`
 // to one destination and cropped `hama2` to another output independently.
 
@@ -459,7 +460,7 @@ function renderHdmiColumn(outputNum: 1 | 2): void {
             </span>
             <span class="material-symbols-outlined text-[14px] text-on-primary">verified</span>
           </div>
-          <span class="font-label-sm text-[9px] text-on-primary/80 leading-none">cam 1-3 • multiview</span>
+          <span class="font-label-sm text-[9px] text-on-primary/80 leading-none">cam 1-3 • pipgm 3 • multiview</span>
         </button>
       `;
     } else {
@@ -471,7 +472,7 @@ function renderHdmiColumn(outputNum: 1 | 2): void {
             </span>
             <span class="material-symbols-outlined text-[14px] text-primary">touch_app</span>
           </div>
-          <span class="font-label-sm text-[9px] text-on-surface-variant leading-none">cam 1-3 • multiview</span>
+          <span class="font-label-sm text-[9px] text-on-surface-variant leading-none">cam 1-3 • pipgm 3 • multiview</span>
         </button>
       `;
     }
@@ -482,7 +483,8 @@ function renderAuxModalCameras(): void {
   const listEl = document.getElementById("aux-modal-cam-list");
   if (!listEl) return;
   const activeSource = getEffectiveOutputSource(auxModalTargetOutput);
-  listEl.innerHTML = AUX_CAMERA_SOURCE_LIST.map((camId) =>
+
+  const camRows = AUX_CAMERA_SOURCE_LIST.map((camId) =>
     buildInputRowWithInlineControls(
       auxModalTargetOutput,
       camId,
@@ -491,6 +493,28 @@ function renderAuxModalCameras(): void {
       `confirmAuxPick('${camId}')`
     )
   ).join("");
+
+  const pipgm3Row = buildInputRowWithInlineControls(
+    auxModalTargetOutput,
+    "PiPGM3",
+    activeSource === "PiPGM3",
+    "pipgm 3",
+    "confirmAuxPick('PiPGM3')"
+  );
+
+  listEl.innerHTML = `
+    <div class="flex flex-col gap-1">
+      <span class="font-label-sm text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">PTZ Cameras</span>
+      ${camRows}
+    </div>
+    <div class="flex flex-col gap-1 pt-1.5 border-t border-outline-variant/30">
+      <div class="flex items-center justify-between">
+        <span class="font-label-sm text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Auxiliary Programme</span>
+        <span class="font-label-sm text-[9px] uppercase text-primary font-semibold">Usually Off</span>
+      </div>
+      ${pipgm3Row}
+    </div>
+  `;
   bindLongPressForCropInside(listEl);
 }
 

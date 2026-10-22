@@ -53,6 +53,7 @@ test("Vite-built Operator frontend routes render all updated Stitch screens and 
     assert.match(rootRes.payload, /Full Resolution/);
     // Native dialog with closedby="any" for Auxiliary modal and Cropper modal
     assert.match(rootRes.payload, /<dialog[^>]*id="aux-modal-overlay"[^>]*closedby="any"/);
+    assert.match(rootRes.payload, /Tap a camera, pipgm 3, or multiview to route/);
     assert.match(rootRes.payload, /<dialog[^>]*id="crop-modal-overlay"[^>]*closedby="any"/);
     assert.match(rootRes.payload, /id="crop-zoomed-viewport"/);
     assert.match(rootRes.payload, /id="crop-interactive-box"/);
