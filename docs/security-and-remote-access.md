@@ -2,6 +2,10 @@
 
 PiMatrix is designed for AV production environments where low latency and local reliability are paramount, while selectively allowing remote integrations (such as Canva presentation control) from external networks.
 
+> [!TIP]
+> **Interactive Wizard:** Run 
+pm run setup (or ./setup.sh / .\setup.ps1) to automatically configure your .env file with guided prompts, auto-detected LAN IPs, and generated keys.
+
 ---
 
 ## 1. Network Architecture Overview

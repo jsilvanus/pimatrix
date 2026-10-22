@@ -32,6 +32,16 @@ npm test
 
 Generated API client code is a build artifact and is not committed. It is regenerated from `openapi/openapi.yaml` before compilation.
 
+## Interactive Setup Wizard
+
+PiMatrix provides an interactive setup script that walks through all environment variables, detects local network IPs, generates secure random tokens, and writes a configured .env:
+
+`sh
+npm run setup
+# or on Linux / Raspberry Pi: ./setup.sh
+# or on Windows PowerShell:   .\setup.ps1
+`
+
 ## Run the API
 
 ```sh
