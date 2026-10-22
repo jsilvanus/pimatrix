@@ -9,6 +9,7 @@ services:
     command: ["/mediamtx.yml"]
     ports:
       - "8554:8554/tcp"   # RTSP ingest
+      - "1935:1935/tcp"   # RTMP ingest
       - "8889:8889/tcp"   # WebRTC HTTP/WHEP
       - "8189:8189/udp"   # WebRTC media
       - "9997:9997/tcp"   # MediaMTX API (local development only)
@@ -25,7 +26,7 @@ services:
     environment:
       RTSP_HOST: mediamtx
       RTSP_PORT: "8554"
-      SOURCES: "hama rtmp1 rtmp2 cam1 cam2 cam3 PiPGM1 PiPGM2"
+      SOURCES: "hama rtmp2 cam1 cam2 cam3 PiPGM1 PiPGM2"
       WIDTH: "640"
       HEIGHT: "360"
       FPS: "10"

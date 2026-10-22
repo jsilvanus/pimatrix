@@ -531,10 +531,8 @@ async function run(options: CliOptions): Promise<void> {
   throw new Error(`Unknown command: ${options.command.join(" ")}`);
 }
 
-try {
-  await run(parseArgs(process.argv.slice(2)));
-} catch (error) {
+run(parseArgs(process.argv.slice(2))).catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`pimatrix: ${message}`);
   process.exitCode = 1;
-}
+});

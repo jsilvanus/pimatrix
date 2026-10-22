@@ -726,9 +726,9 @@ export class PiPgmService {
       switch (request.action) {
         case "ftb": {
           const res = this.setFadeToBlack(pipelineId, {
-            fadeToBlack: request.fadeToBlack,
+            ...(request.fadeToBlack !== undefined ? { fadeToBlack: request.fadeToBlack } : {}),
             toggle: request.ftbToggle ?? (request.fadeToBlack === undefined),
-            sync: request.sync
+            ...(request.sync !== undefined ? { sync: request.sync } : {})
           });
           if (res) updatedPipelines.push(res);
           break;
@@ -736,9 +736,9 @@ export class PiPgmService {
 
         case "mute": {
           const res = this.setAudio(pipelineId, {
-            audioEnabled: request.audioEnabled,
+            ...(request.audioEnabled !== undefined ? { audioEnabled: request.audioEnabled } : {}),
             toggle: request.muteToggle ?? (request.audioEnabled === undefined),
-            sync: request.sync
+            ...(request.sync !== undefined ? { sync: request.sync } : {})
           });
           if (res) updatedPipelines.push(res);
           break;
@@ -746,7 +746,11 @@ export class PiPgmService {
 
         case "gotoPage": {
           const stepIndex = Math.max(0, (request.pageNumber ?? 1) - 1);
-          const res = this.control(pipelineId, { action: "gotoStep", stepIndex, sync: request.sync });
+          const res = this.control(pipelineId, {
+            action: "gotoStep",
+            stepIndex,
+            ...(request.sync !== undefined ? { sync: request.sync } : {})
+          });
           if (res) updatedPipelines.push(res);
           break;
         }
@@ -755,7 +759,7 @@ export class PiPgmService {
           const res = this.control(pipelineId, {
             action: "gotoStep",
             stepIndex: request.stepIndex ?? 0,
-            sync: request.sync
+            ...(request.sync !== undefined ? { sync: request.sync } : {})
           });
           if (res) updatedPipelines.push(res);
           break;
@@ -781,7 +785,10 @@ export class PiPgmService {
         case "pause":
         case "stop":
         case "restart": {
-          const res = this.control(pipelineId, { action: request.action, sync: request.sync });
+          const res = this.control(pipelineId, {
+            action: request.action,
+            ...(request.sync !== undefined ? { sync: request.sync } : {})
+          });
           if (res) updatedPipelines.push(res);
           break;
         }

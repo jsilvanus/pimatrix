@@ -6,3 +6,5 @@ coverage/
 !.env.example
 
 packages/api-client/src/generated/
+
+release/

@@ -1,0 +1,5 @@
+{
+  "main": "dist/pimatrix-bundled.cjs",
+  "output": "dist/sea-prep.blob",
+  "disableExperimentalSEAWarning": true
+}

@@ -7,6 +7,9 @@ rtsp: yes
 rtspAddress: :8554
 rtspTransports: [tcp]
 
+rtmp: yes
+rtmpAddress: :1935
+
 webrtc: yes
 webrtcAddress: :8889
 webrtcLocalUDPAddress: :8189
@@ -14,6 +17,15 @@ webrtcLocalTCPAddress: :8189
 webrtcAdditionalHosts:
   - localhost
   - 127.0.0.1
+
+authInternalUsers:
+  - user: any
+    pass: ""
+    permissions:
+      - action: api
+      - action: read
+      - action: publish
+      - action: playback
 
 # Development-only lab: producers publish arbitrary source paths.
 pathDefaults:
