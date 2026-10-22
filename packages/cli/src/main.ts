@@ -3,6 +3,7 @@
 import {
   CamerasService,
   configureApiClient,
+  EffectsService,
   OutputsService,
   PiPgmService,
   SourcesService,
@@ -13,12 +14,17 @@ import type {
   CameraMoveRequest,
   CameraSmartFrameRequest,
   CameraZoomRequest,
+  CropPresetAction,
+  EffectsPipeline,
+  MoveDirection,
   MultiviewLayoutMode,
   OutputId,
   PiPgmControlRequest,
   PiPgmOrientation,
   PiPgmPipelineId,
-  SourceId
+  ResizeCropRequest,
+  SourceId,
+  UpdateCropRequest
 } from "@pimatrix/api-client";
 import { parseArgs, type CliOptions } from "./options.js";
 
@@ -71,7 +77,14 @@ async function run(options: CliOptions): Promise<void> {
       "  pipgm prev <pipelineId>\n" +
       "  pipgm ftb <pipelineId> <on|off|toggle>\n" +
       "  pipgm audio <pipelineId> <on|off|toggle>\n" +
-      "  pipgm link <pipelineId> <on|off>"
+      "  pipgm link <pipelineId> <on|off>\n" +
+      "  effects list\n" +
+      "  effects show <sourceId>\n" +
+      "  effects preset <sourceId> <force-vertical-9-16|force-vertical-10-16|force-landscape-16-9|force-landscape-16-10|center|reset>\n" +
+      "  effects crop <sourceId> [--x <x>] [--y <y>] [--width <w>] [--height <h>] [--aspect <ratio>] [--enabled <true|false>]\n" +
+      "  effects move <sourceId> <left|right|up|down|center> [--delta <pixels>]\n" +
+      "  effects resize <sourceId> <in|out> [--factor <0-1>]\n" +
+      "  effects rotate <sourceId> <0|90|180|270>"
     );
     return;
   }
@@ -417,6 +430,101 @@ async function run(options: CliOptions): Promise<void> {
     });
     if (options.json) console.log(JSON.stringify(p, null, 2));
     else console.log(`${p.id} Link Sync: ${p.linked ? "ON" : "OFF"}`);
+    return;
+  }
+
+  // Effects
+  if (group === "effects" && action === "list" && options.command.length === 2) {
+    const data = await EffectsService.listAllEffects();
+    if (options.json) console.log(JSON.stringify(data.items, null, 2));
+    else printTable(["SOURCE", "CROP", "ASPECT", "BOUNDS", "ROTATION", "FFMPEG"], data.items.map((e) => [
+      e.sourceId,
+      e.crop.enabled ? "enabled" : "disabled",
+      e.crop.aspectRatio,
+      `${e.crop.width}x${e.crop.height}+${e.crop.x}+${e.crop.y}`,
+      `${e.rotation}°`,
+      e.ffmpegFilter
+    ]));
+    return;
+  }
+
+  if (group === "effects" && action === "show" && options.command.length === 3) {
+    if (!sourceIds.includes(arg1 as SourceId)) throw new Error(`Unknown source ID: ${arg1}`);
+    const data = await EffectsService.getSourceEffects(arg1 as SourceId);
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else {
+      console.log(`Source:     ${data.sourceId}`);
+      console.log(`Crop:       ${data.crop.enabled ? "enabled" : "disabled"}`);
+      console.log(`Aspect:     ${data.crop.aspectRatio} (locked: ${data.crop.lockedAspectRatio})`);
+      console.log(`Dimensions: ${data.crop.width}x${data.crop.height}`);
+      console.log(`Position:   x=${data.crop.x}, y=${data.crop.y}`);
+      console.log(`Rotation:   ${data.rotation}°`);
+      console.log(`FFmpeg:     ${data.ffmpegFilter}`);
+    }
+    return;
+  }
+
+  if (group === "effects" && action === "preset" && options.command.length === 4) {
+    if (!sourceIds.includes(arg1 as SourceId)) throw new Error(`Unknown source ID: ${arg1}`);
+    const preset = arg2 as CropPresetAction;
+    const data = await EffectsService.applySourceCropPreset(arg1 as SourceId, { preset });
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Source ${data.sourceId}: preset ${preset} applied (${data.crop.width}x${data.crop.height}+${data.crop.x}+${data.crop.y})`);
+    return;
+  }
+
+  if (group === "effects" && action === "crop" && options.command.length === 3) {
+    if (!sourceIds.includes(arg1 as SourceId)) throw new Error(`Unknown source ID: ${arg1}`);
+    const req: UpdateCropRequest = {};
+    if (options.x !== undefined) req.x = options.x;
+    if (options.y !== undefined) req.y = options.y;
+    if (options.width !== undefined) req.width = options.width;
+    if (options.height !== undefined) req.height = options.height;
+    if (options.sourceWidth !== undefined) req.sourceWidth = options.sourceWidth;
+    if (options.sourceHeight !== undefined) req.sourceHeight = options.sourceHeight;
+    if (options.aspectRatio !== undefined) {
+      req.aspectRatio = options.aspectRatio as NonNullable<UpdateCropRequest["aspectRatio"]>;
+    }
+    if (options.enabled !== undefined) req.enabled = options.enabled;
+
+    const data = await EffectsService.updateSourceCrop(arg1 as SourceId, req);
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Source ${data.sourceId}: crop updated (${data.crop.width}x${data.crop.height}+${data.crop.x}+${data.crop.y}, enabled: ${data.crop.enabled})`);
+    return;
+  }
+
+  if (group === "effects" && action === "move" && options.command.length === 4) {
+    if (!sourceIds.includes(arg1 as SourceId)) throw new Error(`Unknown source ID: ${arg1}`);
+    const direction = arg2 as MoveDirection;
+    const req: { direction: MoveDirection; delta?: number } = { direction };
+    if (options.delta !== undefined) req.delta = options.delta;
+
+    const data = await EffectsService.moveSourceCrop(arg1 as SourceId, req);
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Source ${data.sourceId}: crop moved ${direction} -> (x: ${data.crop.x}, y: ${data.crop.y})`);
+    return;
+  }
+
+  if (group === "effects" && action === "resize" && options.command.length === 4) {
+    if (!sourceIds.includes(arg1 as SourceId)) throw new Error(`Unknown source ID: ${arg1}`);
+    const act = arg2 as "in" | "out";
+    const req: { action: ResizeCropRequest.action; factor?: number } = {
+      action: act as ResizeCropRequest.action
+    };
+    if (options.factor !== undefined) req.factor = options.factor;
+
+    const data = await EffectsService.resizeSourceCrop(arg1 as SourceId, req);
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Source ${data.sourceId}: crop resized ${act} -> (${data.crop.width}x${data.crop.height})`);
+    return;
+  }
+
+  if (group === "effects" && action === "rotate" && options.command.length === 4) {
+    if (!sourceIds.includes(arg1 as SourceId)) throw new Error(`Unknown source ID: ${arg1}`);
+    const rotation = Number(arg2) as 0 | 90 | 180 | 270;
+    const data = await EffectsService.setSourceRotation(arg1 as SourceId, { rotation });
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Source ${data.sourceId}: rotation set to ${data.rotation}°`);
     return;
   }
 
