@@ -1,0 +1,27 @@
+services:
+  tls-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pimatrix-tls-proxy:latest
+    container_name: pimatrix-tls-proxy
+    restart: unless-stopped
+    ports:
+      - "${PORT_HTTP:-80}:80"
+      - "${PIMATRIX_TLS_PORT:-8443}:${PIMATRIX_TLS_PORT:-8443}"
+    environment:
+      - PIMATRIX_DOMAIN=${PIMATRIX_DOMAIN}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
+      - PIMATRIX_TLS_PORT=${PIMATRIX_TLS_PORT:-8443}
+      - UPSTREAM_HOST=${UPSTREAM_HOST:-host.docker.internal:3000}
+      - CERTBOT_STAGING=${CERTBOT_STAGING:-false}
+      - RESTRICT_TO_CANVA=${RESTRICT_TO_CANVA:-true}
+    volumes:
+      - letsencrypt_certs:/etc/letsencrypt
+      - certbot_acme:/var/www/certbot
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  letsencrypt_certs:
+  certbot_acme:

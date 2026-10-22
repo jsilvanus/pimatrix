@@ -42,6 +42,8 @@ export interface FrontendInitialState {
   rtspOut: RtspOutState;
   authRequired?: boolean;
   mediaMtxPassword?: string | null;
+  isWhitelisted?: boolean | undefined;
+  clientIp?: string | undefined;
 }
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));

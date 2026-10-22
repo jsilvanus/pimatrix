@@ -45,9 +45,11 @@ import type {
 import { PiPgmService } from "./pipgm/pipgm-service.js";
 import { renderPiPgmStageHtml } from "./pipgm/stage-html.js";
 import { buildHamaCaptureSpec, StreamSupervisor } from "./stream-supervisor.js";
+import { isIpWhitelisted } from "./ip-whitelist.js";
 
 export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): FastifyInstance {
   const app = Fastify({
+    trustProxy: true,
     bodyLimit: 50 * 1024 * 1024, // 50 MB for direct .pptx, video, and image uploads
     logger: {
       level: process.env.LOG_LEVEL ?? "info",
@@ -237,7 +239,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     });
   };
 
-  const renderFrontendPage = async (activeTab: FrontendTabId) => {
+  const renderFrontendPage = async (activeTab: FrontendTabId, request?: { ip?: string }) => {
     const sources = await listSources(true);
     const outputs = outputStore.list();
     const effects = effectsStore.list();
@@ -256,7 +258,9 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       matrix: matrixState,
       rtspOut: rtspOutState,
       authRequired: Boolean(config.apiKey),
-      mediaMtxPassword: config.mediaMtxPassword ?? null
+      mediaMtxPassword: config.mediaMtxPassword ?? null,
+      isWhitelisted: isIpWhitelisted(request?.ip, config.authAllowedHosts),
+      clientIp: request?.ip
     });
   };
 
@@ -314,6 +318,11 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       return;
     }
 
+    // If client IP is whitelisted (LAN operator access), bypass authentication
+    if (isIpWhitelisted(request.ip, config.authAllowedHosts)) {
+      return;
+    }
+
     // If no credentials configured, allow control in open development mode
     if (!config.apiKey && !config.canvaAppToken) {
       return;
@@ -360,15 +369,26 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     }
   });
 
-  app.get("/api/v1/auth/status", async () => ({
-    authRequired: Boolean(config.apiKey),
-    canvaAuthRequired: Boolean(config.canvaAppToken),
-    mediaMtxPassword: config.mediaMtxPassword ?? null
-  }));
+  app.get("/api/v1/auth/status", async (request) => {
+    const clientIp = request.ip;
+    const isWhitelisted = isIpWhitelisted(clientIp, config.authAllowedHosts);
+    return {
+      authRequired: Boolean(config.apiKey),
+      canvaAuthRequired: Boolean(config.canvaAppToken),
+      isWhitelisted,
+      clientIp,
+      mediaMtxPassword: config.mediaMtxPassword ?? null
+    };
+  });
 
   app.post("/api/v1/auth/verify", async (request, reply) => {
+    const clientIp = request.ip;
+    const isWhitelisted = isIpWhitelisted(clientIp, config.authAllowedHosts);
+    if (isWhitelisted) {
+      return { valid: true, authRequired: Boolean(config.apiKey), isWhitelisted: true, clientIp };
+    }
     if (!config.apiKey) {
-      return { valid: true, authRequired: false };
+      return { valid: true, authRequired: false, isWhitelisted: false, clientIp };
     }
     const body = (request.body as { key?: string }) ?? {};
     const authHeader = request.headers.authorization;
@@ -377,7 +397,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       (typeof request.headers["x-api-key"] === "string" ? request.headers["x-api-key"].trim() : undefined);
 
     if (token === config.apiKey) {
-      return { valid: true, authRequired: true };
+      return { valid: true, authRequired: true, isWhitelisted: false, clientIp };
     }
     return reply.status(401).send({
       statusCode: 401,
@@ -409,33 +429,33 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     return reply.type(asset.contentType).send(fs.readFileSync(asset.filePath));
   });
 
-  app.get("/", async (_request, reply) => {
-    const html = await renderFrontendPage("outputs");
+  app.get("/", async (request, reply) => {
+    const html = await renderFrontendPage("outputs", request);
     return reply.type("text/html; charset=utf-8").send(html);
   });
 
-  app.get("/outputs", async (_request, reply) => {
-    const html = await renderFrontendPage("outputs");
+  app.get("/outputs", async (request, reply) => {
+    const html = await renderFrontendPage("outputs", request);
     return reply.type("text/html; charset=utf-8").send(html);
   });
 
-  app.get("/inputs", async (_request, reply) => {
-    const html = await renderFrontendPage("inputs");
+  app.get("/inputs", async (request, reply) => {
+    const html = await renderFrontendPage("inputs", request);
     return reply.type("text/html; charset=utf-8").send(html);
   });
 
-  app.get("/cameras", async (_request, reply) => {
-    const html = await renderFrontendPage("cameras");
+  app.get("/cameras", async (request, reply) => {
+    const html = await renderFrontendPage("cameras", request);
     return reply.type("text/html; charset=utf-8").send(html);
   });
 
-  app.get("/renderer", async (_request, reply) => {
-    const html = await renderFrontendPage("renderer");
+  app.get("/renderer", async (request, reply) => {
+    const html = await renderFrontendPage("renderer", request);
     return reply.type("text/html; charset=utf-8").send(html);
   });
 
-  app.get("/pipgm", async (_request, reply) => {
-    const html = await renderFrontendPage("renderer");
+  app.get("/pipgm", async (request, reply) => {
+    const html = await renderFrontendPage("renderer", request);
     return reply.type("text/html; charset=utf-8").send(html);
   });
 

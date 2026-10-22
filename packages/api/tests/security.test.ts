@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildApp } from "../src/app.js";
+import { isIpWhitelisted } from "../src/ip-whitelist.js";
 import { loadConfig } from "../src/config.js";
 
 test("control points require authentication when PIMATRIX_API_KEY is configured", async () => {
@@ -183,4 +184,72 @@ test("AMX TCP listener enforces IP whitelist", async () => {
   allowedClient.destroy();
   await allowedApp.close();
   assert.equal(reply, "PONG;");
+});
+
+test("isIpWhitelisted helper matches exact IPs, mapped IPv6, wildcards, and CIDRs", () => {
+  assert.equal(isIpWhitelisted("127.0.0.1", ["127.0.0.1"]), true);
+  assert.equal(isIpWhitelisted("::1", ["127.0.0.1"]), true);
+  assert.equal(isIpWhitelisted("::ffff:192.168.1.50", ["192.168.1.50"]), true);
+  assert.equal(isIpWhitelisted("192.168.1.99", ["192.168.1.*"]), true);
+  assert.equal(isIpWhitelisted("192.168.2.99", ["192.168.1.*"]), false);
+  assert.equal(isIpWhitelisted("10.5.0.25", ["10.5.0.0/16"]), true);
+  assert.equal(isIpWhitelisted("10.6.0.25", ["10.5.0.0/16"]), false);
+  assert.equal(isIpWhitelisted("1.2.3.4", undefined), false);
+  assert.equal(isIpWhitelisted(undefined, ["127.0.0.1"]), false);
+});
+
+test("LAN operator IP whitelist bypasses API key authentication", async () => {
+  const app = buildApp(
+    loadConfig({
+      PIMATRIX_MODE: "simulation",
+      PIMATRIX_API_KEY: "secret-key",
+      PIMATRIX_AUTH_ALLOWED_HOSTS: "127.0.0.1, 192.168.1.100, 10.0.0.0/24",
+      PIMATRIX_DISPLAY_MODE: "simulated"
+    })
+  );
+
+  try {
+    // 1. Request from 127.0.0.1 should succeed without token
+    const whitelistedRoute = await app.inject({
+      method: "PUT",
+      url: "/api/v1/outputs/hdmi0/source",
+      payload: { sourceId: "rtmp1" }
+    });
+    assert.equal(whitelistedRoute.statusCode, 202);
+
+    // Auth status should report isWhitelisted: true
+    const authStatus = await app.inject("/api/v1/auth/status");
+    assert.equal(authStatus.statusCode, 200);
+    assert.equal(authStatus.json().isWhitelisted, true);
+    assert.equal(authStatus.json().clientIp, "127.0.0.1");
+
+    // 2. Request simulating a non-whitelisted remote IP (192.168.2.55) without token should be 401
+    const nonWhitelistedRoute = await app.inject({
+      method: "PUT",
+      url: "/api/v1/outputs/hdmi0/source",
+      remoteAddress: "192.168.2.55",
+      payload: { sourceId: "rtmp1" }
+    });
+    assert.equal(nonWhitelistedRoute.statusCode, 401);
+
+    // Auth status for non-whitelisted client
+    const nonWhitelistedStatus = await app.inject({
+      method: "GET",
+      url: "/api/v1/auth/status",
+      remoteAddress: "192.168.2.55"
+    });
+    assert.equal(nonWhitelistedStatus.json().isWhitelisted, false);
+    assert.equal(nonWhitelistedStatus.json().clientIp, "192.168.2.55");
+
+    // 3. Request from whitelisted CIDR (10.0.0.42) without token should succeed
+    const cidrWhitelistedRoute = await app.inject({
+      method: "PUT",
+      url: "/api/v1/outputs/hdmi0/source",
+      remoteAddress: "10.0.0.42",
+      payload: { sourceId: "cam1" }
+    });
+    assert.equal(cidrWhitelistedRoute.statusCode, 202);
+  } finally {
+    await app.close();
+  }
 });

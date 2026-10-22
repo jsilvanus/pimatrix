@@ -190,7 +190,9 @@ PiMatrix provides fine-grained security tailored for AV production facilities:
 - **Remote Access (Canva / Internet):** A dedicated WAN port can be routed through an Nginx reverse proxy + Certbot TLS termination on port 8443, preserving security for external cloud integrations.
 - **Control Point Authentication:** Set PIMATRIX_API_KEY to protect HDMI routing, crop/effects, matrix switching, and PTZ camera movements.
 - **Web UI & Companion App:** The web console provides a password screen storing the token in localStorage. The Windows Companion app provides an API Key configuration field.
+- **LAN Operator Whitelist:** Exempt trusted touch panels and control room IPs from password entry with PIMATRIX_AUTH_ALLOWED_HOSTS.
 - **AMX IP Whitelist:** Restrict AMX NetLinx TCP connections on port 6600 using PIMATRIX_AMX_ALLOWED_HOSTS.
+- **Automated TLS Reverse Proxy:** A small Nginx + Certbot Alpine container in deploy/tls-proxy auto-provisions and renews Let's Encrypt certificates using PIMATRIX_DOMAIN and LETSENCRYPT_EMAIL.
 
 See the full [Security & Remote Access Guide](docs/security-and-remote-access.md) and [.env.example](.env.example) for setup instructions.
 

@@ -45,6 +45,10 @@ export interface AppConfig {
   amxAllowedHosts?: string[];
   canvaAppToken?: string;
   mediaMtxPassword?: string;
+  authAllowedHosts?: string[];
+  domain?: string;
+  tlsPort?: number;
+  letsencryptEmail?: string;
 }
 
 function optionalHttpUrl(value: string | undefined, name: string): string | undefined {
@@ -149,6 +153,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     : undefined;
   const canvaAppToken = env.PIMATRIX_CANVA_APP_TOKEN?.trim() || undefined;
   const mediaMtxPassword = env.PIMATRIX_MEDIAMTX_PASSWORD?.trim() || undefined;
+  const rawAuthAllowed = env.PIMATRIX_AUTH_ALLOWED_HOSTS || env.PIMATRIX_AUTH_WHITELIST_HOSTS || env.PIMATRIX_AUTH_WHITELIST_IPS;
+  const authAllowedHosts = rawAuthAllowed
+    ? rawAuthAllowed.split(",").map((s) => s.trim()).filter(Boolean)
+    : undefined;
+  const domain = env.PIMATRIX_DOMAIN?.trim() || undefined;
+  const tlsPort = env.PIMATRIX_TLS_PORT ? validPort(env.PIMATRIX_TLS_PORT, 8443, "PIMATRIX_TLS_PORT") : undefined;
+  const letsencryptEmail = env.LETSENCRYPT_EMAIL?.trim() || undefined;
   const canvaApiBaseUrl =
     optionalHttpUrl(env.CANVA_API_BASE_URL, "CANVA_API_BASE_URL") ??
     (canvaAccessToken ? "https://api.canva.com/rest" : undefined);
@@ -216,6 +227,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(apiKey ? { apiKey } : {}),
     ...(amxAllowedHosts && amxAllowedHosts.length > 0 ? { amxAllowedHosts } : {}),
     ...(canvaAppToken ? { canvaAppToken } : {}),
-    ...(mediaMtxPassword ? { mediaMtxPassword } : {})
+    ...(mediaMtxPassword ? { mediaMtxPassword } : {}),
+    ...(authAllowedHosts && authAllowedHosts.length > 0 ? { authAllowedHosts } : {}),
+    ...(domain ? { domain } : {}),
+    ...(tlsPort !== undefined ? { tlsPort } : {}),
+    ...(letsencryptEmail ? { letsencryptEmail } : {})
   };
 }

@@ -1,0 +1,48 @@
+# PiMatrix Full Stack Deployment (PiMatrix Core + MediaMTX + TLS Proxy)
+services:
+  pimatrix:
+    build:
+      context: .
+      dockerfile: deploy/Containerfile
+    image: pimatrix:latest
+    container_name: pimatrix-core
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      - PIMATRIX_HOST=0.0.0.0
+      - PIMATRIX_PORT=3000
+      - PIMATRIX_MEDIAMTX_API_URL=http://127.0.0.1:9997
+      - PIMATRIX_PREVIEW_BASE_URL=http://${PIMATRIX_HOST:-127.0.0.1}:8889
+
+  tls-proxy:
+    build:
+      context: ./deploy/tls-proxy
+      dockerfile: Dockerfile
+    image: pimatrix-tls-proxy:latest
+    container_name: pimatrix-tls-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "${PIMATRIX_TLS_PORT:-8443}:${PIMATRIX_TLS_PORT:-8443}"
+    env_file:
+      - .env
+    environment:
+      - PIMATRIX_DOMAIN=${PIMATRIX_DOMAIN}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
+      - PIMATRIX_TLS_PORT=${PIMATRIX_TLS_PORT:-8443}
+      - UPSTREAM_HOST=127.0.0.1:3000
+      - CERTBOT_STAGING=${CERTBOT_STAGING:-false}
+      - RESTRICT_TO_CANVA=${RESTRICT_TO_CANVA:-true}
+    volumes:
+      - letsencrypt_certs:/etc/letsencrypt
+      - certbot_acme:/var/www/certbot
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - pimatrix
+
+volumes:
+  letsencrypt_certs:
+  certbot_acme:

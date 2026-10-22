@@ -2240,20 +2240,27 @@ function updateAuthHeaderBadge(): void {
   const authIcon = document.getElementById("top-auth-icon");
   if (!authLabel || !authIcon) return;
 
-  if (token) {
+  const isWhitelisted = window.__PIMATRIX_INITIAL__?.isWhitelisted;
+
+  if (isWhitelisted) {
+    authLabel.textContent = "LAN PASS";
+    authIcon.textContent = "verified_user";
+    authIcon.classList.remove("text-error", "text-primary");
+    authIcon.classList.add("text-emerald-400");
+  } else if (token) {
     authLabel.textContent = "SAVED";
     authIcon.textContent = "lock_open";
-    authIcon.classList.remove("text-error");
+    authIcon.classList.remove("text-error", "text-emerald-400");
     authIcon.classList.add("text-primary");
   } else if (window.__PIMATRIX_INITIAL__?.authRequired) {
     authLabel.textContent = "LOCKED";
     authIcon.textContent = "lock";
-    authIcon.classList.remove("text-primary");
+    authIcon.classList.remove("text-primary", "text-emerald-400");
     authIcon.classList.add("text-error");
   } else {
     authLabel.textContent = "OPEN";
     authIcon.textContent = "lock_open";
-    authIcon.classList.remove("text-error");
+    authIcon.classList.remove("text-error", "text-emerald-400");
     authIcon.classList.add("text-primary");
   }
 }
@@ -2266,8 +2273,15 @@ export function openAuthModal(): void {
   if (input) {
     input.value = localStorage.getItem("pimatrix_auth_token") || "";
   }
-  if (errorMsg) {
-    errorMsg.classList.add("hidden");
+  const isWhitelisted = window.__PIMATRIX_INITIAL__?.isWhitelisted;
+  const clientIp = window.__PIMATRIX_INITIAL__?.clientIp;
+  if (isWhitelisted && errorMsg) {
+    errorMsg.textContent = `Operator LAN IP (${clientIp || "Whitelisted"}) is authorized. Password entry is optional.`;
+    errorMsg.classList.remove("hidden", "text-error");
+    errorMsg.classList.add("text-emerald-400");
+  } else if (errorMsg) {
+    errorMsg.classList.remove("text-emerald-400");
+    errorMsg.classList.add("text-error", "hidden");
     errorMsg.textContent = "";
   }
   modal.showModal();
