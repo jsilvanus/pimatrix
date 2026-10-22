@@ -1926,18 +1926,22 @@ async function sendSmartFrame(mode: "enable" | "disable" | "trigger"): Promise<v
 }
 
 async function toggleCameraStream(camId: "cam1" | "cam2"): Promise<void> {
-  const cam = camerasMap.get(camId);
-  const endpoint = cam?.streaming
+  const wasStreaming = Boolean(camerasMap.get(camId)?.streaming);
+  const endpoint = wasStreaming
     ? `/api/v1/cameras/${camId}/stream/stop`
     : `/api/v1/cameras/${camId}/stream/start`;
   try {
     const res = await fetch(endpoint, { method: "POST" });
     if (res.ok) {
       const camRes = await fetch(`/api/v1/cameras/${camId}`);
-      if (camRes.ok) camerasMap.set(camId, (await camRes.json()) as CameraSnapshot);
+      if (camRes.ok) {
+        camerasMap.set(camId, (await camRes.json()) as CameraSnapshot);
+      }
+      const isNowStreaming = camerasMap.get(camId)?.streaming ?? !wasStreaming;
       renderCamerasTab();
+      const camName = getCameraDisplayName(camId);
       showToast(
-        `${camId.toUpperCase()}: ${cam?.streaming ? "Stopped receiving preview" : "Started receiving preview"}`
+        `${camName}: ${isNowStreaming ? "Started receiving preview" : "Stopped receiving preview"}`
       );
     }
   } catch {
