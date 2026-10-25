@@ -3,6 +3,11 @@ import { loadConfig } from "./config.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  if (config.mode === "production" && !config.apiKey && !config.canvaAppToken) {
+    console.error("PIMATRIX_API_KEY (or PIMATRIX_CANVA_APP_TOKEN) is required when PIMATRIX_MODE=production");
+    process.exitCode = 1;
+    return;
+  }
   const app = buildApp(config);
 
   const shutdown = async (signal: string): Promise<void> => {

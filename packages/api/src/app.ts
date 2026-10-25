@@ -328,24 +328,17 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       return;
     }
 
-    // Extract token from Bearer, x-api-key, or query parameter
+    // Extract token from Bearer or x-api-key header (query-string tokens leak into logs)
     const authHeader = request.headers.authorization;
     let token: string | undefined;
     if (authHeader && authHeader.startsWith("Bearer ")) {
       token = authHeader.slice(7).trim();
     } else if (typeof request.headers["x-api-key"] === "string") {
       token = request.headers["x-api-key"].trim();
-    } else {
-      const q = request.query as Record<string, unknown> | undefined;
-      if (q && typeof q.token === "string") {
-        token = q.token.trim();
-      } else if (q && typeof q.apiKey === "string") {
-        token = q.apiKey.trim();
-      }
     }
 
     // Canva control points: accept either canvaAppToken or apiKey
-    if (url.startsWith("/api/v1/pipgm/canva") || url.includes("/canva")) {
+    if (/^\/api\/v1\/pipgm\/(canva\/|items\/[^/]+\/canva\/)/.test(url)) {
       if (config.canvaAppToken && token === config.canvaAppToken) {
         return;
       }
