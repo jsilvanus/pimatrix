@@ -24,8 +24,11 @@ import type { DisplayAdapter, DisplayAdapterState, DisplayOutputState } from "./
  *
  * Hardware is not verified: the spawn arguments are the ffplay options we expect to need,
  * not tested against a real HDMI output. ffplay has no option to pick an output, so the
- * device is handed to the player in the PIMATRIX_OUTPUT_DEVICE environment variable. A
- * wrapper script set as PIMATRIX_HDMI_PLAYER can use it to select the display.
+ * device is handed to the player in the PIMATRIX_OUTPUT_DEVICE environment variable (a DRM
+ * connector name such as card1-HDMI-A-1 on a headless Pi). With no desktop, ffplay needs
+ * SDL_VIDEODRIVER=kmsdrm; the adapter sets it from sdlVideoDriver. Picking the connector
+ * is not something ffplay exposes, so a wrapper script set as PIMATRIX_HDMI_PLAYER should
+ * read PIMATRIX_OUTPUT_DEVICE and select that connector. Unverified on hardware.
  */
 
 /** The part of a child process the adapter uses. Node's ChildProcess satisfies it. */
@@ -61,6 +64,8 @@ export interface HdmiPlayerAdapterOptions {
   stopGraceMs?: number;
   /** Injectable process spawner; defaults to node:child_process spawn. */
   spawn?: SpawnPlayer;
+  /** SDL video driver set for each player (SDL_VIDEODRIVER), e.g. "kmsdrm". Undefined = inherit. */
+  sdlVideoDriver?: string;
 }
 
 interface PlayerRecord {
@@ -100,6 +105,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
   private readonly startupWindowMs: number;
   private readonly stopGraceMs: number;
   private readonly spawnPlayer: SpawnPlayer;
+  private readonly sdlVideoDriver: string | undefined;
 
   constructor(options: HdmiPlayerAdapterOptions) {
     this.devices = new Map([...options.outputs].map(([id, config]) => [id, config.device]));
@@ -109,6 +115,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
     this.startupWindowMs = options.startupWindowMs ?? 2000;
     this.stopGraceMs = options.stopGraceMs ?? 3000;
     this.spawnPlayer = options.spawn ?? defaultSpawn;
+    this.sdlVideoDriver = options.sdlVideoDriver;
     for (const id of this.devices.keys()) {
       this.states.set(id, { id, observedSource: null, state: "unavailable" });
     }
@@ -168,6 +175,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
 
     const args = this.playerArgs(outputId, url);
     const env: NodeJS.ProcessEnv = { ...process.env, PIMATRIX_OUTPUT_DEVICE: device };
+    if (this.sdlVideoDriver) env.SDL_VIDEODRIVER = this.sdlVideoDriver;
     let proc: PlayerProcess;
     try {
       proc = this.spawnPlayer(this.player, args, { stdio: "ignore", env });

@@ -73,6 +73,7 @@ export interface HardwareDisplayConfig {
   hdmiPlayer?: string;
   hdmi0Device?: string;
   hdmi1Device?: string;
+  hdmiSdlVideoDriver?: string;
   mediaMtxRtspUrl?: string;
 }
 
@@ -90,7 +91,8 @@ export function createDisplayAdapter(
         ["hdmi1", { device: hardware.hdmi1Device }]
       ]),
       sourceUrl: (sourceId) => (rtspBase ? `${rtspBase}/${sourceId}` : undefined),
-      ...(hardware.hdmiPlayer ? { player: hardware.hdmiPlayer } : {})
+      ...(hardware.hdmiPlayer ? { player: hardware.hdmiPlayer } : {}),
+      ...(hardware.hdmiSdlVideoDriver ? { sdlVideoDriver: hardware.hdmiSdlVideoDriver } : {})
     });
   }
   return new DisabledDisplayAdapter();
