@@ -1,5 +1,3 @@
-import type { PiPgmMobileSignCode, PiPgmOrientation } from "./pipgm/pipgm-model.js";
-
 export const sourceDefinitions = [
   { id: "hama", label: "Hama capture", kind: "capture", defaultHidden: false },
   // NOTE: Future `hama2` virtual/duplicate source will be added here so we can send
@@ -48,12 +46,10 @@ export const multiviewReplaceablePriority: SourceId[] = [
 
 export type MultiviewLayoutMode = "auto" | "landscape" | "portrait";
 
+/** What a multiview tile shows of a PiPGM pipeline (from piprogram's snapshot). */
 export interface MultiviewTilePiPgmStatus {
-  orientation: PiPgmOrientation;
+  orientation: "landscape" | "portrait";
   fadeToBlack: boolean;
-  audioEnabled: boolean;
-  signCode: PiPgmMobileSignCode;
-  cuedSummary: string | null;
 }
 
 export interface MultiviewTile {

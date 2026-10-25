@@ -8,7 +8,6 @@ import {
   configureApiClient,
   EffectsService,
   OutputsService,
-  PiPgmService,
   SourcesService,
   SystemService
 } from "@pimatrix/api-client";
@@ -23,9 +22,6 @@ import type {
   MoveDirection,
   MultiviewLayoutMode,
   OutputId,
-  PiPgmControlRequest,
-  PiPgmOrientation,
-  PiPgmPipelineId,
   ResizeCropRequest,
   SourceId,
   UpdateCropRequest
@@ -36,7 +32,6 @@ import { compositePatchFromField, compositeTableRows, type CompositeRow } from "
 const outputIds = ["hdmi0", "hdmi1", "multiview"] as const;
 const sourceIds = ["hama", "rtmp1", "rtmp2", "cam1", "cam2", "cam3", "compose1", "PiPGM1", "PiPGM2", "PiPGM3"] as const;
 const cameraIds = ["cam1", "cam2", "cam3"] as const;
-const pipgmIds = ["PiPGM1", "PiPGM2", "PiPGM3"] as const;
 
 function printTable(headers: string[], rows: string[][]): void {
   const widths = headers.map((header, index) =>
@@ -90,14 +85,6 @@ async function run(options: CliOptions): Promise<void> {
       "  hama status\n" +
       "  hama start\n" +
       "  hama stop [--force]\n" +
-      "  pipgm list\n" +
-      "  pipgm show <PiPGM1|PiPGM2|PiPGM3>\n" +
-      "  pipgm orientation <pipelineId> <landscape|portrait>\n" +
-      "  pipgm next <pipelineId>\n" +
-      "  pipgm prev <pipelineId>\n" +
-      "  pipgm ftb <pipelineId> <on|off|toggle>\n" +
-      "  pipgm audio <pipelineId> <on|off|toggle>\n" +
-      "  pipgm link <pipelineId> <on|off>\n" +
       "  effects list\n" +
       "  effects show <sourceId>\n" +
       "  effects preset <sourceId> <force-vertical-9-16|force-vertical-10-16|force-landscape-16-9|force-landscape-16-10|center|reset>\n" +
@@ -470,104 +457,6 @@ async function run(options: CliOptions): Promise<void> {
     const data = await SourcesService.stopHamaCapture(options.force ? "1" : undefined);
     if (options.json) console.log(JSON.stringify(data, null, 2));
     else console.log(`Hama capture: ${data.state}`);
-    return;
-  }
-
-  // PiPGM commands
-  if (group === "pipgm" && action === "list" && options.command.length === 2) {
-    const data = await PiPgmService.listPiPgmPipelines(true);
-    if (options.json) console.log(JSON.stringify(data.items, null, 2));
-    else {
-      printTable(
-        ["ID", "ORIENTATION", "HIDDEN", "STATE", "FTB", "AUDIO", "LINKED", "STEP", "MOBILE SIGN"],
-        data.items.map((p) => [
-          p.id,
-          `${p.orientation} (${p.resolution.width}x${p.resolution.height})`,
-          p.hidden ? "yes" : "no",
-          p.state,
-          p.fadeToBlack ? "BLACKOUT" : "live",
-          p.audioEnabled ? `ON (${p.volume}%)` : "MUTED",
-          p.linked ? "linked" : "-",
-          p.totalSteps > 0 ? `${p.currentStep + 1}/${p.totalSteps}` : "-",
-          p.mobileAlert.signCode
-        ])
-      );
-    }
-    return;
-  }
-
-  if (group === "pipgm" && action === "show" && options.command.length === 3) {
-    if (!pipgmIds.includes(arg1 as PiPgmPipelineId)) throw new Error(`Unknown PiPGM pipeline: ${arg1}`);
-    const p = await PiPgmService.getPiPgmPipeline(arg1 as PiPgmPipelineId);
-    if (options.json) console.log(JSON.stringify(p, null, 2));
-    else {
-      console.log(`Pipeline:    ${p.id} (${p.label})`);
-      console.log(`Hidden:      ${p.hidden ? "yes" : "no"}`);
-      console.log(`Orientation: ${p.orientation} (${p.resolution.width}x${p.resolution.height})`);
-      console.log(`State:       ${p.state}`);
-      console.log(`FTB:         ${p.fadeToBlack ? "ACTIVE (FADED TO BLACK)" : "off"}`);
-      console.log(`Audio:       ${p.audioEnabled ? `ENABLED (${p.volume}%)` : "MUTED (default)"}`);
-      console.log(`Linked:      ${p.linked ? "yes" : "no"}`);
-      console.log(`Mobile Sign: ${p.mobileAlert.signCode}${p.mobileAlert.bannerText ? ` — ${p.mobileAlert.bannerText}` : ""}`);
-      console.log(`Step:        ${p.totalSteps > 0 ? `${p.currentStep + 1}/${p.totalSteps}` : "none"}`);
-      console.log(`Stage URL:   ${p.stageUrl}`);
-    }
-    return;
-  }
-
-  if (group === "pipgm" && action === "orientation" && options.command.length === 4) {
-    if (!pipgmIds.includes(arg1 as PiPgmPipelineId)) throw new Error(`Unknown PiPGM pipeline: ${arg1}`);
-    if (arg2 !== "landscape" && arg2 !== "portrait") throw new Error("Orientation must be 'landscape' or 'portrait'");
-    const p = await PiPgmService.updatePiPgmPipelineConfig(arg1 as PiPgmPipelineId, {
-      orientation: arg2 as unknown as PiPgmOrientation
-    });
-    if (options.json) console.log(JSON.stringify(p, null, 2));
-    else console.log(`${p.id} orientation set to ${p.orientation} (${p.resolution.width}x${p.resolution.height})`);
-    return;
-  }
-
-  if (group === "pipgm" && (action === "next" || action === "prev") && options.command.length === 3) {
-    if (!pipgmIds.includes(arg1 as PiPgmPipelineId)) throw new Error(`Unknown PiPGM pipeline: ${arg1}`);
-    const p = await PiPgmService.controlPiPgmPipeline(arg1 as PiPgmPipelineId, {
-      action: action as unknown as PiPgmControlRequest.action
-    });
-    if (options.json) console.log(JSON.stringify(p, null, 2));
-    else console.log(`${p.id} ${action} -> step ${p.currentStep + 1}/${p.totalSteps}`);
-    return;
-  }
-
-  if (group === "pipgm" && action === "ftb" && options.command.length === 4) {
-    if (!pipgmIds.includes(arg1 as PiPgmPipelineId)) throw new Error(`Unknown PiPGM pipeline: ${arg1}`);
-    if (!["on", "off", "toggle"].includes(arg2 ?? "")) throw new Error("FTB mode must be 'on', 'off', or 'toggle'");
-    const p = await PiPgmService.setPiPgmFadeToBlack(arg1 as PiPgmPipelineId, {
-      toggle: arg2 === "toggle",
-      ...(arg2 !== "toggle" ? { fadeToBlack: arg2 === "on" } : {})
-    });
-    if (options.json) console.log(JSON.stringify(p, null, 2));
-    else console.log(`${p.id} Fade to Black: ${p.fadeToBlack ? "ON (FADED TO BLACK)" : "OFF"}`);
-    return;
-  }
-
-  if (group === "pipgm" && action === "audio" && options.command.length === 4) {
-    if (!pipgmIds.includes(arg1 as PiPgmPipelineId)) throw new Error(`Unknown PiPGM pipeline: ${arg1}`);
-    if (!["on", "off", "toggle"].includes(arg2 ?? "")) throw new Error("Audio mode must be 'on', 'off', or 'toggle'");
-    const p = await PiPgmService.setPiPgmAudio(arg1 as PiPgmPipelineId, {
-      toggle: arg2 === "toggle",
-      ...(arg2 !== "toggle" ? { audioEnabled: arg2 === "on" } : {})
-    });
-    if (options.json) console.log(JSON.stringify(p, null, 2));
-    else console.log(`${p.id} Audio: ${p.audioEnabled ? `ENABLED (${p.volume}%)` : "MUTED"}`);
-    return;
-  }
-
-  if (group === "pipgm" && action === "link" && options.command.length === 4) {
-    if (!pipgmIds.includes(arg1 as PiPgmPipelineId)) throw new Error(`Unknown PiPGM pipeline: ${arg1}`);
-    if (!["on", "off"].includes(arg2 ?? "")) throw new Error("Link mode must be 'on' or 'off'");
-    const p = await PiPgmService.updatePiPgmPipelineConfig(arg1 as PiPgmPipelineId, {
-      linked: arg2 === "on"
-    });
-    if (options.json) console.log(JSON.stringify(p, null, 2));
-    else console.log(`${p.id} Link Sync: ${p.linked ? "ON" : "OFF"}`);
     return;
   }
 

@@ -177,6 +177,17 @@ PiMatrix provides an automatic 8-way multiview aggregating all logical sources i
   - **Vertical / Portrait (Phone):** 2 columns × 4 rows (2x4).
 - **WebRTC Streaming:** Live video tiles load via WebRTC and automatically update status via Server-Sent Events.
 
+## PiPGM sources (piprogram)
+
+`PiPGM1`, `PiPGM2` and `PiPGM3` are ordinary source IDs. PiMatrix does not render slides itself: the
+piprogram service (`PIMATRIX_PIPROGRAM_URL`, key in `PIMATRIX_PIPROGRAM_API_KEY`) owns the programme, and
+PiMatrix publishes each pipeline's stage picture as an RTSP stream on MediaMTX (`PIMATRIX_MEDIAMTX_RTSP_URL`,
+path `/PiPGM1` etc.). The picture is refreshed only when the active item or step changes; a fade to black blanks
+it. The pipeline state is shown in the multiview tile (orientation and fade). Routing, FTB and mute work like for any
+other source. `PIMATRIX_PIPROGRAM_URL` and `PIMATRIX_MEDIAMTX_RTSP_URL` must both be set for the sources to publish.
+The old in-process PiPGM renderer, its `/pipgm` routes and the `pipgm` CLI group are removed. Unverified against a
+live piprogram and MediaMTX.
+
 ## Local Windows/WSL streaming lab
 
 A Docker Compose development lab runs MediaMTX and synthetic FFmpeg sources without

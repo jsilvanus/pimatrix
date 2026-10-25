@@ -68,59 +68,6 @@ export function buildHamaCaptureSpec(config: AppConfig, attempt: number, filter?
   };
 }
 
-export interface PiPgmStreamJobOptions {
-  pipelineId: "PiPGM1" | "PiPGM2" | "PiPGM3";
-  rtspUrl: string;
-  orientation: "landscape" | "portrait";
-  audioEnabled: boolean;
-  volume?: number;
-  attempt: number;
-}
-
-export function buildPiPgmStreamSpec(options: PiPgmStreamJobOptions): JobSpecInput {
-  const width = options.orientation === "portrait" ? 1080 : 1920;
-  const height = options.orientation === "portrait" ? 1920 : 1080;
-  const volFactor = options.audioEnabled ? Math.max(0, Math.min(1, (options.volume ?? 100) / 100)).toFixed(2) : "0.00";
-
-  const args = [
-    "-hide_banner",
-    "-nostdin",
-    "-loglevel", "warning",
-    "-re",
-    "-f", "lavfi",
-    "-i", `color=c=black:s=${width}x${height}:r=30`,
-    "-f", "lavfi",
-    "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
-    "-af", `volume=${volFactor}`,
-    "-c:v", "libx264",
-    "-preset", "ultrafast",
-    "-tune", "zerolatency",
-    "-pix_fmt", "yuv420p",
-    "-c:a", "aac",
-    "-b:a", "128k",
-    "-f", "rtsp",
-    "-rtsp_transport", "tcp",
-    "{{output:preview}}"
-  ];
-
-  return {
-    id: `pimatrix-${options.pipelineId.toLowerCase()}-renderer-${options.attempt}`,
-    kind: "stream",
-    class: "stream",
-    priority: 90,
-    labels: {
-      application: "pimatrix",
-      role: "renderer",
-      source: options.pipelineId,
-      orientation: options.orientation,
-      audioEnabled: String(options.audioEnabled),
-      attempt: String(options.attempt)
-    },
-    outputs: [{ name: "preview", uri: options.rtspUrl }],
-    ffmpeg: { args }
-  };
-}
-
 export class StreamSupervisor {
   private stopping = false;
   private attempt = 0;

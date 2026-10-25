@@ -3,7 +3,7 @@ import test from "node:test";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 
-test("Vite-built Operator frontend routes render all updated Stitch screens and keep Renderer (PiPGM) tab as a stub", async () => {
+test("Vite-built Operator frontend routes render all updated Stitch screens", async () => {
   const app = buildApp(
     loadConfig({
       PIMATRIX_MODE: "simulation",
@@ -80,13 +80,6 @@ test("Vite-built Operator frontend routes render all updated Stitch screens and 
     assert.doesNotMatch(camerasRes.payload, /id="cam-live-chip-1"/);
     assert.doesNotMatch(camerasRes.payload, /animate-ping/);
 
-    // Renderer / PiPGM route: verify it is a stub only and does not include the detailed Stitch content engines
-    const pipgmRes = await app.inject({ method: "GET", url: "/pipgm" });
-    assert.equal(pipgmRes.statusCode, 200);
-    assert.match(pipgmRes.payload, /STUB PLACEHOLDER/);
-    assert.match(pipgmRes.payload, /PiPGM renderer tab stub/);
-    assert.doesNotMatch(pipgmRes.payload, /Hymn Deck/);
-    assert.doesNotMatch(pipgmRes.payload, /Canva Sync/);
   } finally {
     await app.close();
   }
@@ -139,9 +132,6 @@ test("Input-specific Fade to Black (FTB) and Mute work independently per input s
     });
     assert.equal(pipgmFtb.statusCode, 200);
     assert.equal(pipgmFtb.json().fadeToBlack, true);
-
-    const pipgm1State = (await app.inject({ method: "GET", url: "/api/v1/pipgm/pipelines/PiPGM1" })).json();
-    assert.equal(pipgm1State.fadeToBlack, true);
   } finally {
     await app.close();
   }

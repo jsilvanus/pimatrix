@@ -13,7 +13,7 @@ export function renderMultiviewHtml(
       const fx = effectsMap.get(tile.sourceId);
       const isLive = tile.state === "live";
       const isFtb = tile.pipgm?.fadeToBlack === true || fx?.fadeToBlack === true;
-      const audioOn = tile.pipgm ? tile.pipgm.audioEnabled === true : fx?.muted !== true;
+      const audioOn = fx?.muted !== true;
       const statusClass = isFtb ? "ftb" : isLive ? "live" : "offline";
       const statusText = isFtb ? "⬛ FTB" : tile.state.toUpperCase();
       const previewUrl = tile.preview.url ?? (previewBaseUrl ? `${previewBaseUrl}/${encodeURIComponent(tile.sourceId)}` : null);
@@ -50,7 +50,7 @@ export function renderMultiviewHtml(
         }
         <div class="ftb-banner" id="ftb-banner-${tile.sourceId}" style="display: ${isFtb ? "flex" : "none"};">
           <span>⬛ OUTPUT FADED TO BLACK</span>
-          <small id="ftb-summary-${tile.sourceId}">${tile.pipgm?.cuedSummary ?? ""}</small>
+          <small id="ftb-summary-${tile.sourceId}"></small>
         </div>
       </div>
     </div>`;
@@ -742,33 +742,6 @@ export function renderMultiviewHtml(
         if (badge) {
           badge.textContent = data.state.toUpperCase();
           badge.className = "status-badge " + (data.state === "live" ? "live" : "offline");
-        }
-      } catch (err) {}
-    });
-
-    sse.addEventListener("pipgm", (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        const p = data.pipeline;
-        if (!p) return;
-        const tile = document.getElementById("tile-" + p.id);
-        const badge = document.getElementById("status-" + p.id);
-        const meta = document.getElementById("pipgm-meta-" + p.id);
-        const banner = document.getElementById("ftb-banner-" + p.id);
-        const summary = document.getElementById("ftb-summary-" + p.id);
-        if (tile) tile.className = "tile " + (p.fadeToBlack ? "tile-ftb" : "");
-        if (badge) {
-          badge.textContent = p.fadeToBlack ? "⬛ FTB" : p.state.toUpperCase();
-          badge.className = "status-badge " + (p.fadeToBlack ? "ftb" : (p.state === "live" ? "live" : "offline"));
-        }
-        if (meta) {
-          meta.textContent = (p.audioEnabled ? "🔊 ON" : "🔇 MUTED") + " • " + (p.orientation === "portrait" ? "9:16" : "16:9");
-        }
-        if (banner) {
-          banner.style.display = p.fadeToBlack ? "flex" : "none";
-        }
-        if (summary && p.mobileAlert) {
-          summary.textContent = p.mobileAlert.cuedSummary || "";
         }
       } catch (err) {}
     });
