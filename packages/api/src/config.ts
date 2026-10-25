@@ -54,6 +54,7 @@ export interface AppConfig {
   hdmiPlayer: string;
   hdmi0Device?: string;
   hdmi1Device?: string;
+  hdmiSdlVideoDriver?: string;
   mediaMtxRtspUrl?: string;
 }
 
@@ -171,6 +172,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const hdmiPlayer = env.PIMATRIX_HDMI_PLAYER?.trim() || "ffplay";
   const hdmi0Device = env.PIMATRIX_HDMI0_DEVICE?.trim() || undefined;
   const hdmi1Device = env.PIMATRIX_HDMI1_DEVICE?.trim() || undefined;
+  // SDL video driver for the players; kmsdrm is the headless Pi default. Set empty to inherit.
+  const hdmiSdlVideoDriver =
+    env.PIMATRIX_HDMI_SDL_VIDEODRIVER === undefined ? "kmsdrm" : env.PIMATRIX_HDMI_SDL_VIDEODRIVER.trim() || undefined;
+  for (const [name, value] of [["PIMATRIX_HDMI0_DEVICE", hdmi0Device], ["PIMATRIX_HDMI1_DEVICE", hdmi1Device]] as const) {
+    if (value !== undefined && !/^[A-Za-z0-9._:/-]+$/.test(value)) {
+      throw new Error(`${name} must be a DRM connector, device path or display name (letters, digits, . _ : / -), e.g. card1-HDMI-A-1`);
+    }
+  }
   const mediaMtxRtspUrl = optionalRtspUrl(env.PIMATRIX_MEDIAMTX_RTSP_URL, "PIMATRIX_MEDIAMTX_RTSP_URL");
   if (/\s/.test(hdmiPlayer)) {
     throw new Error("PIMATRIX_HDMI_PLAYER must be a single executable name or path without spaces");
@@ -252,6 +261,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     hdmiPlayer,
     ...(hdmi0Device ? { hdmi0Device } : {}),
     ...(hdmi1Device ? { hdmi1Device } : {}),
+    ...(hdmiSdlVideoDriver ? { hdmiSdlVideoDriver } : {}),
     ...(mediaMtxRtspUrl ? { mediaMtxRtspUrl } : {})
   };
 }

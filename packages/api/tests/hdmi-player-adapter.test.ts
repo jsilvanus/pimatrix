@@ -304,3 +304,52 @@ test("loadConfig reads the HDMI player settings with defaults", () => {
 
   assert.throws(() => loadConfig({ PIMATRIX_HDMI_PLAYER: "ffplay -fs" }), /PIMATRIX_HDMI_PLAYER/);
 });
+
+test("the SDL video driver is set for players and the connector is per output", async () => {
+  const fake = fakeSpawner();
+  const adapter = new HdmiPlayerAdapter({
+    outputs: outputs({ hdmi0: "card1-HDMI-A-1", hdmi1: "card1-HDMI-A-2" }),
+    sourceUrl,
+    spawn: fake.spawn,
+    startupWindowMs: 1000,
+    sdlVideoDriver: "kmsdrm"
+  });
+  try {
+    await adapter.applyRoute("hdmi0", "rtmp1");
+    await adapter.applyRoute("hdmi1", "cam1");
+    assert.equal(fake.calls[0]?.env.PIMATRIX_OUTPUT_DEVICE, "card1-HDMI-A-1");
+    assert.equal(fake.calls[1]?.env.PIMATRIX_OUTPUT_DEVICE, "card1-HDMI-A-2");
+    assert.equal(fake.calls[0]?.env.SDL_VIDEODRIVER, "kmsdrm");
+    assert.equal(fake.calls[1]?.env.SDL_VIDEODRIVER, "kmsdrm");
+  } finally {
+    await adapter.close();
+  }
+});
+
+test("without an SDL driver the environment is inherited unchanged", async () => {
+  const fake = fakeSpawner();
+  const adapter = new HdmiPlayerAdapter({
+    outputs: outputs({ hdmi0: "card1-HDMI-A-1" }),
+    sourceUrl,
+    spawn: fake.spawn,
+    startupWindowMs: 1000
+  });
+  try {
+    const previous = process.env.SDL_VIDEODRIVER;
+    delete process.env.SDL_VIDEODRIVER;
+    await adapter.applyRoute("hdmi0", "rtmp1");
+    assert.equal(fake.calls[0]?.env.SDL_VIDEODRIVER, undefined);
+    if (previous !== undefined) process.env.SDL_VIDEODRIVER = previous;
+  } finally {
+    await adapter.close();
+  }
+});
+
+test("HDMI SDL driver defaults to kmsdrm, can be cleared, and connector names are validated", () => {
+  assert.equal(loadConfig({}).hdmiSdlVideoDriver, "kmsdrm");
+  assert.equal(loadConfig({ PIMATRIX_HDMI_SDL_VIDEODRIVER: "" }).hdmiSdlVideoDriver, undefined);
+  assert.equal(loadConfig({ PIMATRIX_HDMI_SDL_VIDEODRIVER: "x11" }).hdmiSdlVideoDriver, "x11");
+  assert.equal(loadConfig({ PIMATRIX_HDMI0_DEVICE: "card1-HDMI-A-1" }).hdmi0Device, "card1-HDMI-A-1");
+  assert.throws(() => loadConfig({ PIMATRIX_HDMI1_DEVICE: "card1 HDMI" }), /PIMATRIX_HDMI1_DEVICE/);
+  assert.throws(() => loadConfig({ PIMATRIX_HDMI0_DEVICE: "card1;rm" }), /PIMATRIX_HDMI0_DEVICE/);
+});
