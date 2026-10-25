@@ -1,4 +1,5 @@
 import type { OutputId, SourceId } from "./model.js";
+import { HdmiPlayerAdapter } from "./hdmi-player-adapter.js";
 
 export type DisplayAdapterState = "not-configured" | "simulated" | "ready" | "unavailable" | "failed";
 
@@ -68,7 +69,29 @@ export class DisabledDisplayAdapter implements DisplayAdapter {
   }
 }
 
-export function createDisplayAdapter(mode: "simulated" | "hardware" | "disabled"): DisplayAdapter {
+export interface HardwareDisplayConfig {
+  hdmiPlayer?: string;
+  hdmi0Device?: string;
+  hdmi1Device?: string;
+  mediaMtxRtspUrl?: string;
+}
+
+export function createDisplayAdapter(
+  mode: "simulated" | "hardware" | "disabled",
+  hardware: HardwareDisplayConfig = {}
+): DisplayAdapter {
   if (mode === "simulated") return new SimulatedDisplayAdapter();
+  if (mode === "hardware") {
+    // Both HDMI outputs are known; an output without a device is "not configured".
+    const rtspBase = hardware.mediaMtxRtspUrl?.replace(/\/$/, "");
+    return new HdmiPlayerAdapter({
+      outputs: new Map<OutputId, { device?: string | undefined }>([
+        ["hdmi0", { device: hardware.hdmi0Device }],
+        ["hdmi1", { device: hardware.hdmi1Device }]
+      ]),
+      sourceUrl: (sourceId) => (rtspBase ? `${rtspBase}/${sourceId}` : undefined),
+      ...(hardware.hdmiPlayer ? { player: hardware.hdmiPlayer } : {})
+    });
+  }
   return new DisabledDisplayAdapter();
 }

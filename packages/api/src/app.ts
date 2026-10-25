@@ -59,7 +59,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
 
   const outputStore = createOutputStore();
   const effectsStore = new EffectsStore(sourceDefinitions.map((s) => s.id));
-  const displayAdapter: DisplayAdapter = createDisplayAdapter(config.displayMode);
+  const displayAdapter: DisplayAdapter = createDisplayAdapter(config.displayMode, config);
   const eventBroker = new PiMatrixEventBroker();
   let multiviewLayout: MultiviewLayoutMode = "auto";
   const multiviewSlotOverrides = new Map<number, SourceId>();
