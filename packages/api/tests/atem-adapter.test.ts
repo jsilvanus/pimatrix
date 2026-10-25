@@ -134,14 +134,52 @@ test("commands are forwarded to the M/E index and refused while not connected", 
   ]);
 });
 
-test("loadConfig reads the ATEM host and defaults the port to 9990", () => {
+test("loadConfig reads the ATEM host and defaults the port to 9910", () => {
   const unset = loadConfig({});
   assert.equal(unset.atemHost, undefined);
-  assert.equal(unset.atemPort, 9990);
+  assert.equal(unset.atemPort, 9910);
 
   const set = loadConfig({ PIMATRIX_ATEM_HOST: " 192.0.2.20 ", PIMATRIX_ATEM_PORT: "9991" });
   assert.equal(set.atemHost, "192.0.2.20");
   assert.equal(set.atemPort, 9991);
 
   assert.throws(() => loadConfig({ PIMATRIX_ATEM_PORT: "70000" }), /PIMATRIX_ATEM_PORT/);
+});
+
+test("connect logs a warning when the ATEM is not confirmed in time", async () => {
+  const warnings: Array<[object, string]> = [];
+  const logger = { warn: (obj: object, msg: string) => void warnings.push([obj, msg]) };
+  const fakes: FakeAtem[] = [];
+  const adapter = new AtemAdapter({
+    logger,
+    connectWarnMs: 10,
+    createClient: () => {
+      const fake = new FakeAtem();
+      fakes.push(fake);
+      return fake;
+    }
+  });
+  await adapter.connect("192.0.2.20");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0]![1], /not connected after 10 ms/);
+  assert.deepEqual(fakes[0]!.connectArgs, ["192.0.2.20", 9910]);
+  await adapter.disconnect();
+});
+
+test("connect logs a warning and rethrows when the connection fails", async () => {
+  const warnings: string[] = [];
+  const logger = { warn: (_obj: object, msg: string) => void warnings.push(msg) };
+  const adapter = new AtemAdapter({
+    logger,
+    createClient: () => {
+      const fake = new FakeAtem();
+      fake.connect = async () => {
+        throw new Error("no route");
+      };
+      return fake;
+    }
+  });
+  await assert.rejects(adapter.connect("192.0.2.20"), /no route/);
+  assert.deepEqual(warnings, ["ATEM connection failed"]);
 });

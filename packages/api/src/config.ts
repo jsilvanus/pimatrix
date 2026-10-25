@@ -71,6 +71,8 @@ export interface AppConfig {
   compositeFfmpeg: string;
   /** ATEM input number of media player 1's fill (PIMATRIX_ATEM_MEDIA_FILL_INPUT); key is the next number. */
   atemMediaFillInput: number;
+  /** RTMP ingest base for the camera targets (e.g. rtmp://<pi-lan-ip>:1935); cam1/cam2 are appended. */
+  mediaMtxRtmpUrl?: string;
 }
 
 function optionalHttpUrl(value: string | undefined, name: string): string | undefined {
@@ -83,6 +85,20 @@ function optionalHttpUrl(value: string | undefined, name: string): string | unde
   }
   if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
     throw new Error(`${name} must be an HTTP or HTTPS URL without embedded credentials`);
+  }
+  return parsed.toString().replace(/\/$/, "");
+}
+
+function optionalRtmpUrl(value: string | undefined, name: string): string | undefined {
+  if (!value?.trim()) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(value.trim());
+  } catch {
+    throw new Error(`${name} must be a valid RTMP URL`);
+  }
+  if (parsed.protocol !== "rtmp:" || parsed.username || parsed.password || parsed.hash || parsed.search) {
+    throw new Error(`${name} must be an RTMP URL without embedded credentials, a query or a fragment`);
   }
   return parsed.toString().replace(/\/$/, "");
 }
@@ -188,7 +204,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const tlsPort = env.PIMATRIX_TLS_PORT ? validPort(env.PIMATRIX_TLS_PORT, 8443, "PIMATRIX_TLS_PORT") : undefined;
   const letsencryptEmail = env.LETSENCRYPT_EMAIL?.trim() || undefined;
   const atemHost = env.PIMATRIX_ATEM_HOST?.trim() || undefined;
-  const atemPort = validPort(env.PIMATRIX_ATEM_PORT, 9990, "PIMATRIX_ATEM_PORT");
+  const atemPort = validPort(env.PIMATRIX_ATEM_PORT, 9910, "PIMATRIX_ATEM_PORT");
   const hdmiPlayer = env.PIMATRIX_HDMI_PLAYER?.trim() || "ffplay";
   const hdmi0Device = env.PIMATRIX_HDMI0_DEVICE?.trim() || undefined;
   const hdmi1Device = env.PIMATRIX_HDMI1_DEVICE?.trim() || undefined;
@@ -211,6 +227,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error("PIMATRIX_COMPOSITE_FFMPEG must be a single executable name or path without spaces");
   }
   const atemMediaFillInput = validPort(env.PIMATRIX_ATEM_MEDIA_FILL_INPUT, 8010, "PIMATRIX_ATEM_MEDIA_FILL_INPUT");
+  const mediaMtxRtmpUrl = optionalRtmpUrl(env.PIMATRIX_MEDIAMTX_RTMP_URL, "PIMATRIX_MEDIAMTX_RTMP_URL");
   if (/\s/.test(hdmiPlayer)) {
     throw new Error("PIMATRIX_HDMI_PLAYER must be a single executable name or path without spaces");
   }
@@ -299,7 +316,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(compositeHdmiDevice ? { compositeHdmiDevice } : {}),
     compositeDataDir,
     compositeFfmpeg,
-    atemMediaFillInput
+    atemMediaFillInput,
+    ...(mediaMtxRtmpUrl ? { mediaMtxRtmpUrl } : {})
   };
 }
 

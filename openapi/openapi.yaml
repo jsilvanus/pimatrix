@@ -14,6 +14,7 @@ tags:
   - name: PiPGM
   - name: Effects
   - name: ATEM
+  - name: Composites
 paths:
   /health:
     get:
@@ -1577,7 +1578,152 @@ paths:
           $ref: "#/components/responses/NotFound"
         "422":
           description: Invalid request
+  /api/v1/composites:
+    get:
+      operationId: listComposites
+      tags: [Composites]
+      summary: Slide composites (compose1 HDMI key, compose2 ATEM media) with their state
+      responses:
+        "200":
+          description: Both composites
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompositeList"
+  /api/v1/composites/slide:
+    put:
+      operationId: setCompositeSlide
+      tags: [Composites]
+      summary: Send the slide PNG; every enabled composite is refreshed
+      description: The body is the raw PNG (Content-Type image/png), at most 10 MB. Work runs in the background; poll the composites for state.
+      requestBody:
+        required: true
+        content:
+          image/png:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "202":
+          description: Slide accepted; the composites are returned in their new state (busy while working)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompositeList"
+        "415":
+          description: Content-Type is not image/png
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: The body is not a PNG, or is larger than 10 MB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/composites/{id}:
+    parameters:
+      - $ref: "#/components/parameters/CompositeIdPath"
+    get:
+      operationId: getComposite
+      tags: [Composites]
+      summary: One composite's settings and state
+      responses:
+        "200":
+          description: The composite
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Composite"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: updateComposite
+      tags: [Composites]
+      summary: Change settings; an enabled composite is refreshed when its picture changes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompositePatch"
+      responses:
+        "200":
+          description: Updated composite (state is busy while the change is applied)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Composite"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: A field is unknown or out of range
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/composites/{id}/start:
+    parameters:
+      - $ref: "#/components/parameters/CompositeIdPath"
+    post:
+      operationId: startComposite
+      tags: [Composites]
+      summary: Enable the composite and show it (HDMI key) or load it (ATEM media)
+      responses:
+        "200":
+          description: Enabled; state shows the progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Composite"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/composites/{id}/stop:
+    parameters:
+      - $ref: "#/components/parameters/CompositeIdPath"
+    post:
+      operationId: stopComposite
+      tags: [Composites]
+      summary: Disable the composite; stops the HDMI player or takes the ATEM DSK off air
+      responses:
+        "200":
+          description: Disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Composite"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/composites/{id}/preview.png:
+    parameters:
+      - $ref: "#/components/parameters/CompositeIdPath"
+    get:
+      operationId: getCompositePreview
+      tags: [Composites]
+      summary: The key page the composite would show now, as a PNG
+      responses:
+        "200":
+          description: PNG of the key page at the composite's frame size
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Unknown composite, or no slide has been sent yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
+  parameters:
+    CompositeIdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/CompositeId"
   responses:
     NotFound:
       description: Requested resource was not found
@@ -1614,6 +1760,134 @@ components:
               type: boolean
             remainingFrames:
               type: integer
+    CompositeId:
+      type: string
+      enum: [compose1, compose2]
+    CompositeOutputKind:
+      type: string
+      enum: [hdmi-key, atem-media]
+    CompositeAtem:
+      type: object
+      required: [mediaSlot, mediaPlayer, dskIndex, autoOnAir]
+      properties:
+        mediaSlot:
+          type: integer
+          minimum: 1
+          maximum: 64
+          description: ATEM media pool still slot the slide is uploaded to (1-based)
+        mediaPlayer:
+          type: integer
+          minimum: 1
+          maximum: 4
+          description: ATEM media player that feeds the DSK (1-based)
+        dskIndex:
+          type: integer
+          minimum: 1
+          maximum: 4
+          description: ATEM downstream keyer (1-based)
+        autoOnAir:
+          type: boolean
+          description: Put the DSK on air after an upload. Default false.
+    Composite:
+      type: object
+      required: [id, kind, enabled, width, height, side, slideAspect, slideScale, keyColor, keyMode, atem, state, lastError, hasSlide, updatedAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/CompositeId"
+        kind:
+          $ref: "#/components/schemas/CompositeOutputKind"
+        enabled:
+          type: boolean
+        width:
+          type: integer
+          description: Frame width in pixels (even, 16 to 3840)
+        height:
+          type: integer
+          description: Frame height in pixels (even, 16 to 3840)
+        side:
+          type: string
+          enum: [left, right]
+        slideAspect:
+          type: string
+          enum: ["10:16", "9:16"]
+        slideScale:
+          type: number
+          minimum: 0.6
+          maximum: 1
+          description: Slide height as a fraction of the frame height
+        keyColor:
+          type: string
+          pattern: "^#[0-9a-f]{6}$"
+          description: Background colour of the HDMI key page (ignored for luma and atem-media)
+        keyMode:
+          type: string
+          enum: [chroma, luma]
+        atem:
+          $ref: "#/components/schemas/CompositeAtem"
+        state:
+          type: string
+          enum: [stopped, waiting, busy, running, failed]
+          description: waiting = enabled but no slide yet; busy = rendering or uploading; running = shown or loaded; failed = see lastError
+        lastError:
+          type: string
+          nullable: true
+        hasSlide:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+    CompositeList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Composite"
+    CompositePatch:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+        width:
+          type: integer
+        height:
+          type: integer
+        side:
+          type: string
+          enum: [left, right]
+        slideAspect:
+          type: string
+          enum: ["10:16", "9:16"]
+        slideScale:
+          type: number
+          minimum: 0.6
+          maximum: 1
+        keyColor:
+          type: string
+          pattern: "^#[0-9a-fA-F]{6}$"
+        keyMode:
+          type: string
+          enum: [chroma, luma]
+        atem:
+          type: object
+          additionalProperties: false
+          properties:
+            mediaSlot:
+              type: integer
+              minimum: 1
+              maximum: 64
+            mediaPlayer:
+              type: integer
+              minimum: 1
+              maximum: 4
+            dskIndex:
+              type: integer
+              minimum: 1
+              maximum: 4
+            autoOnAir:
+              type: boolean
     SourceId:
       type: string
       enum: [hama, rtmp1, rtmp2, cam1, cam2, cam3, PiPGM1, PiPGM2, PiPGM3]

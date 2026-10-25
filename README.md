@@ -79,7 +79,7 @@ Environment:
 - `PIMATRIX_PORT`: HTTP port; defaults to `3000`.
 - `PIMATRIX_MODE`: `simulation` (default) or `production`.
 - `PIMATRIX_MEDIAMTX_API_URL`: optional MediaMTX HTTP API base URL, e.g. `http://127.0.0.1:9997`.
-- `PIMATRIX_PREVIEW_BASE_URL`: optional browser-reachable WebRTC base URL, e.g. `http://pi.local:8889`.
+- `PIMATRIX_PREVIEW_BASE_URL`: optional browser-reachable WebRTC base URL, e.g. `http://pi.local:8889`. It no longer sets the camera RTMP target; use `PIMATRIX_MEDIAMTX_RTMP_URL` for that.
 - `FFFLEET_URL`: optional remote fffleet orchestrator URL for future non-device jobs. If configured, PiMatrix probes its capabilities and reports the connection state. Hama capture always uses a separate local fffleet runner.
 - `FFFLEET_TOKEN`: optional static bearer token for fffleet.
 - `FFFLEET_CLIENT_ID` and `FFFLEET_CLIENT_SECRET`: optional client credentials; set both together instead of `FFFLEET_TOKEN`.
@@ -96,9 +96,11 @@ Environment:
 - `PIMATRIX_HDMI_PLAYER`: player command for `hardware` display mode, one process per HDMI output; defaults to `ffplay`. Started with `-fs -noborder -an` (no audio) and the source RTSP URL; the output device is passed in `PIMATRIX_OUTPUT_DEVICE`. Unverified on hardware.
 - `PIMATRIX_HDMI0_DEVICE`, `PIMATRIX_HDMI1_DEVICE`: optional per-output device for `hardware` mode: a DRM connector name such as `card1-HDMI-A-1` (on the Pi: `card1-HDMI-A-1` and `card1-HDMI-A-2`), a device path or a display name. Letters, digits and `. _ : / -` only. An output without a device is not configured. The player gets it in `PIMATRIX_OUTPUT_DEVICE`.
 - `PIMATRIX_HDMI_SDL_VIDEODRIVER`: SDL video driver set for each player; defaults to `kmsdrm` (no desktop on the Pi). Set empty to inherit. ffplay cannot choose a connector itself, so a wrapper set as `PIMATRIX_HDMI_PLAYER` must select the connector named in `PIMATRIX_OUTPUT_DEVICE`. The `deploy/pi/pimatrix-player` wrapper overrides this setting and sets `SDL_VIDEODRIVER=wayland`, because it runs ffplay as a client of the labwc compositor (see `deploy/pi/README.md`). Verified on a Pi 4 with two outputs; see `deploy/pi/README.md`.
-- `PIMATRIX_MEDIAMTX_RTSP_URL`: RTSP base URL of MediaMTX (for example `rtsp://127.0.0.1:8554`); a route's source is played from `<base>/<sourceId>`.
+- `PIMATRIX_MEDIAMTX_RTMP_URL`: RTMP ingest base of MediaMTX that the cameras push to, e.g. `rtmp://<pi-lan-ip>:1935`. Use an IP the cameras can reach; `.local` names and the WebRTC port (8889) do not work. Camera 1 gets `<base>/cam1` and camera 2 `<base>/cam2` as their RTMP target. Unset means the RTMP target is not sent to the cameras.
+- Preview stream quality is set on each AVer camera, not by pimatrix. The AVer PTZ310/330 manual documents no CGI command for stream resolution, frame rate or bitrate, so pimatrix does not send one (unverified). On the camera web page, set Video & Audio: Bitrate to 521 kbps (closest to 500 kbps, and the lowest option), with CBR rate control if offered. Stream resolution is in the IP Streaming options: 960x540 or 640x480 (640x360 is not offered). Frame rate is set in the stream video settings on the camera; the manual does not list a 10 fps option. Video mode must not be NDI, because NDI turns these stream settings into read-only values.
+- `PIMATRIX_MEDIAMTX_RTSP_URL`: RTSP base URL of MediaMTX (for example `rtsp://127.0.0.1:8554`); a route's source is played from `<base>/<sourceId>`. Camera 1 and 2 pull their RTSP paths from `<base>/cam1` and `<base>/cam2`. It is no longer derived from `PIMATRIX_PREVIEW_BASE_URL`; unset means no camera RTSP URL.
 - `PIMATRIX_ATEM_HOST`: ATEM switcher address; unset keeps the ATEM adapter a stub. Control uses the `atem-connection` library (same as LCYT). Unverified on hardware.
-- `PIMATRIX_ATEM_PORT`: ATEM control port; defaults to `9990`.
+- `PIMATRIX_ATEM_PORT`: ATEM control port (UDP); defaults to `9910`, the port atem-connection uses. A failed connection, or one not confirmed within 5 s, is logged as a warning with the host and port.
 - `PIMATRIX_AMX_TCP_ENABLED`: set to `true` to start the inbound AMX TCP listener.
 - `PIMATRIX_AMX_TCP_HOST`: inbound listener host; defaults to `127.0.0.1`.
 - `PIMATRIX_AMX_TCP_PORT`: inbound listener port; defaults to `6600`.
