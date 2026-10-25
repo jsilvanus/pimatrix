@@ -34,7 +34,7 @@ import { parseArgs, type CliOptions } from "./options.js";
 import { compositePatchFromField, compositeTableRows, type CompositeRow } from "./composites.js";
 
 const outputIds = ["hdmi0", "hdmi1", "multiview"] as const;
-const sourceIds = ["hama", "rtmp1", "rtmp2", "cam1", "cam2", "cam3", "PiPGM1", "PiPGM2", "PiPGM3"] as const;
+const sourceIds = ["hama", "rtmp1", "rtmp2", "cam1", "cam2", "cam3", "compose1", "PiPGM1", "PiPGM2", "PiPGM3"] as const;
 const cameraIds = ["cam1", "cam2", "cam3"] as const;
 const pipgmIds = ["PiPGM1", "PiPGM2", "PiPGM3"] as const;
 

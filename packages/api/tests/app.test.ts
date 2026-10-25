@@ -25,7 +25,7 @@ test("source and output inventory does not claim live hardware", async () => {
   try {
     const sources = (await app.inject("/api/v1/sources")).json().items;
     assert.deepEqual(sources.map((source: { id: string }) => source.id), [
-      "hama", "rtmp1", "rtmp2", "cam1", "cam2", "cam3", "PiPGM1", "PiPGM2"
+      "hama", "rtmp1", "rtmp2", "cam1", "cam2", "cam3", "compose1", "PiPGM1", "PiPGM2"
     ]);
     assert.ok(sources.every((source: { state: string; preview: { available: boolean } }) =>
       source.state === "unavailable" && !source.preview.available

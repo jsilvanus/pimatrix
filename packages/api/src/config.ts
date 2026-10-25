@@ -65,6 +65,8 @@ export interface AppConfig {
   mediaMtxRtspUrl?: string;
   /** DRM connector for the HDMI key output of the slide composite (PIMATRIX_COMPOSITE_HDMI_DEVICE). */
   compositeHdmiDevice?: string;
+  /** Encoder for the compose1 RTSP publisher. */
+  compositeVideoCodec: "libx264" | "h264_v4l2m2m";
   /** Directory for the composite slide, key page files and settings (PIMATRIX_COMPOSITE_DATA_DIR). */
   compositeDataDir: string;
   /** ffmpeg used to render key pages (PIMATRIX_COMPOSITE_FFMPEG). */
@@ -221,6 +223,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (compositeHdmiDevice !== undefined && !/^[A-Za-z0-9._:/-]+$/.test(compositeHdmiDevice)) {
     throw new Error("PIMATRIX_COMPOSITE_HDMI_DEVICE must be a DRM connector, device path or display name (letters, digits, . _ : / -), e.g. card1-HDMI-A-2");
   }
+  const compositeVideoCodec = env.PIMATRIX_COMPOSITE_VIDEO_CODEC?.trim() || "libx264";
+  if (compositeVideoCodec !== "libx264" && compositeVideoCodec !== "h264_v4l2m2m") {
+    throw new Error('PIMATRIX_COMPOSITE_VIDEO_CODEC must be "libx264" or "h264_v4l2m2m"');
+  }
   const compositeDataDir = env.PIMATRIX_COMPOSITE_DATA_DIR?.trim() || "./data/composite";
   const compositeFfmpeg = env.PIMATRIX_COMPOSITE_FFMPEG?.trim() || "ffmpeg";
   if (/\s/.test(compositeFfmpeg)) {
@@ -315,6 +321,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(mediaMtxRtspUrl ? { mediaMtxRtspUrl } : {}),
     ...(compositeHdmiDevice ? { compositeHdmiDevice } : {}),
     compositeDataDir,
+    compositeVideoCodec,
     compositeFfmpeg,
     atemMediaFillInput,
     ...(mediaMtxRtmpUrl ? { mediaMtxRtmpUrl } : {})

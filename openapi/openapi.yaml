@@ -1890,7 +1890,7 @@ components:
               type: boolean
     SourceId:
       type: string
-      enum: [hama, rtmp1, rtmp2, cam1, cam2, cam3, PiPGM1, PiPGM2, PiPGM3]
+      enum: [hama, rtmp1, rtmp2, cam1, cam2, cam3, compose1, PiPGM1, PiPGM2, PiPGM3]
     OutputId:
       type: string
       enum: [hdmi0, hdmi1, multiview]

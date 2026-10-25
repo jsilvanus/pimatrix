@@ -94,7 +94,7 @@ test("Effects REST API endpoints handle get, crop update, presets, move, and res
   const allRes = await app.inject({ method: "GET", url: "/api/v1/effects" });
   assert.equal(allRes.statusCode, 200);
   const allJson = JSON.parse(allRes.payload);
-  assert.equal(allJson.items.length, 8);
+  assert.equal(allJson.items.length, 9);
 
   // 2. GET /api/v1/sources/cam1/effects
   const cam1Res = await app.inject({ method: "GET", url: "/api/v1/sources/cam1/effects" });
