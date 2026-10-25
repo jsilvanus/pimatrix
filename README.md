@@ -69,6 +69,7 @@ Default URL: `http://127.0.0.1:3000`.
 - `POST /api/v1/cameras/{cameraId}/presets/{presetId}/recall` (recalls preset 0-254)
 - `POST /api/v1/cameras/{cameraId}/presets/{presetId}/save` (saves current position to preset 0-254)
 - `POST /api/v1/cameras/{cameraId}/smartframe` (controls SmartFrame AI auto-framing: enable, disable, trigger)
+- `POST /api/v1/cameras/{cameraId}/privacy-blur` (`{enabled}`: AF to MF, near limit to closest, focus driven near so the picture blurs; off returns to AF. Standard VISCA focus bytes, unverified on a real PTZ330)
 - `POST /api/v1/cameras/{cameraId}/stream/start` (commands camera to push RTMP feed or activates RTSP pull)
 - `POST /api/v1/cameras/{cameraId}/stream/stop` (stops camera streaming feed)
 - `GET /multiview` (responsive browser/phone WebRTC 8-way multiview: automatically 4x2 in landscape, 2x4 in portrait)
@@ -204,6 +205,7 @@ npm run dev --workspace @pimatrix/cli -- cameras zoom cam1 in --speed 4
 npm run dev --workspace @pimatrix/cli -- cameras preset recall cam1 2
 npm run dev --workspace @pimatrix/cli -- cameras preset save cam1 7 --name "Choir Back"
 npm run dev --workspace @pimatrix/cli -- cameras smartframe cam1 trigger
+npm run dev --workspace @pimatrix/cli -- cameras privacy-blur cam1 on
 npm run dev --workspace @pimatrix/cli -- cameras stream start cam1
 npm run dev --workspace @pimatrix/cli -- cameras stream stop cam1
 npm run dev --workspace @pimatrix/cli -- multiview show

@@ -227,6 +227,27 @@ export class CameraService {
     return snapshot;
   }
 
+  async setPrivacyBlur(id: string, enabled: boolean): Promise<CameraSnapshot> {
+    const cam = this.cameras.get(id);
+    if (!cam) {
+      throw new Error(`Camera '${id}' not found`);
+    }
+
+    await cam.setPrivacyBlur(enabled);
+    const snapshot = cam.getSnapshot();
+
+    this.eventBroker?.emit({
+      type: "camera",
+      data: {
+        id,
+        action: `privacyblur:${enabled ? "on" : "off"}`,
+        privacyBlur: snapshot.privacyBlur
+      }
+    });
+
+    return snapshot;
+  }
+
   async startStream(id: string): Promise<{ snapshot: CameraSnapshot; streamUrl: string | null }> {
     const cam = this.cameras.get(id);
     if (!cam) {

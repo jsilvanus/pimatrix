@@ -224,3 +224,43 @@ test("UdpViscaCameraAdapter transmits valid VISCA packets over UDP to mock targe
   await adapter.close();
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
+
+test("privacy blur sends focus manual, near limit, near drive, stop; off returns to AF", async () => {
+  const server = dgram.createSocket("udp4");
+  const received: Buffer[] = [];
+  await new Promise<void>((resolve) => server.bind(0, "127.0.0.1", () => resolve()));
+  server.on("message", (msg) => received.push(msg));
+
+  const adapter = new UdpViscaCameraAdapter({
+    id: "cam1",
+    label: "Camera 1",
+    host: "127.0.0.1",
+    viscaPort: server.address().port,
+    focusDriveMs: 10
+  });
+
+  await adapter.setPrivacyBlur(true);
+  assert.equal(adapter.getSnapshot().privacyBlur, true);
+  await adapter.setPrivacyBlur(false);
+  assert.equal(adapter.getSnapshot().privacyBlur, false);
+  await new Promise((r) => setTimeout(r, 80));
+
+  const bodies = received.map((p) => [...p.subarray(8)]);
+  assert.deepEqual(bodies, [
+    [0x81, 0x01, 0x04, 0x38, 0x03, 0xff],
+    [0x81, 0x01, 0x04, 0x28, 0x0f, 0x00, 0x00, 0x00, 0xff],
+    [0x81, 0x01, 0x04, 0x08, 0x37, 0xff],
+    [0x81, 0x01, 0x04, 0x08, 0x00, 0xff],
+    [0x81, 0x01, 0x04, 0x38, 0x02, 0xff]
+  ]);
+
+  await adapter.close();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+});
+
+test("SimulatedCameraAdapter tracks privacy blur", async () => {
+  const adapter = new SimulatedCameraAdapter("cam1", "Camera 1");
+  assert.equal(adapter.getSnapshot().privacyBlur, false);
+  await adapter.setPrivacyBlur(true);
+  assert.equal(adapter.getSnapshot().privacyBlur, true);
+});

@@ -1,6 +1,10 @@
 import dgram from "node:dgram";
 import type { FastifyBaseLogger } from "fastify";
 import {
+  buildFocusMode,
+  buildFocusNear,
+  buildFocusNearLimit,
+  buildFocusStop,
   buildPanTiltDrive,
   buildPanTiltInquiry,
   buildPowerInquiry,
@@ -40,6 +44,8 @@ export interface CameraSnapshot {
   streaming: boolean;
   streamUrl: string | null;
   smartFrame: SmartFrameState;
+  /** True while the privacy blur is on: manual focus driven to the nearest point. */
+  privacyBlur: boolean;
   position: CameraPosition;
   presets: CameraPreset[];
 }
@@ -55,6 +61,8 @@ export interface CameraAdapter {
   savePresetThumbnail(presetId: number, thumbnail: string): Promise<void>;
   resetPreset(presetId: number): Promise<void>;
   setSmartFrame(mode: SmartFrameMode): Promise<void>;
+  /** On: AF to MF, near limit to the closest distance, focus driven near. Off: back to AF. */
+  setPrivacyBlur(enabled: boolean): Promise<void>;
   startStream(): Promise<string | null>;
   stopStream(): Promise<void>;
   close(): Promise<void>;
@@ -66,6 +74,7 @@ export class SimulatedCameraAdapter implements CameraAdapter {
   readonly model = "AVer PTZ330 (Simulated)";
   private streaming = false;
   private smartFrame: SmartFrameState = "disabled";
+  private privacyBlur = false;
   private position: CameraPosition = { pan: 0, tilt: 0, zoom: 0 };
   private readonly presets = new Map<number, { position: CameraPosition; name?: string; thumbnail?: string }>([
     [1, { position: { pan: 100, tilt: 50, zoom: 10 }, name: "Pulpit" }],
@@ -90,6 +99,7 @@ export class SimulatedCameraAdapter implements CameraAdapter {
       streaming: this.streaming,
       streamUrl: this.streaming ? `rtsp://127.0.0.1:8554/${this.id}` : null,
       smartFrame: this.smartFrame,
+      privacyBlur: this.privacyBlur,
       position: { ...this.position },
       presets: [...this.presets.entries()]
         .map(([id, p]) => ({
@@ -189,6 +199,10 @@ export class SimulatedCameraAdapter implements CameraAdapter {
     }
   }
 
+  async setPrivacyBlur(enabled: boolean): Promise<void> {
+    this.privacyBlur = enabled;
+  }
+
   async startStream(): Promise<string | null> {
     this.streaming = true;
     return `rtsp://127.0.0.1:8554/${this.id}`;
@@ -237,6 +251,8 @@ export interface UdpViscaCameraConfig {
   rtmpServer?: string | undefined;
   /** Stream key (the MediaMTX path name), e.g. cam1. */
   rtmpKey?: string | undefined;
+  /** How long the near drive runs before the stop, default 2500 ms. */
+  focusDriveMs?: number | undefined;
   logger?: FastifyBaseLogger | undefined;
 }
 
@@ -251,6 +267,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   private readonly rtspUrl: string | null;
   private readonly rtmpServer: string | null;
   private readonly rtmpKey: string | null;
+  private readonly focusDriveMs: number;
   private readonly logger?: FastifyBaseLogger | undefined;
 
   private socket: dgram.Socket | null = null;
@@ -258,6 +275,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   private connected = false;
   private streaming = false;
   private smartFrame: SmartFrameState = "disabled";
+  private privacyBlur = false;
   private position: CameraPosition = { pan: 0, tilt: 0, zoom: 0 };
   private readonly presets = new Map<number, { position: CameraPosition; name?: string; thumbnail?: string }>();
 
@@ -273,6 +291,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     this.rtspUrl = config.rtspUrl ?? `rtsp://${config.host}:554/live_st1`;
     this.rtmpServer = config.rtmpServer ?? null;
     this.rtmpKey = config.rtmpKey ?? null;
+    this.focusDriveMs = config.focusDriveMs ?? 2500;
     this.logger = config.logger;
   }
 
@@ -285,6 +304,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
       streaming: this.streaming,
       streamUrl: this.streaming ? this.rtspUrl : null,
       smartFrame: this.smartFrame,
+      privacyBlur: this.privacyBlur,
       position: { ...this.position },
       presets: [...this.presets.entries()]
         .map(([id, p]) => ({
@@ -371,6 +391,20 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     const payload = buildSmartFrame(mode);
     await this.sendCommand(payload);
     this.smartFrame = mode === "enable" ? "enabled" : mode === "disable" ? "disabled" : "triggered";
+  }
+
+  async setPrivacyBlur(enabled: boolean): Promise<void> {
+    if (enabled) {
+      await this.sendCommand(buildFocusMode("manual"));
+      await this.sendCommand(buildFocusNearLimit());
+      await this.sendCommand(buildFocusNear(7));
+      // Variable-speed focus keeps moving until the limit; stop it once it has had time to arrive.
+      await new Promise((resolve) => setTimeout(resolve, this.focusDriveMs));
+      await this.sendCommand(buildFocusStop());
+    } else {
+      await this.sendCommand(buildFocusMode("auto"));
+    }
+    this.privacyBlur = enabled;
   }
 
   async startStream(): Promise<string | null> {

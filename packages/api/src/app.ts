@@ -1736,6 +1736,33 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     });
   });
 
+  app.post<{
+    Params: { cameraId: string };
+    Body: { enabled?: unknown };
+  }>("/api/v1/cameras/:cameraId/privacy-blur", async (request, reply) => {
+    const camera = cameraService.get(request.params.cameraId);
+    if (!camera) {
+      return reply.code(404).send({
+        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+      });
+    }
+
+    const enabled = request.body?.enabled;
+    if (typeof enabled !== "boolean") {
+      return reply.code(422).send({
+        error: { code: "INVALID_PRIVACY_BLUR", message: "enabled must be true or false" }
+      });
+    }
+
+    await cameraService.setPrivacyBlur(request.params.cameraId, enabled);
+
+    return reply.code(200).send({
+      cameraId: request.params.cameraId,
+      success: true,
+      action: `privacyblur:${enabled ? "on" : "off"}`
+    });
+  });
+
   app.post<{ Params: { cameraId: string } }>(
     "/api/v1/cameras/:cameraId/stream/start",
     async (request, reply) => {
