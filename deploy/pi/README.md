@@ -22,3 +22,5 @@ PIMATRIX_HDMI1_DEVICE=HDMI-A-2
 `pimatrix-player` overrides `PIMATRIX_HDMI_SDL_VIDEODRIVER`: it sets `SDL_VIDEODRIVER=wayland` itself, because the players are Wayland clients of the compositor, not `kmsdrm` processes.
 
 The user running the compositor must be able to open `/dev/dri/card1` and `/run/seatd.sock` (group `video`). `card1` is the card with the HDMI connectors on a Pi 4; check `/sys/class/drm`. Which physical connector is `hdmi0`/`hdmi1` is set by `labwc-rc.xml`.
+
+Cabling: `hdmi0` (HDMI-A-1) feeds Atlona input 4 and `hdmi1` (HDMI-A-2) feeds Atlona input 3 at the Keskuskirkko install. The matrix outputs 1 and 2 are the left and right screens. See the keskuskirkko repo, `docs/hardware/pi-hdmi-cabling.md`.
