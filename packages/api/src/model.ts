@@ -9,6 +9,8 @@ export const sourceDefinitions = [
   { id: "cam1", label: "Camera 1", kind: "camera", defaultHidden: false },
   { id: "cam2", label: "Camera 2", kind: "camera", defaultHidden: false },
   { id: "cam3", label: "Camera 3", kind: "camera", defaultHidden: false },
+  // compose1 is the composite key page, published to MediaMTX by the composite service.
+  { id: "compose1", label: "Composite 1", kind: "composite", defaultHidden: false },
   { id: "PiPGM1", label: "Pi Programme 1", kind: "renderer", defaultHidden: false },
   { id: "PiPGM2", label: "Pi Programme 2", kind: "renderer", defaultHidden: false },
   { id: "PiPGM3", label: "Pi Programme 3", kind: "renderer", defaultHidden: true }

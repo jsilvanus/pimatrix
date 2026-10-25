@@ -9,7 +9,7 @@ import { registerAtemRoutes } from "./atem/atem-routes.js";
 import { CameraService } from "./camera/camera-service.js";
 import { CompositeService } from "./composite/composite-service.js";
 import { registerCompositeRoutes } from "./composite/composite-routes.js";
-import { KeyPagePlayer } from "./composite/key-player.js";
+import { KeyPagePublisher } from "./composite/key-publisher.js";
 import { CameraCgiError } from "./camera/camera-adapter.js";
 import type { PanTiltDirection, SmartFrameMode, ZoomAction } from "./camera/visca-protocol.js";
 import type { AppConfig } from "./config.js";
@@ -84,11 +84,12 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     dataDir: config.compositeDataDir,
     stateFile: path.join(config.compositeDataDir, "composites.json"),
     ffmpeg: config.compositeFfmpeg,
-    player: new KeyPagePlayer({
-      player: config.hdmiPlayer,
-      device: config.compositeHdmiDevice,
-      sdlVideoDriver: config.hdmiSdlVideoDriver,
-      title: "pimatrix-composite"
+    // compose1 is published to MediaMTX, so the route can send it to any Pi HDMI output.
+    player: new KeyPagePublisher({
+      rtspUrl: config.mediaMtxRtspUrl ? `${config.mediaMtxRtspUrl.replace(/\/$/, "")}/compose1` : undefined,
+      ffmpeg: config.compositeFfmpeg,
+      encoder: config.compositeVideoCodec,
+      logger: app.log
     }),
     atem,
     atemFillInputBase: config.atemMediaFillInput,
