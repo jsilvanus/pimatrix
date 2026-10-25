@@ -353,3 +353,25 @@ test("HDMI SDL driver defaults to kmsdrm, can be cleared, and connector names ar
   assert.throws(() => loadConfig({ PIMATRIX_HDMI1_DEVICE: "card1 HDMI" }), /PIMATRIX_HDMI1_DEVICE/);
   assert.throws(() => loadConfig({ PIMATRIX_HDMI0_DEVICE: "card1;rm" }), /PIMATRIX_HDMI0_DEVICE/);
 });
+
+test("the startup window pushes 'active' to subscribers without a further route call", async () => {
+  const fake = fakeSpawner();
+  const adapter = new HdmiPlayerAdapter({
+    outputs: outputs({ hdmi0: "/dev/dri/card0" }),
+    sourceUrl,
+    spawn: fake.spawn,
+    startupWindowMs: 20
+  });
+  const seen: string[] = [];
+  const unsubscribe = adapter.onStateChange((state) => seen.push(`${state.state}:${state.observedSource}`));
+  try {
+    const routed = await adapter.applyRoute("hdmi0", "rtmp1");
+    assert.equal(routed.state, "starting");
+    await sleep(60);
+    assert.deepEqual(seen, ["starting:rtmp1", "active:rtmp1"]);
+    assert.equal(adapter.getOutputState("hdmi0").state, "active");
+  } finally {
+    unsubscribe();
+    await adapter.close();
+  }
+});

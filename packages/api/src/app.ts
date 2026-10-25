@@ -65,6 +65,13 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   const atem = new AtemAdapter();
   registerAtemRoutes(app, atem);
   const eventBroker = new PiMatrixEventBroker();
+  // The HDMI player moves from "starting" to "active" on a timer, not on a route call,
+  // so keep the output store and the event stream in step with every state change.
+  displayAdapter.onStateChange?.((observed) => {
+    outputStore.setObservedState(observed.id, observed.observedSource, observed.state);
+    const current = outputStore.get(observed.id);
+    if (current) eventBroker.emit({ type: "output", data: { output: current } });
+  });
   let multiviewLayout: MultiviewLayoutMode = "auto";
   const multiviewSlotOverrides = new Map<number, SourceId>();
 

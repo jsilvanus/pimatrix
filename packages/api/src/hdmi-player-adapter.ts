@@ -106,6 +106,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
   private readonly stopGraceMs: number;
   private readonly spawnPlayer: SpawnPlayer;
   private readonly sdlVideoDriver: string | undefined;
+  private readonly stateListeners = new Set<(state: DisplayOutputState) => void>();
 
   constructor(options: HdmiPlayerAdapterOptions) {
     this.devices = new Map([...options.outputs].map(([id, config]) => [id, config.device]));
@@ -138,6 +139,17 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
     return await run;
   }
 
+  /**
+   * Subscribe to every per-output state change, including the later "starting" to
+   * "active" step that happens without a route call. Returns an unsubscribe function.
+   */
+  onStateChange(listener: (state: DisplayOutputState) => void): () => void {
+    this.stateListeners.add(listener);
+    return () => {
+      this.stateListeners.delete(listener);
+    };
+  }
+
   /** "ready" when at least one output has a device, otherwise "not-configured". */
   getStatus(): DisplayAdapterState {
     for (const device of this.devices.values()) {
@@ -162,6 +174,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
     const current = this.requireState(outputId);
     const updated: DisplayOutputState = { ...current, state, observedSource };
     this.states.set(outputId, updated);
+    for (const listener of this.stateListeners) listener({ ...updated });
     return { ...updated };
   }
 

@@ -1,0 +1,9 @@
+#!/bin/sh
+# PIMATRIX_HDMI_PLAYER wrapper: run ffplay as a Wayland client of the pimatrix labwc compositor.
+# The window title (pimatrix-<outputId>) is set by the adapter; labwc/rc.xml moves each
+# window to its HDMI connector. PIMATRIX_OUTPUT_DEVICE is not needed here.
+# This overrides PIMATRIX_HDMI_SDL_VIDEODRIVER: the wrapper always sets SDL_VIDEODRIVER=wayland.
+export SDL_VIDEODRIVER=wayland
+export XDG_RUNTIME_DIR="${PIMATRIX_XDG_RUNTIME_DIR:-/run/pimatrix}"
+export WAYLAND_DISPLAY="${PIMATRIX_WAYLAND_DISPLAY:-wayland-0}"
+exec ffplay "$@"
