@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
+import { readFile, writeFile } from "node:fs/promises";
 import {
   AtemService,
   CamerasService,
+  CompositesService,
   configureApiClient,
   EffectsService,
   OutputsService,
@@ -11,6 +13,7 @@ import {
   SystemService
 } from "@pimatrix/api-client";
 import type {
+  CompositeId,
   CameraId,
   CameraMoveRequest,
   CameraSmartFrameRequest,
@@ -28,6 +31,7 @@ import type {
   UpdateCropRequest
 } from "@pimatrix/api-client";
 import { parseArgs, type CliOptions } from "./options.js";
+import { compositePatchFromField, compositeTableRows, type CompositeRow } from "./composites.js";
 
 const outputIds = ["hdmi0", "hdmi1", "multiview"] as const;
 const sourceIds = ["hama", "rtmp1", "rtmp2", "cam1", "cam2", "cam3", "PiPGM1", "PiPGM2", "PiPGM3"] as const;
@@ -66,6 +70,13 @@ async function run(options: CliOptions): Promise<void> {
       "  atem program <input>\n" +
       "  atem preview <input>\n" +
       "  atem cut\n" +
+      "  composites list\n" +
+      "  composites show <compose1|compose2>\n" +
+      "  composites set <compose1|compose2> <field> <value>\n" +
+      "  composites start <compose1|compose2>\n" +
+      "  composites stop <compose1|compose2>\n" +
+      "  composites slide <file.png>\n" +
+      "  composites preview <compose1|compose2> <out.png>\n" +
       "  cameras list\n" +
       "  cameras show <cameraId>\n" +
       "  cameras move <cameraId> <direction> [--speed <1-24>] [--pan-speed <1-24>] [--tilt-speed <1-23>]\n" +
@@ -230,6 +241,57 @@ async function run(options: CliOptions): Promise<void> {
     const data = await AtemService.cutAtem();
     if (options.json) console.log(JSON.stringify(data, null, 2));
     else console.log("ATEM cut sent");
+    return;
+  }
+
+  if (group === "composites" && action === "list" && options.command.length === 2) {
+    const data = await CompositesService.listComposites();
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else printTable(["ID", "KIND", "ON", "STATE", "FRAME", "SLIDE", "KEY", "SLIDE SENT", "ERROR"], compositeTableRows(data.items as CompositeRow[]));
+    return;
+  }
+
+  if (group === "composites" && action === "show" && options.command.length === 3) {
+    const data = await CompositesService.getComposite(arg1 as CompositeId);
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else printTable(["ID", "KIND", "ON", "STATE", "FRAME", "SLIDE", "KEY", "SLIDE SENT", "ERROR"], compositeTableRows([data as CompositeRow]));
+    return;
+  }
+
+  if (group === "composites" && action === "set" && options.command.length === 5) {
+    const result = compositePatchFromField(arg2 ?? "", arg3 ?? "");
+    if (!result.ok) throw new Error(result.message);
+    const data = await CompositesService.updateComposite(arg1 as CompositeId, result.patch);
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`${data.id}: ${arg2} set to ${arg3} (state ${data.state})`);
+    return;
+  }
+
+  if (group === "composites" && (action === "start" || action === "stop") && options.command.length === 3) {
+    const id = arg1 as CompositeId;
+    const data = action === "start"
+      ? await CompositesService.startComposite(id)
+      : await CompositesService.stopComposite(id);
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`${data.id}: ${action === "start" ? "enabled" : "disabled"} (state ${data.state})`);
+    return;
+  }
+
+  if (group === "composites" && action === "slide" && options.command.length === 3) {
+    const bytes = await readFile(arg1 ?? "");
+    const data = await CompositesService.setCompositeSlide(new Blob([bytes], { type: "image/png" }));
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Slide sent (${bytes.length} bytes) to ${data.items.map((item) => item.id).join(", ")}`);
+    return;
+  }
+
+  if (group === "composites" && action === "preview" && options.command.length === 4) {
+    const response = await fetch(`${options.server}/api/v1/composites/${arg1}/preview.png`, {
+      headers: options.apiKey ? { authorization: `Bearer ${options.apiKey}` } : {}
+    });
+    if (!response.ok) throw new Error(`Preview failed: HTTP ${response.status}`);
+    await writeFile(arg2 ?? "", Buffer.from(await response.arrayBuffer()));
+    console.log(`Preview written to ${arg2}`);
     return;
   }
 
