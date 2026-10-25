@@ -3,6 +3,8 @@ import { createFleet } from "fffleet";
 import Fastify, { type FastifyInstance } from "fastify";
 import { createAmxClient, type AmxClient } from "./amx/amx-client.js";
 import { AmxTcpListener } from "./amx/amx-listener.js";
+import { AtemAdapter } from "./atem/atem-adapter.js";
+import { registerAtemRoutes } from "./atem/atem-routes.js";
 import { CameraService } from "./camera/camera-service.js";
 import type { PanTiltDirection, SmartFrameMode, ZoomAction } from "./camera/visca-protocol.js";
 import type { AppConfig } from "./config.js";
@@ -60,6 +62,8 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   const outputStore = createOutputStore();
   const effectsStore = new EffectsStore(sourceDefinitions.map((s) => s.id));
   const displayAdapter: DisplayAdapter = createDisplayAdapter(config.displayMode, config);
+  const atem = new AtemAdapter();
+  registerAtemRoutes(app, atem);
   const eventBroker = new PiMatrixEventBroker();
   let multiviewLayout: MultiviewLayoutMode = "auto";
   const multiviewSlotOverrides = new Map<number, SourceId>();
@@ -283,6 +287,11 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
 
   app.addHook("onReady", async () => {
     captureSupervisor.start();
+    if (config.atemHost) {
+      await atem.connect(config.atemHost, config.atemPort).catch((error: unknown) => {
+        app.log.error({ err: error }, "ATEM connection failed; retrying is not automatic");
+      });
+    }
     if (amxListener) {
       await amxListener.start();
     }
@@ -290,6 +299,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
 
   app.addHook("onClose", async () => {
     await Promise.all([
+      atem.disconnect(),
       captureSupervisor.stop(),
       cameraService.close(),
       amxListener ? amxListener.stop() : Promise.resolve(),
@@ -365,12 +375,19 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   app.get("/api/v1/auth/status", async (request) => {
     const clientIp = request.ip;
     const isWhitelisted = isIpWhitelisted(clientIp, config.authAllowedHosts);
+    // The MediaMTX password is only for operators: LAN clients, open mode or a valid key.
+    const presented = request.headers.authorization?.startsWith("Bearer ")
+      ? request.headers.authorization.slice(7).trim()
+      : typeof request.headers["x-api-key"] === "string"
+        ? request.headers["x-api-key"].trim()
+        : undefined;
+    const isOperator = isWhitelisted || !config.apiKey || presented === config.apiKey;
     return {
       authRequired: Boolean(config.apiKey),
       canvaAuthRequired: Boolean(config.canvaAppToken),
       isWhitelisted,
       clientIp,
-      mediaMtxPassword: config.mediaMtxPassword ?? null
+      mediaMtxPassword: isOperator ? (config.mediaMtxPassword ?? null) : null
     };
   });
 

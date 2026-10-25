@@ -13,6 +13,7 @@ tags:
   - name: Cameras
   - name: PiPGM
   - name: Effects
+  - name: ATEM
 paths:
   /health:
     get:
@@ -261,6 +262,96 @@ paths:
                 $ref: "#/components/schemas/Error"
         "502":
           description: AMX master is unreachable or route command failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/atem:
+    get:
+      operationId: getAtemState
+      tags: [ATEM]
+      summary: ATEM switcher connection and program/preview state
+      responses:
+        "200":
+          description: Current ATEM state (connected=false when no ATEM is configured)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtemState"
+  /api/v1/atem/program:
+    put:
+      operationId: setAtemProgram
+      tags: [ATEM]
+      summary: Set the program input on the ATEM M/E row
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AtemInputRequest"
+      responses:
+        "200":
+          description: Switched; returns the new state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtemState"
+        "422":
+          description: Input is not a valid ATEM input number
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: ATEM is not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/atem/preview:
+    put:
+      operationId: setAtemPreview
+      tags: [ATEM]
+      summary: Set the preview input on the ATEM M/E row
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AtemInputRequest"
+      responses:
+        "200":
+          description: Preview set; returns the new state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtemState"
+        "422":
+          description: Input is not a valid ATEM input number
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: ATEM is not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/atem/cut:
+    post:
+      operationId: cutAtem
+      tags: [ATEM]
+      summary: Cut program and preview on the ATEM M/E row
+      responses:
+        "200":
+          description: Cut sent; returns the new state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtemState"
+        "503":
+          description: ATEM is not connected
           content:
             application/json:
               schema:
@@ -1275,6 +1366,217 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/auth/status:
+    get:
+      operationId: getAuthStatus
+      tags: [System]
+      summary: Auth requirements and caller IP; mediaMtxPassword only for operators
+      responses:
+        "200":
+          description: OK
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid request
+  /api/v1/auth/verify:
+    post:
+      operationId: verifyAuth
+      tags: [System]
+      summary: Check a key (body.key, Bearer or x-api-key)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: OK
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid request
+  /api/v1/matrix:
+    get:
+      operationId: getMatrix
+      tags: [Outputs]
+      summary: Atlona matrix routes and lock state
+      responses:
+        "200":
+          description: OK
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid request
+  /api/v1/matrix/lock:
+    put:
+      operationId: setMatrixLock
+      tags: [Outputs]
+      summary: Lock or unlock the Atlona matrix
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [locked]
+              properties:
+                locked:
+                  type: boolean
+      responses:
+        "200":
+          description: OK
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid request
+  /api/v1/outputs/rtsp:
+    get:
+      operationId: getRtspOutput
+      tags: [Outputs]
+      summary: RTSP output source and streaming state
+      responses:
+        "200":
+          description: OK
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid request
+  /api/v1/outputs/rtsp/source:
+    put:
+      operationId: setRtspOutputSource
+      tags: [Outputs]
+      summary: Choose the logical source for the RTSP output
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sourceId]
+              properties:
+                sourceId:
+                  oneOf:
+                    - $ref: "#/components/schemas/SourceId"
+                    - type: "null"
+      responses:
+        "200":
+          description: OK
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid request
+  /api/v1/outputs/rtsp/stream:
+    post:
+      operationId: toggleRtspStream
+      tags: [Outputs]
+      summary: Start, stop or toggle RTSP streaming
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: OK
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid request
+  /api/v1/pipgm/assets/{assetId}:
+    get:
+      operationId: getPipgmAsset
+      tags: [PiPGM]
+      summary: Serve a PiPGM asset file
+      parameters:
+        - in: path
+          name: assetId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid request
+  /api/v1/cameras/{cameraId}/presets/{presetId}/thumbnail:
+    post:
+      operationId: captureCameraPresetThumbnail
+      tags: [Cameras]
+      summary: Capture a thumbnail for a camera preset
+      parameters:
+        - in: path
+          name: cameraId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: presetId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid request
+  /api/v1/sources/{sourceId}/effects/ftb:
+    post:
+      operationId: setSourceFadeToBlack
+      tags: [Effects]
+      summary: Fade a source to black or back (fadeToBlack or toggle)
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: OK
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid request
+  /api/v1/sources/{sourceId}/effects/mute:
+    post:
+      operationId: setSourceMute
+      tags: [Effects]
+      summary: Mute or unmute a source audio (muted or toggle)
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: OK
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid request
 components:
   responses:
     NotFound:
@@ -1284,6 +1586,34 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
   schemas:
+    AtemInputRequest:
+      type: object
+      required: [input]
+      properties:
+        input:
+          type: integer
+          minimum: 1
+          maximum: 40
+    AtemState:
+      type: object
+      required: [connected, programInput, previewInput, transition]
+      properties:
+        connected:
+          type: boolean
+        programInput:
+          type: integer
+          nullable: true
+        previewInput:
+          type: integer
+          nullable: true
+        transition:
+          type: object
+          required: [inTransition, remainingFrames]
+          properties:
+            inTransition:
+              type: boolean
+            remainingFrames:
+              type: integer
     SourceId:
       type: string
       enum: [hama, rtmp1, rtmp2, cam1, cam2, cam3, PiPGM1, PiPGM2, PiPGM3]

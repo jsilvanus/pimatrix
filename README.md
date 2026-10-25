@@ -59,6 +59,7 @@ Default URL: `http://127.0.0.1:3000`.
 - `PUT /api/v1/outputs/{outputId}/source` (sets route intent and applies to display adapter)
 - `GET /api/v1/events` (Server-Sent Events stream for real-time status, source, and output changes)
 - `POST /api/v1/matrix/route` (requests Atlona matrix routing through AMX NetLinx master)
+- `GET /api/v1/atem` (ATEM switcher connection, program and preview input); `PUT /api/v1/atem/program` and `PUT /api/v1/atem/preview` (`{ "input": n }`); `POST /api/v1/atem/cut`. Answers 503 when no ATEM is configured or reachable.
 - `GET /api/v1/cameras` (lists configured PTZ cameras with connection, streaming, and position state)
 - `GET /api/v1/cameras/{cameraId}` (get details, position, and saved presets)
 - `POST /api/v1/cameras/{cameraId}/move` (pan/tilt direction, panSpeed 1-24, tiltSpeed 1-23)
@@ -95,6 +96,8 @@ Environment:
 - `PIMATRIX_HDMI_PLAYER`: player command for `hardware` display mode, one process per HDMI output; defaults to `ffplay`. Started with `-fs -noborder -an` (no audio) and the source RTSP URL; the output device is passed in `PIMATRIX_OUTPUT_DEVICE`. Unverified on hardware.
 - `PIMATRIX_HDMI0_DEVICE`, `PIMATRIX_HDMI1_DEVICE`: optional per-output device (DRM/KMS device or display name) for `hardware` mode. An output without a device is not configured.
 - `PIMATRIX_MEDIAMTX_RTSP_URL`: RTSP base URL of MediaMTX (for example `rtsp://127.0.0.1:8554`); a route's source is played from `<base>/<sourceId>`.
+- `PIMATRIX_ATEM_HOST`: ATEM switcher address; unset keeps the ATEM adapter a stub. Control uses the `atem-connection` library (same as LCYT). Unverified on hardware.
+- `PIMATRIX_ATEM_PORT`: ATEM control port; defaults to `9990`.
 - `PIMATRIX_AMX_TCP_ENABLED`: set to `true` to start the inbound AMX TCP listener.
 - `PIMATRIX_AMX_TCP_HOST`: inbound listener host; defaults to `127.0.0.1`.
 - `PIMATRIX_AMX_TCP_PORT`: inbound listener port; defaults to `6600`.
