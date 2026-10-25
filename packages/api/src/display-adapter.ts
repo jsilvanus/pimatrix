@@ -77,6 +77,7 @@ export interface HardwareDisplayConfig {
   hdmi0Device?: string;
   hdmi1Device?: string;
   hdmiSdlVideoDriver?: string;
+  hdmiDecoder?: string;
   mediaMtxApiUrl?: string;
   mediaMtxRtspUrl?: string;
 }
@@ -103,6 +104,7 @@ export function createDisplayAdapter(
           }
         : {}),
       ...(hardware.hdmiPlayer ? { player: hardware.hdmiPlayer } : {}),
+      ...(hardware.hdmiDecoder ? { decoder: hardware.hdmiDecoder } : {}),
       ...(hardware.hdmiSdlVideoDriver ? { sdlVideoDriver: hardware.hdmiSdlVideoDriver } : {})
     });
   }

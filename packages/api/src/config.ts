@@ -63,6 +63,8 @@ export interface AppConfig {
   hdmi0Device?: string;
   hdmi1Device?: string;
   hdmiSdlVideoDriver?: string;
+  /** ffplay hardware decoder (-vcodec), default h264_v4l2m2m; undefined = software decoding. */
+  hdmiDecoder?: string;
   mediaMtxRtspUrl?: string;
   /** piprogram API base URL; composites with slideSource "piprogram" follow its stage frames. */
   piprogramUrl?: string;
@@ -230,6 +232,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   // SDL video driver for the players; kmsdrm is the headless Pi default. Set empty to inherit.
   const hdmiSdlVideoDriver =
     env.PIMATRIX_HDMI_SDL_VIDEODRIVER === undefined ? "kmsdrm" : env.PIMATRIX_HDMI_SDL_VIDEODRIVER.trim() || undefined;
+  // Hardware decoder for the players (Pi: h264_v4l2m2m). Set empty for software decoding.
+  const hdmiDecoder = env.PIMATRIX_HDMI_DECODER === undefined ? "h264_v4l2m2m" : env.PIMATRIX_HDMI_DECODER.trim() || undefined;
+  if (hdmiDecoder !== undefined && !/^[a-z0-9_]+$/.test(hdmiDecoder)) {
+    throw new Error("PIMATRIX_HDMI_DECODER must be an ffmpeg decoder name such as h264_v4l2m2m (letters, digits, _)");
+  }
   for (const [name, value] of [["PIMATRIX_HDMI0_DEVICE", hdmi0Device], ["PIMATRIX_HDMI1_DEVICE", hdmi1Device]] as const) {
     if (value !== undefined && !/^[A-Za-z0-9._:/-]+$/.test(value)) {
       throw new Error(`${name} must be a DRM connector, device path or display name (letters, digits, . _ : / -), e.g. card1-HDMI-A-1`);
@@ -333,6 +340,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(hdmi0Device ? { hdmi0Device } : {}),
     ...(hdmi1Device ? { hdmi1Device } : {}),
     ...(hdmiSdlVideoDriver ? { hdmiSdlVideoDriver } : {}),
+    ...(hdmiDecoder ? { hdmiDecoder } : {}),
     ...(mediaMtxRtspUrl ? { mediaMtxRtspUrl } : {}),
     ...(piprogramUrl ? { piprogramUrl } : {}),
     ...(piprogramApiKey ? { piprogramApiKey } : {}),

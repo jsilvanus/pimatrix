@@ -26,6 +26,11 @@ import type { DisplayAdapter, DisplayAdapterState, DisplayOutputState } from "./
  * asks for that source. Routes are re-checked before every retry. Without sourceReady there
  * is no retry, so a failed start is reported at once.
  *
+ * Hardware decoding: with decoder set (ffplay -vcodec, e.g. h264_v4l2m2m on a Pi) the first
+ * start of a route decodes in hardware. A start that fails inside the startup window is
+ * retried without the decoder, so a missing or unsupported codec falls back to software.
+ * Retries without sourceReady are only done when a decoder is set.
+ *
  * Exits caused by our own stop are ignored. observedSource is the source of the current
  * player and is cleared whenever no player is running for the output.
  *
@@ -79,7 +84,9 @@ export interface HdmiPlayerAdapterOptions {
   readyPollMs?: number;
   /** How long to wait for sourceReady before starting the player anyway, default 30000 ms. */
   readyTimeoutMs?: number;
-  /** Player starts per route before the output is marked failed, default 5. Only with sourceReady. */
+  /** ffplay decoder (-vcodec), e.g. "h264_v4l2m2m". Undefined = software decoding. */
+  decoder?: string;
+  /** Player starts per route before the output is marked failed, default 5. Only with a retry. */
   startAttempts?: number;
   /** Delay before the first retry; doubles per retry, default 1000 ms. */
   retryBaseMs?: number;
@@ -129,6 +136,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
   private readonly readyTimeoutMs: number;
   private readonly startAttempts: number;
   private readonly retryBaseMs: number;
+  private readonly decoder: string | undefined;
   /** The source each output should show now (null = idle). Set synchronously by applyRoute. */
   private readonly desired = new Map<OutputId, SourceId | null>();
   private readonly stateListeners = new Set<(state: DisplayOutputState) => void>();
@@ -147,6 +155,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
     this.readyTimeoutMs = options.readyTimeoutMs ?? 30000;
     this.startAttempts = Math.max(1, options.startAttempts ?? 5);
     this.retryBaseMs = options.retryBaseMs ?? 1000;
+    this.decoder = options.decoder;
     for (const id of this.devices.keys()) {
       this.states.set(id, { id, observedSource: null, state: "unavailable" });
       this.desired.set(id, null);
@@ -226,7 +235,9 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
       if (this.desired.get(outputId) !== sourceId) return this.requireState(outputId);
     }
 
-    const args = this.playerArgs(outputId, url);
+    // Attempt 1 uses the hardware decoder when one is set; later attempts fall back to software.
+    const useDecoder = this.decoder !== undefined && attempt === 1;
+    const args = this.playerArgs(outputId, url, useDecoder ? this.decoder : undefined);
     const env: NodeJS.ProcessEnv = { ...process.env, PIMATRIX_OUTPUT_DEVICE: device };
     if (this.sdlVideoDriver) env.SDL_VIDEODRIVER = this.sdlVideoDriver;
     let proc: PlayerProcess;
@@ -266,10 +277,11 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
   }
 
   /** Arguments for one ffplay run. Full screen, no audio unless configured. */
-  private playerArgs(outputId: OutputId, url: string): string[] {
+  private playerArgs(outputId: OutputId, url: string, decoder: string | undefined): string[] {
     const args = ["-hide_banner", "-loglevel", "warning", "-fs", "-noborder", "-fflags", "nobuffer"];
     if (!this.audio) args.push("-an");
     if (url.startsWith("rtsp:")) args.push("-rtsp_transport", "tcp");
+    if (decoder) args.push("-vcodec", decoder);
     args.push("-window_title", `pimatrix-${outputId}`, url);
     return args;
   }
@@ -289,7 +301,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
       const current = this.states.get(outputId);
       const inWindow = current?.state === "starting";
       if (inWindow && (code === null || code !== 0)) {
-        const retryable = this.sourceReady !== undefined && record.attempt < this.startAttempts;
+        const retryable = (this.sourceReady !== undefined || this.decoder !== undefined) && record.attempt < this.startAttempts;
         if (retryable && this.desired.get(outputId) === record.sourceId) {
           this.scheduleRetry(outputId, record.sourceId, record.attempt + 1);
           return;

@@ -467,3 +467,38 @@ test("a route change cancels a pending retry", async () => {
   assert.equal(adapter.getOutputState("hdmi0").state, "unavailable");
   await adapter.close();
 });
+
+test("with a decoder, the first start decodes in hardware and a failed start falls back to software", async () => {
+  const { spawn, calls } = fakeSpawner();
+  const adapter = new HdmiPlayerAdapter({
+    outputs: outputs({ hdmi0: "card1-HDMI-A-1" }),
+    sourceUrl,
+    spawn,
+    startupWindowMs: 200,
+    retryBaseMs: 1,
+    decoder: "h264_v4l2m2m"
+  });
+
+  await adapter.applyRoute("hdmi0", "cam1");
+  const first = calls[0]?.args ?? [];
+  assert.deepEqual(first.slice(first.indexOf("-vcodec"), first.indexOf("-vcodec") + 2), ["-vcodec", "h264_v4l2m2m"]);
+  calls[0]?.child.exit(1);
+  await sleep(20);
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1]?.args.includes("-vcodec"), false);
+  await adapter.close();
+});
+
+test("without a decoder no -vcodec argument is passed", async () => {
+  const { spawn, calls } = fakeSpawner();
+  const adapter = new HdmiPlayerAdapter({
+    outputs: outputs({ hdmi0: "card1-HDMI-A-1" }),
+    sourceUrl,
+    spawn
+  });
+
+  await adapter.applyRoute("hdmi0", "cam1");
+  assert.equal(calls[0]?.args.includes("-vcodec"), false);
+  await adapter.close();
+});
