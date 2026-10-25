@@ -1,5 +1,5 @@
 export type RuntimeMode = "simulation" | "production";
-export type HamaVideoCodec = "copy" | "libx264";
+export type HamaVideoCodec = "copy" | "libx264" | "h264_v4l2m2m";
 export type DisplayMode = "simulated" | "hardware" | "disabled";
 
 export interface AppConfig {
@@ -256,8 +256,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (Boolean(hamaWidth) !== Boolean(hamaHeight)) {
     throw new Error("PIMATRIX_HAMA_WIDTH and PIMATRIX_HAMA_HEIGHT must be set together");
   }
-  if (hamaVideoCodec !== undefined && hamaVideoCodec !== "copy" && hamaVideoCodec !== "libx264") {
-    throw new Error('PIMATRIX_HAMA_VIDEO_CODEC must be "copy" or "libx264"');
+  if (hamaVideoCodec !== undefined && hamaVideoCodec !== "copy" && hamaVideoCodec !== "libx264" && hamaVideoCodec !== "h264_v4l2m2m") {
+    throw new Error('PIMATRIX_HAMA_VIDEO_CODEC must be "copy", "libx264" or "h264_v4l2m2m"');
   }
   if (streamRestartMaxMs < streamRestartMinMs) {
     throw new Error("PIMATRIX_STREAM_RESTART_MAX_MS must be greater than or equal to PIMATRIX_STREAM_RESTART_MIN_MS");

@@ -88,7 +88,7 @@ Environment:
 - `PIMATRIX_HAMA_DEVICE`: V4L2 device path; defaults to `/dev/video0`.
 - `PIMATRIX_HAMA_INPUT_FORMAT`: optional V4L2 input format (for example `mjpeg`), only set after checking the device formats.
 - `PIMATRIX_HAMA_WIDTH`, `PIMATRIX_HAMA_HEIGHT`, `PIMATRIX_HAMA_FRAME_RATE`: optional capture-mode overrides. Width and height must be supplied together; omitted values leave mode selection to FFmpeg/V4L2.
-- `PIMATRIX_HAMA_VIDEO_CODEC`: optional `copy` or `libx264`; omitted by default because the manual does not identify the Linux capture pixel format.
+- `PIMATRIX_HAMA_VIDEO_CODEC`: optional `copy`, `libx264` (software, about a core at 1080p on a Pi 4) or `h264_v4l2m2m` (the Pi 4 hardware encoder, 4 Mbps). Omitted by default because the manual does not identify the Linux capture pixel format. On the Pi, set `h264_v4l2m2m` to keep the CPU free; the encoder must exist in the Pi FFmpeg build (check with `ffmpeg -encoders | grep v4l2m2m`). Not verified on the Pi yet.
 - `PIMATRIX_HAMA_RTSP_URL`: required when Hama capture is enabled; the RTSP publish URL for MediaMTX, e.g. `rtsp://127.0.0.1:8554/hama` when API and MediaMTX share the host network, or `rtsp://mediamtx:8554/hama` on a shared container network.
 - `PIMATRIX_STREAM_RESTART_MIN_MS`: initial retry delay, default `1000`.
 - `PIMATRIX_STREAM_RESTART_MAX_MS`: maximum retry delay, default `30000` (maximum accepted: 5 minutes).
