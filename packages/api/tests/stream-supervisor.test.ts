@@ -123,3 +123,35 @@ test("Hama capture does not force undocumented Linux modes by default", () => {
   assert.equal(args.includes("-video_size"), false);
   assert.equal(args.includes("-c:v"), false);
 });
+
+test("Hama capture uses the Pi hardware encoder when PIMATRIX_HAMA_VIDEO_CODEC is h264_v4l2m2m", () => {
+  const config = loadConfig({
+    PIMATRIX_HAMA_RTSP_URL: "rtsp://mediamtx:8554/hama",
+    PIMATRIX_HAMA_VIDEO_CODEC: "h264_v4l2m2m"
+  });
+  const args = buildHamaCaptureSpec(config, 1).ffmpeg?.args ?? [];
+  const at = args.indexOf("-c:v");
+  assert.equal(args[at + 1], "h264_v4l2m2m");
+  assert.ok(args.includes("-b:v"));
+  assert.equal(args.includes("libx264"), false);
+});
+
+test("Hama capture with a filter re-encodes with the configured encoder", () => {
+  const hw = loadConfig({
+    PIMATRIX_HAMA_RTSP_URL: "rtsp://mediamtx:8554/hama",
+    PIMATRIX_HAMA_VIDEO_CODEC: "h264_v4l2m2m"
+  });
+  const hwArgs = buildHamaCaptureSpec(hw, 1, "crop=640:360:0:0").ffmpeg?.args ?? [];
+  assert.equal(hwArgs[hwArgs.indexOf("-c:v") + 1], "h264_v4l2m2m");
+
+  const sw = loadConfig({ PIMATRIX_HAMA_RTSP_URL: "rtsp://mediamtx:8554/hama", PIMATRIX_HAMA_VIDEO_CODEC: "copy" });
+  const swArgs = buildHamaCaptureSpec(sw, 1, "crop=640:360:0:0").ffmpeg?.args ?? [];
+  assert.equal(swArgs[swArgs.indexOf("-c:v") + 1], "libx264");
+});
+
+test("PIMATRIX_HAMA_VIDEO_CODEC rejects unknown encoders", () => {
+  assert.throws(
+    () => loadConfig({ PIMATRIX_HAMA_RTSP_URL: "rtsp://mediamtx:8554/hama", PIMATRIX_HAMA_VIDEO_CODEC: "h265" }),
+    /PIMATRIX_HAMA_VIDEO_CODEC/
+  );
+});

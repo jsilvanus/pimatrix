@@ -1,5 +1,5 @@
 import type { Fleet, JobHandle, JobSnapshot, JobSpecInput } from "fffleet";
-import type { AppConfig } from "./config.js";
+import type { AppConfig, HamaVideoCodec } from "./config.js";
 
 export type ManagedStreamState = "disabled" | "starting" | "running" | "degraded" | "failed" | "stopping";
 
@@ -12,6 +12,15 @@ export interface ManagedStreamSnapshot {
 }
 
 type StreamJobFactory = (attempt: number) => JobSpecInput;
+
+/**
+ * Encoder arguments for the Hama stream. h264_v4l2m2m is the Pi 4 hardware encoder
+ * (V4L2 M2M); libx264 is software and takes about a core at 1080p on a Pi.
+ */
+export function hamaEncoderArgs(codec: HamaVideoCodec | undefined): string[] {
+  if (codec === "h264_v4l2m2m") return ["-c:v", "h264_v4l2m2m", "-b:v", "4M", "-pix_fmt", "yuv420p"];
+  return ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p"];
+}
 
 export function buildHamaCaptureSpec(config: AppConfig, attempt: number, filter?: string): JobSpecInput {
   if (!config.hamaRtspUrl) {
@@ -34,11 +43,11 @@ export function buildHamaCaptureSpec(config: AppConfig, attempt: number, filter?
 
   if (filter && filter !== "null") {
     args.push("-vf", filter);
-    args.push("-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p");
+    args.push(...hamaEncoderArgs(config.hamaVideoCodec));
   } else if (config.hamaVideoCodec === "copy") {
     args.push("-c:v", "copy");
-  } else if (config.hamaVideoCodec === "libx264") {
-    args.push("-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p");
+  } else if (config.hamaVideoCodec === "libx264" || config.hamaVideoCodec === "h264_v4l2m2m") {
+    args.push(...hamaEncoderArgs(config.hamaVideoCodec));
   }
 
   args.push("-f", "rtsp", "-rtsp_transport", "tcp", "{{output:preview}}");
