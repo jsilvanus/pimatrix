@@ -73,7 +73,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   const outputStore = createOutputStore();
   const effectsStore = new EffectsStore(sourceDefinitions.map((s) => s.id));
   const displayAdapter: DisplayAdapter = createDisplayAdapter(config.displayMode, config);
-  const atem = new AtemAdapter();
+  const atem = new AtemAdapter({ logger: app.log });
   registerAtemRoutes(app, atem);
   const eventBroker = new PiMatrixEventBroker();
   // The HDMI player moves from "starting" to "active" on a timer, not on a route call,
