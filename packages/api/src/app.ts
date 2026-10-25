@@ -6,6 +6,7 @@ import { AmxTcpListener } from "./amx/amx-listener.js";
 import { AtemAdapter } from "./atem/atem-adapter.js";
 import { registerAtemRoutes } from "./atem/atem-routes.js";
 import { CameraService } from "./camera/camera-service.js";
+import { CameraCgiError } from "./camera/camera-adapter.js";
 import type { PanTiltDirection, SmartFrameMode, ZoomAction } from "./camera/visca-protocol.js";
 import type { AppConfig } from "./config.js";
 import { createDisplayAdapter, type DisplayAdapter } from "./display-adapter.js";
@@ -48,6 +49,16 @@ import { PiPgmService } from "./pipgm/pipgm-service.js";
 import { renderPiPgmStageHtml } from "./pipgm/stage-html.js";
 import { buildHamaCaptureSpec, StreamSupervisor } from "./stream-supervisor.js";
 import { isIpWhitelisted } from "./ip-whitelist.js";
+
+/** Maps a failed camera CGI call to a 502 with a reason, so a bad login is visible in the API. */
+function sendCameraCgiError(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, err: unknown): unknown {
+  if (err instanceof CameraCgiError) {
+    const code =
+      err.reason === "auth" ? "CAMERA_LOGIN_REJECTED" : err.reason === "unreachable" ? "CAMERA_UNREACHABLE" : "CAMERA_REJECTED";
+    return reply.code(502).send({ error: { code, message: err.message } });
+  }
+  throw err;
+}
 
 export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): FastifyInstance {
   const app = Fastify({
@@ -112,10 +123,14 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     cam1Host: config.cam1Host,
     cam1ViscaPort: config.cam1ViscaPort,
     cam1CgiPort: config.cam1CgiPort,
+    cam1CgiUser: config.cam1CgiUser,
+    cam1CgiPassword: config.cam1CgiPassword,
     cam2Name: config.cam2Name,
     cam2Host: config.cam2Host,
     cam2ViscaPort: config.cam2ViscaPort,
     cam2CgiPort: config.cam2CgiPort,
+    cam2CgiUser: config.cam2CgiUser,
+    cam2CgiPassword: config.cam2CgiPassword,
     mediaMtxRtspBaseUrl: config.previewBaseUrl?.replace(/^http/, "rtsp"),
     mediaMtxRtmpBaseUrl: config.previewBaseUrl?.replace(/^http/, "rtmp")
   });
@@ -1968,14 +1983,17 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         });
       }
 
-      const { streamUrl } = await cameraService.startStream(request.params.cameraId);
-
-      return reply.code(200).send({
-        cameraId: request.params.cameraId,
-        streaming: true,
-        streamUrl,
-        message: "Camera stream started"
-      });
+      try {
+        const { streamUrl } = await cameraService.startStream(request.params.cameraId);
+        return reply.code(200).send({
+          cameraId: request.params.cameraId,
+          streaming: true,
+          streamUrl,
+          message: "Camera stream started"
+        });
+      } catch (err) {
+        return sendCameraCgiError(reply, err);
+      }
     }
   );
 
@@ -1989,7 +2007,11 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         });
       }
 
-      await cameraService.stopStream(request.params.cameraId);
+      try {
+        await cameraService.stopStream(request.params.cameraId);
+      } catch (err) {
+        return sendCameraCgiError(reply, err);
+      }
 
       return reply.code(200).send({
         cameraId: request.params.cameraId,

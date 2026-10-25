@@ -16,12 +16,20 @@ export interface CameraServiceOptions {
   cam1Host?: string | undefined;
   cam1ViscaPort?: number | undefined;
   cam1CgiPort?: number | undefined;
+  cam1CgiUser?: string | undefined;
+  cam1CgiPassword?: string | undefined;
   cam2Name?: string | undefined;
   cam2Host?: string | undefined;
   cam2ViscaPort?: number | undefined;
   cam2CgiPort?: number | undefined;
+  cam2CgiUser?: string | undefined;
+  cam2CgiPassword?: string | undefined;
   mediaMtxRtspBaseUrl?: string | undefined;
   mediaMtxRtmpBaseUrl?: string | undefined;
+}
+
+function basicAuth(user?: string, password?: string): { user: string; password: string } | undefined {
+  return user && password ? { user, password } : undefined;
 }
 
 export class CameraService {
@@ -45,6 +53,7 @@ export class CameraService {
           host: options.cam1Host,
           viscaPort: options.cam1ViscaPort,
           cgiPort: options.cam1CgiPort,
+          auth: basicAuth(options.cam1CgiUser, options.cam1CgiPassword),
           rtspUrl: options.mediaMtxRtspBaseUrl ? `${options.mediaMtxRtspBaseUrl}/cam1` : undefined,
           rtmpTargetUrl: options.mediaMtxRtmpBaseUrl ? `${options.mediaMtxRtmpBaseUrl}/cam1` : undefined,
           logger: options.logger
@@ -63,6 +72,7 @@ export class CameraService {
           host: options.cam2Host,
           viscaPort: options.cam2ViscaPort,
           cgiPort: options.cam2CgiPort,
+          auth: basicAuth(options.cam2CgiUser, options.cam2CgiPassword),
           rtspUrl: options.mediaMtxRtspBaseUrl ? `${options.mediaMtxRtspBaseUrl}/cam2` : undefined,
           rtmpTargetUrl: options.mediaMtxRtmpBaseUrl ? `${options.mediaMtxRtmpBaseUrl}/cam2` : undefined,
           logger: options.logger

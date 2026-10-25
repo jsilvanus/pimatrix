@@ -203,12 +203,35 @@ export class SimulatedCameraAdapter implements CameraAdapter {
   }
 }
 
+/**
+ * A camera CGI call failed. `reason` says why, so the API can answer clearly:
+ * "auth" (401/403: wrong or missing login), "rejected" (other HTTP error) or
+ * "unreachable" (no answer in time). The message never carries the login.
+ */
+export class CameraCgiError extends Error {
+  constructor(
+    message: string,
+    readonly reason: "auth" | "rejected" | "unreachable",
+    readonly status: number | null = null
+  ) {
+    super(message);
+    this.name = "CameraCgiError";
+  }
+}
+
+export interface CameraLogin {
+  user: string;
+  password: string;
+}
+
 export interface UdpViscaCameraConfig {
   id: string;
   label: string;
   host: string;
   viscaPort?: number | undefined;
   cgiPort?: number | undefined;
+  /** HTTP Basic login for the camera CGI. Sent only as an Authorization header. */
+  auth?: CameraLogin | undefined;
   rtspUrl?: string | undefined;
   rtmpTargetUrl?: string | undefined;
   logger?: FastifyBaseLogger | undefined;
@@ -221,6 +244,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   private readonly host: string;
   private readonly viscaPort: number;
   private readonly cgiPort: number;
+  private readonly authHeader: string | null;
   private readonly rtspUrl: string | null;
   private readonly rtmpTargetUrl: string | null;
   private readonly logger?: FastifyBaseLogger | undefined;
@@ -239,6 +263,9 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     this.host = config.host;
     this.viscaPort = config.viscaPort ?? 52381;
     this.cgiPort = config.cgiPort ?? 80;
+    this.authHeader = config.auth
+      ? `Basic ${Buffer.from(`${config.auth.user}:${config.auth.password}`).toString("base64")}`
+      : null;
     this.rtspUrl = config.rtspUrl ?? `rtsp://${config.host}:554/live_st1`;
     this.rtmpTargetUrl = config.rtmpTargetUrl ?? null;
     this.logger = config.logger;
@@ -342,31 +369,46 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   }
 
   async startStream(): Promise<string | null> {
-    try {
-      // Trigger camera HTTP CGI RTMP stream if target is configured
-      if (this.rtmpTargetUrl) {
-        const cgiUrl = `http://${this.host}:${this.cgiPort}/cgi-bin?Set=vdo_rtmp_url,3,${encodeURIComponent(this.rtmpTargetUrl)}`;
-        await fetch(cgiUrl, { signal: AbortSignal.timeout(2000) }).catch(() => {});
-        const enableUrl = `http://${this.host}:${this.cgiPort}/cgi-bin?Set=vdo_rtmp_enable,3,1`;
-        await fetch(enableUrl, { signal: AbortSignal.timeout(2000) }).catch(() => {});
-      }
-      this.streaming = true;
-      return this.rtspUrl;
-    } catch (err) {
-      this.logger?.warn({ err, camera: this.id }, "Failed to start camera stream via CGI");
-      this.streaming = true; // Mark requested
-      return this.rtspUrl;
+    // Point the camera's RTMP push at MediaMTX, then switch it on. Failures are
+    // not hidden: a rejected login or an unreachable camera throws CameraCgiError.
+    if (this.rtmpTargetUrl) {
+      await this.cgiSet(`vdo_rtmp_url,3,${encodeURIComponent(this.rtmpTargetUrl)}`);
+      await this.cgiSet("vdo_rtmp_enable,3,1");
     }
+    this.streaming = true;
+    return this.rtspUrl;
   }
 
   async stopStream(): Promise<void> {
     try {
-      const disableUrl = `http://${this.host}:${this.cgiPort}/cgi-bin?Set=vdo_rtmp_enable,3,0`;
-      await fetch(disableUrl, { signal: AbortSignal.timeout(2000) }).catch(() => {});
-    } catch (err) {
-      this.logger?.warn({ err, camera: this.id }, "Failed to stop camera stream via CGI");
+      await this.cgiSet("vdo_rtmp_enable,3,0");
     } finally {
       this.streaming = false;
+    }
+  }
+
+  /** One CGI "Set" call. The login goes only in the Authorization header. */
+  private async cgiSet(value: string): Promise<void> {
+    const url = `http://${this.host}:${this.cgiPort}/cgi-bin?Set=${value}`;
+    const headers: Record<string, string> = this.authHeader ? { Authorization: this.authHeader } : {};
+    let res: Response;
+    try {
+      res = await fetch(url, { headers, signal: AbortSignal.timeout(2000) });
+    } catch {
+      this.logger?.warn({ camera: this.id }, "Camera CGI unreachable");
+      throw new CameraCgiError(`Camera ${this.id} did not answer the CGI request`, "unreachable");
+    }
+    await res.body?.cancel();
+    if (res.status === 401 || res.status === 403) {
+      this.logger?.warn({ camera: this.id, status: res.status }, "Camera CGI rejected the login");
+      throw new CameraCgiError(
+        `Camera ${this.id} rejected the login (HTTP ${res.status}); check PIMATRIX_${this.id.toUpperCase()}_USER and _PASSWORD`,
+        "auth",
+        res.status
+      );
+    }
+    if (!res.ok) {
+      throw new CameraCgiError(`Camera ${this.id} answered HTTP ${res.status} to the CGI request`, "rejected", res.status);
     }
   }
 
