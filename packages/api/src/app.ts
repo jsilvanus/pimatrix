@@ -1231,6 +1231,33 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     });
   });
 
+  app.post<{
+    Params: { cameraId: string };
+    Body: { mode?: unknown };
+  }>("/api/v1/cameras/:cameraId/focus", async (request, reply) => {
+    const camera = cameraService.get(request.params.cameraId);
+    if (!camera) {
+      return reply.code(404).send({
+        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+      });
+    }
+
+    const mode = request.body?.mode;
+    if (mode !== "auto" && mode !== "manual") {
+      return reply.code(422).send({
+        error: { code: "INVALID_FOCUS_MODE", message: "mode must be auto or manual" }
+      });
+    }
+
+    await cameraService.setFocusMode(request.params.cameraId, mode);
+
+    return reply.code(200).send({
+      cameraId: request.params.cameraId,
+      success: true,
+      action: `focus:${mode}`
+    });
+  });
+
   app.post<{ Params: { cameraId: string } }>(
     "/api/v1/cameras/:cameraId/stream/start",
     async (request, reply) => {

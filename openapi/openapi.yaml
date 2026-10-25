@@ -356,6 +356,126 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/v1/atem/auto:
+    post:
+      operationId: autoAtem
+      tags: [ATEM]
+      summary: Auto (mix) transition of preview to program on the ATEM M/E row
+      responses:
+        "200":
+          description: Auto transition started; returns the new state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtemState"
+        "503":
+          description: ATEM is not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/atem/ftb:
+    post:
+      operationId: toggleAtemFadeToBlack
+      tags: [ATEM]
+      summary: Fade to black on the ATEM M/E row (fades back in when already black)
+      responses:
+        "200":
+          description: Fade started; returns the new state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtemState"
+        "503":
+          description: ATEM is not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/atem/dsk/{dsk}/on-air:
+    put:
+      operationId: setAtemDskOnAir
+      tags: [ATEM]
+      summary: Put a downstream keyer on air or take it off (cut, like the ON AIR button)
+      parameters:
+        - name: dsk
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 4
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [onAir]
+              properties:
+                onAir:
+                  type: boolean
+      responses:
+        "200":
+          description: Keyer updated; returns the new state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtemState"
+        "422":
+          description: Invalid keyer number or body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: ATEM is not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/atem/dsk/{dsk}/tie:
+    put:
+      operationId: setAtemDskTie
+      tags: [ATEM]
+      summary: Set the tie of a downstream keyer (rides with the next transition)
+      parameters:
+        - name: dsk
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 4
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tie]
+              properties:
+                tie:
+                  type: boolean
+      responses:
+        "200":
+          description: Tie updated; returns the new state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtemState"
+        "422":
+          description: Invalid keyer number or body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: ATEM is not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/v1/cameras:
     get:
       operationId: listCameras
@@ -567,6 +687,39 @@ paths:
           $ref: "#/components/responses/NotFound"
         "422":
           description: Invalid SmartFrame mode
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/cameras/{cameraId}/focus:
+    post:
+      operationId: setCameraFocusMode
+      tags: [Cameras]
+      summary: Set autofocus or manual focus
+      description: Standard VISCA CAM_Focus auto or manual. Auto also ends a privacy blur. Not yet verified on a real PTZ330.
+      parameters:
+        - in: path
+          name: cameraId
+          required: true
+          schema:
+            $ref: "#/components/schemas/CameraId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CameraFocusRequest"
+      responses:
+        "200":
+          description: Focus mode updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CameraActionResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid focus mode
           content:
             application/json:
               schema:
@@ -1361,10 +1514,35 @@ components:
           maximum: 40
     AtemState:
       type: object
-      required: [connected, programInput, previewInput, transition]
+      required: [connected, programInput, previewInput, transition, fadeToBlack, downstreamKeyers]
       properties:
         connected:
           type: boolean
+        fadeToBlack:
+          type: object
+          required: [fullyBlack, inTransition, remainingFrames]
+          properties:
+            fullyBlack:
+              type: boolean
+            inTransition:
+              type: boolean
+            remainingFrames:
+              type: integer
+        downstreamKeyers:
+          type: array
+          items:
+            type: object
+            required: [dsk, onAir, tie, inTransition]
+            properties:
+              dsk:
+                type: integer
+                description: 1-based keyer number as printed on the switcher
+              onAir:
+                type: boolean
+              tie:
+                type: boolean
+              inTransition:
+                type: boolean
         programInput:
           type: [integer, "null"]
         previewInput:
@@ -1407,7 +1585,7 @@ components:
           description: Put the DSK on air after an upload. Default false.
     Composite:
       type: object
-      required: [id, kind, enabled, width, height, side, slideAspect, slideScale, keyColor, keyMode, atem, state, lastError, hasSlide, slideSource, pipelineId, feedError, updatedAt]
+      required: [id, kind, enabled, width, height, side, slideAspect, slideScale, offsetY, keyColor, keyMode, atem, state, lastError, hasSlide, slideSource, pipelineId, feedError, updatedAt]
       properties:
         id:
           $ref: "#/components/schemas/CompositeId"
@@ -1432,6 +1610,11 @@ components:
           minimum: 0.6
           maximum: 1
           description: Slide height as a fraction of the frame height
+        offsetY:
+          type: number
+          minimum: -1
+          maximum: 1
+          description: Vertical position of the slide, -1 top edge, 0 centred, 1 bottom edge
         keyColor:
           type: string
           pattern: "^#[0-9a-f]{6}$"
@@ -1494,6 +1677,10 @@ components:
         slideScale:
           type: number
           minimum: 0.6
+          maximum: 1
+        offsetY:
+          type: number
+          minimum: -1
           maximum: 1
         keyColor:
           type: string
@@ -1732,6 +1919,13 @@ components:
         mode:
           type: string
           enum: [enable, disable, trigger]
+    CameraFocusRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [auto, manual]
     CameraPrivacyBlurRequest:
       type: object
       required: [enabled]
@@ -1758,7 +1952,7 @@ components:
           type: integer
     Camera:
       type: object
-      required: [id, label, model, connection, streaming, smartFrame, privacyBlur, position, presets]
+      required: [id, label, model, connection, streaming, smartFrame, privacyBlur, focusMode, position, presets]
       properties:
         id:
           $ref: "#/components/schemas/CameraId"
@@ -1779,6 +1973,9 @@ components:
         privacyBlur:
           type: boolean
           description: True while the privacy blur (manual focus driven near) is on.
+        focusMode:
+          type: string
+          enum: [auto, manual]
         position:
           $ref: "#/components/schemas/CameraPosition"
         presets:

@@ -82,3 +82,11 @@ test("the filter graph places the slide and fills the background", () => {
   const transparent = keyPageFilterGraph(keyPageGeometry({ ...base, kind: "atem-media" }));
   assert.match(transparent, /color=c=black@0:s=1920x1080/);
 });
+
+test("offsetY moves the slide between the top and bottom edges", () => {
+  const scaled = { ...base, slideScale: 0.6 };
+  assert.equal(keyPageGeometry({ ...scaled, offsetY: -1 }).slide.y, 0);
+  assert.equal(keyPageGeometry({ ...scaled, offsetY: 0 }).slide.y, 216);
+  const bottom = keyPageGeometry({ ...scaled, offsetY: 1 }).slide;
+  assert.equal(bottom.y + bottom.height, 1080);
+});

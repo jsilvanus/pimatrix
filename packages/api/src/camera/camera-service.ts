@@ -3,6 +3,7 @@ import type { PiMatrixEventBroker } from "../events.js";
 import {
   type CameraAdapter,
   type CameraSnapshot,
+  type FocusMode,
   SimulatedCameraAdapter,
   UdpViscaCameraAdapter
 } from "./camera-adapter.js";
@@ -245,6 +246,28 @@ export class CameraService {
       data: {
         id,
         action: `privacyblur:${enabled ? "on" : "off"}`,
+        privacyBlur: snapshot.privacyBlur
+      }
+    });
+
+    return snapshot;
+  }
+
+  async setFocusMode(id: string, mode: FocusMode): Promise<CameraSnapshot> {
+    const cam = this.cameras.get(id);
+    if (!cam) {
+      throw new Error(`Camera '${id}' not found`);
+    }
+
+    await cam.setFocusMode(mode);
+    const snapshot = cam.getSnapshot();
+
+    this.eventBroker?.emit({
+      type: "camera",
+      data: {
+        id,
+        action: `focus:${mode}`,
+        focusMode: snapshot.focusMode,
         privacyBlur: snapshot.privacyBlur
       }
     });

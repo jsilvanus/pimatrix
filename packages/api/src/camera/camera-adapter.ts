@@ -35,6 +35,7 @@ export interface CameraPosition {
 }
 
 export type CameraConnectionState = "connected" | "disconnected" | "simulated";
+export type FocusMode = "auto" | "manual";
 export type SmartFrameState = "enabled" | "disabled" | "triggered" | "unsupported";
 
 export interface CameraSnapshot {
@@ -47,6 +48,8 @@ export interface CameraSnapshot {
   smartFrame: SmartFrameState;
   /** True while the privacy blur is on: manual focus driven to the nearest point. */
   privacyBlur: boolean;
+  /** Focus mode as last set from here ("auto" until changed). */
+  focusMode: FocusMode;
   position: CameraPosition;
   presets: CameraPreset[];
 }
@@ -64,6 +67,8 @@ export interface CameraAdapter {
   setSmartFrame(mode: SmartFrameMode): Promise<void>;
   /** On: AF to MF, near limit to the closest distance, focus driven near. Off: back to AF. */
   setPrivacyBlur(enabled: boolean): Promise<void>;
+  /** Plain VISCA CAM_Focus auto (AF) or manual (MF). */
+  setFocusMode(mode: FocusMode): Promise<void>;
   startStream(): Promise<string | null>;
   stopStream(): Promise<void>;
   close(): Promise<void>;
@@ -76,6 +81,7 @@ export class SimulatedCameraAdapter implements CameraAdapter {
   private streaming = false;
   private smartFrame: SmartFrameState = "disabled";
   private privacyBlur = false;
+  private focusMode: FocusMode = "auto";
   private position: CameraPosition = { pan: 0, tilt: 0, zoom: 0 };
   private readonly presets = new Map<number, { position: CameraPosition; name?: string; thumbnail?: string }>([
     [1, { position: { pan: 100, tilt: 50, zoom: 10 }, name: "Pulpit" }],
@@ -101,6 +107,7 @@ export class SimulatedCameraAdapter implements CameraAdapter {
       streamUrl: this.streaming ? `rtsp://127.0.0.1:8554/${this.id}` : null,
       smartFrame: this.smartFrame,
       privacyBlur: this.privacyBlur,
+      focusMode: this.focusMode,
       position: { ...this.position },
       presets: [...this.presets.entries()]
         .map(([id, p]) => ({
@@ -202,6 +209,12 @@ export class SimulatedCameraAdapter implements CameraAdapter {
 
   async setPrivacyBlur(enabled: boolean): Promise<void> {
     this.privacyBlur = enabled;
+    this.focusMode = enabled ? "manual" : "auto";
+  }
+
+  async setFocusMode(mode: FocusMode): Promise<void> {
+    this.focusMode = mode;
+    if (mode === "auto") this.privacyBlur = false;
   }
 
   async startStream(): Promise<string | null> {
@@ -280,6 +293,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   private streaming = false;
   private smartFrame: SmartFrameState = "disabled";
   private privacyBlur = false;
+  private focusMode: FocusMode = "auto";
   private position: CameraPosition = { pan: 0, tilt: 0, zoom: 0 };
   private readonly presets = new Map<number, { position: CameraPosition; name?: string; thumbnail?: string }>();
 
@@ -310,6 +324,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
       streamUrl: this.streaming ? this.rtspUrl : null,
       smartFrame: this.smartFrame,
       privacyBlur: this.privacyBlur,
+      focusMode: this.focusMode,
       position: { ...this.position },
       presets: [...this.presets.entries()]
         .map(([id, p]) => ({
@@ -412,6 +427,14 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
       await this.sendCommand(buildFocusMode("auto"));
     }
     this.privacyBlur = enabled;
+    this.focusMode = enabled ? "manual" : "auto";
+  }
+
+  async setFocusMode(mode: FocusMode): Promise<void> {
+    await this.sendCommand(buildFocusMode(mode));
+    this.focusMode = mode;
+    // Back to autofocus ends a blur; manual focus on its own leaves the blur state as it was.
+    if (mode === "auto") this.privacyBlur = false;
   }
 
   async startStream(): Promise<string | null> {

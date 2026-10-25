@@ -65,6 +65,10 @@ async function run(options: CliOptions): Promise<void> {
       "  atem program <input>\n" +
       "  atem preview <input>\n" +
       "  atem cut\n" +
+      "  atem auto\n" +
+      "  atem ftb\n" +
+      "  atem dsk <1-4> on|off\n" +
+      "  atem dsk <1-4> tie on|off\n" +
       "  composites list\n" +
       "  composites show <compose1|compose2>\n" +
       "  composites set <compose1|compose2> <field> <value>\n" +
@@ -232,6 +236,29 @@ async function run(options: CliOptions): Promise<void> {
     const data = await AtemService.cutAtem();
     if (options.json) console.log(JSON.stringify(data, null, 2));
     else console.log("ATEM cut sent");
+    return;
+  }
+
+  if (group === "atem" && (action === "auto" || action === "ftb") && options.command.length === 2) {
+    const data = action === "auto" ? await AtemService.autoAtem() : await AtemService.toggleAtemFadeToBlack();
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(action === "auto" ? "ATEM auto transition sent" : "ATEM fade to black sent");
+    return;
+  }
+
+  if (group === "atem" && action === "dsk" && (options.command.length === 4 || options.command.length === 5)) {
+    const dsk = Number(arg1);
+    if (!Number.isInteger(dsk) || dsk < 1 || dsk > 4) throw new Error("DSK must be 1-4");
+    const tieMode = options.command.length === 5;
+    if (tieMode && arg2 !== "tie") throw new Error("Usage: atem dsk <1-4> [tie] on|off");
+    const flag = options.command[options.command.length - 1];
+    if (flag !== "on" && flag !== "off") throw new Error("Expected on or off");
+    const value = flag === "on";
+    const data = tieMode
+      ? await AtemService.setAtemDskTie(dsk, { tie: value })
+      : await AtemService.setAtemDskOnAir(dsk, { onAir: value });
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`ATEM DSK ${dsk} ${tieMode ? "tie" : "on air"} ${flag}`);
     return;
   }
 

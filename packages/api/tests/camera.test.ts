@@ -266,3 +266,41 @@ test("SimulatedCameraAdapter tracks privacy blur", async () => {
   await adapter.setPrivacyBlur(true);
   assert.equal(adapter.getSnapshot().privacyBlur, true);
 });
+
+test("focus mode sends VISCA auto/manual and auto ends a privacy blur", async () => {
+  const server = dgram.createSocket("udp4");
+  const received: Buffer[] = [];
+  await new Promise<void>((resolve) => server.bind(0, "127.0.0.1", () => resolve()));
+  server.on("message", (msg) => received.push(msg));
+
+  const adapter = new UdpViscaCameraAdapter({
+    id: "cam1",
+    label: "Camera 1",
+    host: "127.0.0.1",
+    viscaPort: server.address().port
+  });
+
+  await adapter.setFocusMode("manual");
+  assert.equal(adapter.getSnapshot().focusMode, "manual");
+  await adapter.setFocusMode("auto");
+  assert.equal(adapter.getSnapshot().focusMode, "auto");
+  await new Promise((r) => setTimeout(r, 50));
+
+  const bodies = received.map((p) => [...p.subarray(8)]);
+  assert.deepEqual(bodies, [
+    [0x81, 0x01, 0x04, 0x38, 0x03, 0xff],
+    [0x81, 0x01, 0x04, 0x38, 0x02, 0xff]
+  ]);
+
+  await adapter.close();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+});
+
+test("SimulatedCameraAdapter tracks focus mode", async () => {
+  const adapter = new SimulatedCameraAdapter("cam1", "Camera 1");
+  assert.equal(adapter.getSnapshot().focusMode, "auto");
+  await adapter.setPrivacyBlur(true);
+  assert.equal(adapter.getSnapshot().focusMode, "manual");
+  await adapter.setFocusMode("auto");
+  assert.equal(adapter.getSnapshot().privacyBlur, false);
+});

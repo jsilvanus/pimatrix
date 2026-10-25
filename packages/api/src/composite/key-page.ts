@@ -4,7 +4,7 @@
  *
  * Layout: the frame is width x height. The slide keeps its native aspect (10:16 or 9:16),
  * is scaled to slideScale of the frame height, sits at the left or right edge and is
- * centred vertically. Everything else is the background: the key colour for chroma keying,
+ * centred vertically unless offsetY moves it (-1 top edge, 1 bottom edge). Everything else is the background: the key colour for chroma keying,
  * black for luma keying, and fully transparent for the ATEM media still (atem-media).
  */
 
@@ -36,6 +36,8 @@ export interface KeyPageInput {
   side: CompositeSide;
   slideAspect: SlideAspect;
   slideScale: number;
+  /** -1 top edge, 0 centred, 1 bottom edge. Missing means centred. */
+  offsetY?: number;
   keyColor: string;
   keyMode: KeyMode;
 }
@@ -53,8 +55,10 @@ export function makeEven(value: number): number {
 export function keyPageGeometry(input: KeyPageInput): KeyPageGeometry {
   const slideHeight = Math.min(input.height, makeEven(input.height * input.slideScale));
   const slideWidth = Math.min(input.width, makeEven(slideHeight * SLIDE_RATIO[input.slideAspect]));
-  // Vertical centring. Both heights are even, so the difference is even and the offset is whole.
-  const y = Math.round((input.height - slideHeight) / 2);
+  // Vertical placement: centred at offsetY 0, flush with the top or bottom edge at -1 or 1.
+  // Both heights are even, so the free space is even and the centred offset is whole.
+  const free = input.height - slideHeight;
+  const y = Math.round(free / 2 + (input.offsetY ?? 0) * (free / 2));
   const x = input.side === "left" ? 0 : input.width - slideWidth;
 
   const transparent = input.kind === "atem-media";
