@@ -65,6 +65,9 @@ export interface AppConfig {
   hdmi1Device?: string;
   hdmiSdlVideoDriver?: string;
   mediaMtxRtspUrl?: string;
+  /** piprogram API base URL; composites with slideSource "piprogram" follow its stage frames. */
+  piprogramUrl?: string;
+  piprogramApiKey?: string;
   /** DRM connector for the HDMI key output of the slide composite (PIMATRIX_COMPOSITE_HDMI_DEVICE). */
   compositeHdmiDevice?: string;
   /** Encoder for the compose1 RTSP publisher. */
@@ -232,6 +235,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     }
   }
   const mediaMtxRtspUrl = optionalRtspUrl(env.PIMATRIX_MEDIAMTX_RTSP_URL, "PIMATRIX_MEDIAMTX_RTSP_URL");
+  const piprogramUrl = optionalHttpUrl(env.PIMATRIX_PIPROGRAM_URL, "PIMATRIX_PIPROGRAM_URL");
+  const piprogramApiKey = env.PIMATRIX_PIPROGRAM_API_KEY?.trim() || undefined;
   const compositeHdmiDevice = env.PIMATRIX_COMPOSITE_HDMI_DEVICE?.trim() || undefined;
   if (compositeHdmiDevice !== undefined && !/^[A-Za-z0-9._:/-]+$/.test(compositeHdmiDevice)) {
     throw new Error("PIMATRIX_COMPOSITE_HDMI_DEVICE must be a DRM connector, device path or display name (letters, digits, . _ : / -), e.g. card1-HDMI-A-2");
@@ -333,6 +338,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(hdmi1Device ? { hdmi1Device } : {}),
     ...(hdmiSdlVideoDriver ? { hdmiSdlVideoDriver } : {}),
     ...(mediaMtxRtspUrl ? { mediaMtxRtspUrl } : {}),
+    ...(piprogramUrl ? { piprogramUrl } : {}),
+    ...(piprogramApiKey ? { piprogramApiKey } : {}),
     ...(compositeHdmiDevice ? { compositeHdmiDevice } : {}),
     compositeDataDir,
     compositeVideoCodec,

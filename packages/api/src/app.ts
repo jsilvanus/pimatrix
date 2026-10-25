@@ -53,6 +53,7 @@ import { PiPgmService } from "./pipgm/pipgm-service.js";
 import { renderPiPgmStageHtml } from "./pipgm/stage-html.js";
 import { buildHamaCaptureSpec, StreamSupervisor } from "./stream-supervisor.js";
 import { HamaOnDemand } from "./hama-on-demand.js";
+import { PiprogramClient, PiprogramFeed } from "./composite/piprogram-feed.js";
 import { isIpWhitelisted } from "./ip-whitelist.js";
 
 /** Maps a failed camera CGI call to a 502 with a reason, so a bad login is visible in the API. */
@@ -97,6 +98,18 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     onChange: (status) => eventBroker.emit({ type: "composite", data: { composite: status } })
   });
   registerCompositeRoutes(app, compositeService);
+  // Slides from piprogram: composites with slideSource "piprogram" follow their pipeline's frame.
+  const piprogramFeed = config.piprogramUrl
+    ? new PiprogramFeed(
+        new PiprogramClient({ baseUrl: config.piprogramUrl, apiKey: config.piprogramApiKey, fetch: fetchImpl }),
+        {
+          composites: () => compositeService.list(),
+          setSlide: (id, png) => compositeService.setFeedSlide(id, png),
+          clearSlide: (id) => compositeService.clearFeedSlide(id),
+          reportError: (id, message) => compositeService.reportFeedError(id, message)
+        }
+      )
+    : null;
   // The HDMI player moves from "starting" to "active" on a timer, not on a route call,
   // so keep the output store and the event stream in step with every state change.
   displayAdapter.onStateChange?.((observed) => {
@@ -336,6 +349,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
 
   app.addHook("onReady", async () => {
     hamaOnDemand.sync();
+    piprogramFeed?.start();
     if (config.atemHost) {
       await atem.connect(config.atemHost, config.atemPort).catch((error: unknown) => {
         app.log.error({ err: error }, "ATEM connection failed; the adapter keeps retrying in the background");
@@ -352,6 +366,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
 
   app.addHook("onClose", async () => {
     hamaOnDemand.dispose();
+    piprogramFeed?.stop();
     await Promise.all([
       atem.disconnect(),
       compositeService.close(),

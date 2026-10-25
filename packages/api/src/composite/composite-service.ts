@@ -68,7 +68,11 @@ export class CompositeService {
   private readonly settings = new Map<CompositeId, CompositeSettings>();
   private readonly runtime = new Map<CompositeId, Runtime>();
   private readonly queues = new Map<CompositeId, Promise<unknown>>();
+  /** The manual slide (PUT /composites/slide), used by composites with slideSource "upload". */
   private slide: Buffer | null = null;
+  /** The piprogram frame per composite, used by composites with slideSource "piprogram". */
+  private readonly feedSlides = new Map<CompositeId, Buffer>();
+  private readonly feedErrors = new Map<CompositeId, string | null>();
   private readonly renderFrame: (options: RenderKeyPageOptions) => Promise<Buffer>;
   private readonly fillInputBase: number;
 
@@ -88,7 +92,15 @@ export class CompositeService {
   get(id: string): CompositeStatus {
     const settings = this.requireSettings(id);
     const runtime = this.runtime.get(settings.id) ?? { state: "stopped", lastError: null, updatedAt: "" };
-    return { ...settings, atem: { ...settings.atem }, state: runtime.state, lastError: runtime.lastError, hasSlide: this.slide !== null, updatedAt: runtime.updatedAt };
+    return {
+      ...settings,
+      atem: { ...settings.atem },
+      state: runtime.state,
+      lastError: runtime.lastError,
+      hasSlide: this.slideFor(settings) !== null,
+      feedError: this.feedErrors.get(settings.id) ?? null,
+      updatedAt: runtime.updatedAt
+    };
   }
 
   /**
@@ -101,37 +113,71 @@ export class CompositeService {
     const next = applyCompositePatch(current, patch);
     const becameEnabled = !current.enabled && next.enabled;
     const changedPicture = renderSignature(current) !== renderSignature(next);
+    const changedSource = current.slideSource !== next.slideSource || current.pipelineId !== next.pipelineId;
     this.settings.set(current.id, next);
     this.persist();
 
     if (!next.enabled) {
       if (current.enabled) this.schedule(current.id, () => this.takeDown(current.id, next));
-    } else if (becameEnabled || (changedPicture && current.enabled)) {
+    } else if (changedSource && current.enabled && !this.slideFor(next)) {
+      // The new source has no slide yet: take the output down rather than keep the old one.
+      this.schedule(current.id, () => this.takeDown(current.id, next));
+    } else if (becameEnabled || ((changedPicture || changedSource) && current.enabled)) {
       // autoOnAir alone does not re-render: it takes effect at the next upload.
       this.schedule(current.id, () => this.apply(current.id));
     }
     return this.get(id);
   }
 
-  /** Store a new slide and refresh every enabled composite. The slide must be PNG. */
+  /** Store a new manual slide and refresh every enabled composite that uses uploads. The slide must be PNG. */
   async setSlide(png: Buffer): Promise<CompositeStatus[]> {
-    if (png.length > MAX_SLIDE_BYTES) throw new InvalidSlideError(`The slide is larger than ${MAX_SLIDE_BYTES} bytes`);
-    if (!isPng(png)) throw new InvalidSlideError("The slide must be a PNG image");
+    validatePng(png);
     this.slide = png;
     this.writeAtomic(path.join(this.options.dataDir, "slide.png"), png);
     for (const id of COMPOSITE_IDS) {
-      if (this.requireSettings(id).enabled) this.schedule(id, () => this.apply(id));
+      const settings = this.requireSettings(id);
+      if (settings.enabled && settings.slideSource === "upload") this.schedule(id, () => this.apply(id));
     }
     return this.list();
+  }
+
+  /** A frame from piprogram for one composite. Refreshes that composite only. */
+  async setFeedSlide(id: CompositeId, png: Buffer): Promise<void> {
+    validatePng(png);
+    this.feedSlides.set(id, png);
+    this.feedErrors.set(id, null);
+    if (this.requireSettings(id).enabled) this.schedule(id, () => this.apply(id));
+  }
+
+  /** The piprogram pipeline is blank (fade to black, or no slide): take the composite's output down. */
+  async clearFeedSlide(id: CompositeId): Promise<void> {
+    if (!this.feedSlides.delete(id)) return;
+    const settings = this.requireSettings(id);
+    if (settings.enabled) this.schedule(id, () => this.takeDown(id, settings));
+  }
+
+  /** Records why the last piprogram fetch for a composite failed (null clears it). */
+  reportFeedError(id: CompositeId, message: string | null): void {
+    if (this.feedErrors.get(id) === message) return;
+    this.feedErrors.set(id, message);
+    this.options.onChange?.(this.get(id));
+  }
+
+  /** The slide a composite uses: the piprogram frame or the manual one. */
+  private slideFor(settings: CompositeSettings): Buffer | null {
+    return settings.slideSource === "piprogram"
+      ? this.feedSlides.get(settings.id) ?? null
+      : this.slide;
   }
 
   /** A PNG of what the composite would show now (its key page). Null without a slide. */
   async previewPng(id: string): Promise<Buffer | null> {
     const settings = this.requireSettings(id);
-    if (!this.slide) return null;
+    const slide = this.slideFor(settings);
+    if (!slide) return null;
     return await this.renderFrame({
       geometry: keyPageGeometry(settings),
-      slidePng: this.slide,
+      slidePng: slide,
       format: "png",
       ...(this.options.ffmpeg ? { ffmpeg: this.options.ffmpeg } : {})
     });
@@ -146,6 +192,7 @@ export class CompositeService {
       if (isPng(bytes)) this.slide = bytes;
     }
     for (const id of COMPOSITE_IDS) {
+      // A piprogram composite waits for its first frame; the feed sends it.
       if (this.requireSettings(id).enabled) this.schedule(id, () => this.apply(id));
     }
     await this.idle();
@@ -178,7 +225,8 @@ export class CompositeService {
   private async apply(id: CompositeId): Promise<void> {
     const settings = this.requireSettings(id);
     if (!settings.enabled) return;
-    if (!this.slide) {
+    const slide = this.slideFor(settings);
+    if (!slide) {
       this.setRuntime(id, "waiting", null);
       return;
     }
@@ -187,7 +235,7 @@ export class CompositeService {
     const ffmpeg = this.options.ffmpeg ? { ffmpeg: this.options.ffmpeg } : {};
 
     if (settings.kind === "hdmi-key") {
-      const png = await this.renderFrame({ geometry, slidePng: this.slide, format: "png", ...ffmpeg });
+      const png = await this.renderFrame({ geometry, slidePng: slide, format: "png", ...ffmpeg });
       const file = path.join(this.options.dataDir, `${id}-key.png`);
       this.writeAtomic(file, png);
       await this.options.player.show(file);
@@ -197,7 +245,7 @@ export class CompositeService {
 
     const atem = this.options.atem;
     if (!atem.getState().connected) throw new Error("ATEM is not connected");
-    const rgba = await this.renderFrame({ geometry, slidePng: this.slide, format: "rgba", ...ffmpeg });
+    const rgba = await this.renderFrame({ geometry, slidePng: slide, format: "rgba", ...ffmpeg });
     const stillIndex = settings.atem.mediaSlot - 1;
     const mediaPlayer = settings.atem.mediaPlayer - 1;
     await atem.uploadStill(stillIndex, rgba, `pimatrix-${id}`);
@@ -270,6 +318,11 @@ export class CompositeService {
     fs.writeFileSync(temp, data);
     fs.renameSync(temp, file);
   }
+}
+
+function validatePng(png: Buffer): void {
+  if (png.length > MAX_SLIDE_BYTES) throw new InvalidSlideError(`The slide is larger than ${MAX_SLIDE_BYTES} bytes`);
+  if (!isPng(png)) throw new InvalidSlideError("The slide must be a PNG image");
 }
 
 function messageOf(error: unknown): string {
