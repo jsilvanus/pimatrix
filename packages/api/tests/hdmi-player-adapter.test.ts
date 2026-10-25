@@ -375,3 +375,95 @@ test("the startup window pushes 'active' to subscribers without a further route 
     await adapter.close();
   }
 });
+
+test("with sourceReady, the player is not started until the source path is ready", async () => {
+  const { spawn, calls } = fakeSpawner();
+  let ready = false;
+  const adapter = new HdmiPlayerAdapter({
+    outputs: outputs({ hdmi0: "card1-HDMI-A-1" }),
+    sourceUrl,
+    spawn,
+    startupWindowMs: 20,
+    readyPollMs: 5,
+    readyTimeoutMs: 1000,
+    sourceReady: async () => ready
+  });
+
+  const pending = adapter.applyRoute("hdmi0", "hama");
+  await sleep(30);
+  assert.equal(calls.length, 0);
+  assert.equal(adapter.getOutputState("hdmi0").state, "starting");
+
+  ready = true;
+  await pending;
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.args.at(-1), sourceUrl("hama"));
+  await adapter.close();
+});
+
+test("a player that fails at startup is retried with backoff until it runs", async () => {
+  const { spawn, calls } = fakeSpawner();
+  const adapter = new HdmiPlayerAdapter({
+    outputs: outputs({ hdmi0: "card1-HDMI-A-1" }),
+    sourceUrl,
+    spawn,
+    startupWindowMs: 200,
+    retryBaseMs: 5,
+    startAttempts: 5,
+    sourceReady: async () => true
+  });
+
+  await adapter.applyRoute("hdmi0", "hama");
+  // First two players fail at once, the third keeps running.
+  calls[0]?.child.exit(1);
+  await sleep(30);
+  calls[1]?.child.exit(1);
+  await sleep(30);
+  assert.equal(calls.length, 3);
+  assert.equal(adapter.getOutputState("hdmi0").state, "starting");
+  await sleep(250);
+  assert.equal(adapter.getOutputState("hdmi0").state, "active");
+  await adapter.close();
+});
+
+test("after startAttempts failures the output is failed", async () => {
+  const { spawn, calls } = fakeSpawner();
+  const adapter = new HdmiPlayerAdapter({
+    outputs: outputs({ hdmi0: "card1-HDMI-A-1" }),
+    sourceUrl,
+    spawn,
+    startupWindowMs: 200,
+    retryBaseMs: 1,
+    startAttempts: 2,
+    sourceReady: async () => true
+  });
+
+  await adapter.applyRoute("hdmi0", "hama");
+  calls[0]?.child.exit(1);
+  await sleep(20);
+  calls[1]?.child.exit(1);
+  await sleep(20);
+  assert.equal(calls.length, 2);
+  assert.equal(adapter.getOutputState("hdmi0").state, "failed");
+  await adapter.close();
+});
+
+test("a route change cancels a pending retry", async () => {
+  const { spawn, calls } = fakeSpawner();
+  const adapter = new HdmiPlayerAdapter({
+    outputs: outputs({ hdmi0: "card1-HDMI-A-1" }),
+    sourceUrl,
+    spawn,
+    startupWindowMs: 200,
+    retryBaseMs: 100,
+    sourceReady: async () => true
+  });
+
+  await adapter.applyRoute("hdmi0", "hama");
+  calls[0]?.child.exit(1);
+  await adapter.applyRoute("hdmi0", null);
+  await sleep(150);
+  assert.equal(calls.length, 1);
+  assert.equal(adapter.getOutputState("hdmi0").state, "unavailable");
+  await adapter.close();
+});
