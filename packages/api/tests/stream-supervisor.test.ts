@@ -114,12 +114,12 @@ test("stream supervisor restarts a failed job with a new id and closes its fleet
 });
 
 
-test("Hama capture defaults to 1280x720 on the Pi hardware encoder, with no forced input format", () => {
+test("Hama capture defaults to 1920x1080 on the Pi hardware encoder, with no forced input format", () => {
   const config = loadConfig({ PIMATRIX_HAMA_RTSP_URL: "rtsp://mediamtx:8554/hama" });
   const args = buildHamaCaptureSpec(config, 1).ffmpeg?.args ?? [];
   assert.equal(args.includes("-input_format"), false);
   assert.equal(args.includes("-framerate"), false);
-  assert.equal(args[args.indexOf("-video_size") + 1], "1280x720");
+  assert.equal(args[args.indexOf("-video_size") + 1], "1920x1080");
   assert.equal(args[args.indexOf("-c:v") + 1], "h264_v4l2m2m");
 });
 

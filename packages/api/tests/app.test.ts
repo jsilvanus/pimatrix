@@ -172,8 +172,8 @@ test("invalid configuration is rejected", () => {
   assert.throws(() => loadConfig({ PIMATRIX_HAMA_ENABLED: "true" }), /PIMATRIX_HAMA_RTSP_URL is required/);
   assert.throws(() => loadConfig({ PIMATRIX_HAMA_WIDTH: "0" }), /PIMATRIX_HAMA_WIDTH/);
   assert.equal(loadConfig({}).hamaInputFormat, undefined);
-  assert.equal(loadConfig({}).hamaWidth, 1280);
-  assert.equal(loadConfig({}).hamaHeight, 720);
+  assert.equal(loadConfig({}).hamaWidth, 1920);
+  assert.equal(loadConfig({}).hamaHeight, 1080);
   assert.equal(loadConfig({}).hamaVideoCodec, "h264_v4l2m2m");
   assert.equal(loadConfig({}).hamaIdleGraceMs, 30000);
   assert.equal(loadConfig({ PIMATRIX_HAMA_IDLE_GRACE_SECONDS: "0" }).hamaIdleGraceMs, 0);

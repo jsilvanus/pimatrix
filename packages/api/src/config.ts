@@ -160,9 +160,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const hamaDevice = env.PIMATRIX_HAMA_DEVICE?.trim() || "/dev/video0";
   // Hama documents advertised ceilings, not Linux V4L2 modes; do not force a mode by default.
   const hamaInputFormat = env.PIMATRIX_HAMA_INPUT_FORMAT?.trim() || undefined;
-  // 1280x720 by default: the Pi's CPU and the preview bandwidth both want less than the camera's maximum.
-  const hamaWidth = positiveInteger(env.PIMATRIX_HAMA_WIDTH, 1280, "PIMATRIX_HAMA_WIDTH");
-  const hamaHeight = positiveInteger(env.PIMATRIX_HAMA_HEIGHT, 720, "PIMATRIX_HAMA_HEIGHT");
+  // 1920x1080 by default: the capture is usually cropped for the projectors. 720p is an option.
+  const hamaWidth = positiveInteger(env.PIMATRIX_HAMA_WIDTH, 1920, "PIMATRIX_HAMA_WIDTH");
+  const hamaHeight = positiveInteger(env.PIMATRIX_HAMA_HEIGHT, 1080, "PIMATRIX_HAMA_HEIGHT");
   const hamaIdleGraceSeconds = nonNegativeInteger(env.PIMATRIX_HAMA_IDLE_GRACE_SECONDS, 30, "PIMATRIX_HAMA_IDLE_GRACE_SECONDS", 3600);
   const hamaFrameRate = env.PIMATRIX_HAMA_FRAME_RATE === undefined ? undefined : positiveInteger(env.PIMATRIX_HAMA_FRAME_RATE, 1, "PIMATRIX_HAMA_FRAME_RATE");
   // The Pi 4 hardware encoder: about 60% of a core against about 120% for libx264 at 1080p.
