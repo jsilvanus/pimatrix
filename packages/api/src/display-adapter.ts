@@ -1,5 +1,6 @@
 import type { OutputId, SourceId } from "./model.js";
 import { HdmiPlayerAdapter } from "./hdmi-player-adapter.js";
+import { inspectMediaMtx } from "./media-mtx.js";
 
 export type DisplayAdapterState = "not-configured" | "simulated" | "ready" | "unavailable" | "failed";
 
@@ -76,6 +77,7 @@ export interface HardwareDisplayConfig {
   hdmi0Device?: string;
   hdmi1Device?: string;
   hdmiSdlVideoDriver?: string;
+  mediaMtxApiUrl?: string;
   mediaMtxRtspUrl?: string;
 }
 
@@ -93,6 +95,13 @@ export function createDisplayAdapter(
         ["hdmi1", { device: hardware.hdmi1Device }]
       ]),
       sourceUrl: (sourceId) => (rtspBase ? `${rtspBase}/${sourceId}` : undefined),
+      // The player waits until MediaMTX reports the source path ready (no wait without the API URL).
+      ...(hardware.mediaMtxApiUrl
+        ? {
+            sourceReady: async (sourceId: SourceId) =>
+              (await inspectMediaMtx(hardware.mediaMtxApiUrl)).readyPaths.has(sourceId)
+          }
+        : {}),
       ...(hardware.hdmiPlayer ? { player: hardware.hdmiPlayer } : {}),
       ...(hardware.hdmiSdlVideoDriver ? { sdlVideoDriver: hardware.hdmiSdlVideoDriver } : {})
     });

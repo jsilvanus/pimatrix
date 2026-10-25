@@ -19,6 +19,13 @@ import type { DisplayAdapter, DisplayAdapterState, DisplayOutputState } from "./
  *   active      --exits on its own after the window--> unavailable (source ended, player closed)
  *   any         --route(source) with no device or no source URL--> unavailable / failed
  *
+ * On-demand sources (Hama capture, RTMP) publish their MediaMTX path only once they run, so
+ * a player started too early exits at once. When sourceReady is set, the adapter waits for
+ * the path (state "starting" while it waits) and retries a player that fails inside the
+ * startup window, with exponential backoff, up to startAttempts, as long as the route still
+ * asks for that source. Routes are re-checked before every retry. Without sourceReady there
+ * is no retry, so a failed start is reported at once.
+ *
  * Exits caused by our own stop are ignored. observedSource is the source of the current
  * player and is cleared whenever no player is running for the output.
  *
@@ -66,6 +73,16 @@ export interface HdmiPlayerAdapterOptions {
   spawn?: SpawnPlayer;
   /** SDL video driver set for each player (SDL_VIDEODRIVER), e.g. "kmsdrm". Undefined = inherit. */
   sdlVideoDriver?: string;
+  /** Whether a source's stream is publishing yet. Undefined = always ready (no wait). */
+  sourceReady?: (sourceId: SourceId) => Promise<boolean>;
+  /** How often to check sourceReady, default 500 ms. */
+  readyPollMs?: number;
+  /** How long to wait for sourceReady before starting the player anyway, default 30000 ms. */
+  readyTimeoutMs?: number;
+  /** Player starts per route before the output is marked failed, default 5. Only with sourceReady. */
+  startAttempts?: number;
+  /** Delay before the first retry; doubles per retry, default 1000 ms. */
+  retryBaseMs?: number;
 }
 
 interface PlayerRecord {
@@ -75,6 +92,7 @@ interface PlayerRecord {
   hasExited: boolean;
   stopping: boolean;
   startTimer: ReturnType<typeof setTimeout> | null;
+  attempt: number;
 }
 
 const defaultSpawn: SpawnPlayer = (command, args, options) => {
@@ -106,6 +124,13 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
   private readonly stopGraceMs: number;
   private readonly spawnPlayer: SpawnPlayer;
   private readonly sdlVideoDriver: string | undefined;
+  private readonly sourceReady: ((sourceId: SourceId) => Promise<boolean>) | undefined;
+  private readonly readyPollMs: number;
+  private readonly readyTimeoutMs: number;
+  private readonly startAttempts: number;
+  private readonly retryBaseMs: number;
+  /** The source each output should show now (null = idle). Set synchronously by applyRoute. */
+  private readonly desired = new Map<OutputId, SourceId | null>();
   private readonly stateListeners = new Set<(state: DisplayOutputState) => void>();
 
   constructor(options: HdmiPlayerAdapterOptions) {
@@ -117,8 +142,14 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
     this.stopGraceMs = options.stopGraceMs ?? 3000;
     this.spawnPlayer = options.spawn ?? defaultSpawn;
     this.sdlVideoDriver = options.sdlVideoDriver;
+    this.sourceReady = options.sourceReady;
+    this.readyPollMs = options.readyPollMs ?? 500;
+    this.readyTimeoutMs = options.readyTimeoutMs ?? 30000;
+    this.startAttempts = Math.max(1, options.startAttempts ?? 5);
+    this.retryBaseMs = options.retryBaseMs ?? 1000;
     for (const id of this.devices.keys()) {
       this.states.set(id, { id, observedSource: null, state: "unavailable" });
+      this.desired.set(id, null);
     }
   }
 
@@ -133,8 +164,9 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
    */
   async applyRoute(outputId: OutputId, sourceId: SourceId | null): Promise<DisplayOutputState> {
     this.requireState(outputId);
+    this.desired.set(outputId, sourceId);
     const previous = this.queues.get(outputId) ?? Promise.resolve();
-    const run = previous.then(() => this.switchTo(outputId, sourceId));
+    const run = previous.then(() => this.switchTo(outputId, sourceId, 1));
     this.queues.set(outputId, run.catch(() => undefined));
     return await run;
   }
@@ -160,6 +192,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
 
   /** Stop every player. Outputs go back to "unavailable". */
   async close(): Promise<void> {
+    for (const id of this.desired.keys()) this.desired.set(id, null);
     await Promise.all([...this.players.keys()].map((id) => this.stopPlayer(id)));
     for (const id of this.states.keys()) this.setState(id, "unavailable", null);
   }
@@ -178,13 +211,20 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
     return { ...updated };
   }
 
-  private async switchTo(outputId: OutputId, sourceId: SourceId | null): Promise<DisplayOutputState> {
+  private async switchTo(outputId: OutputId, sourceId: SourceId | null, attempt: number): Promise<DisplayOutputState> {
     await this.stopPlayer(outputId);
     if (sourceId === null) return this.setState(outputId, "unavailable", null);
 
     const device = this.devices.get(outputId);
     const url = this.sourceUrl(sourceId);
     if (!device || !url) return this.setState(outputId, "failed", null);
+
+    if (this.sourceReady) {
+      this.setState(outputId, "starting", sourceId);
+      await this.waitForSource(outputId, sourceId);
+      // A newer route may have arrived while waiting; it is queued behind this one.
+      if (this.desired.get(outputId) !== sourceId) return this.requireState(outputId);
+    }
 
     const args = this.playerArgs(outputId, url);
     const env: NodeJS.ProcessEnv = { ...process.env, PIMATRIX_OUTPUT_DEVICE: device };
@@ -196,8 +236,33 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
       return this.setState(outputId, "failed", null);
     }
 
-    this.trackPlayer(outputId, proc, sourceId);
+    this.trackPlayer(outputId, proc, sourceId, attempt);
     return this.setState(outputId, "starting", sourceId);
+  }
+
+  /** Poll sourceReady until the path publishes, the route changes, or readyTimeoutMs passes. */
+  private async waitForSource(outputId: OutputId, sourceId: SourceId): Promise<void> {
+    const ready = this.sourceReady;
+    if (!ready) return;
+    const deadline = Date.now() + this.readyTimeoutMs;
+    while (this.desired.get(outputId) === sourceId) {
+      if (await ready(sourceId)) return;
+      if (Date.now() >= deadline) return;
+      await sleep(this.readyPollMs);
+    }
+  }
+
+  /** Queue another start of sourceId after a backoff; it is dropped if the route has changed. */
+  private scheduleRetry(outputId: OutputId, sourceId: SourceId, attempt: number): void {
+    const delay = this.retryBaseMs * 2 ** (attempt - 2);
+    const previous = this.queues.get(outputId) ?? Promise.resolve();
+    const run = previous
+      .then(() => sleep(delay))
+      .then(() => {
+        if (this.desired.get(outputId) !== sourceId) return this.requireState(outputId);
+        return this.switchTo(outputId, sourceId, attempt);
+      });
+    this.queues.set(outputId, run.catch(() => undefined));
   }
 
   /** Arguments for one ffplay run. Full screen, no audio unless configured. */
@@ -209,10 +274,10 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
     return args;
   }
 
-  private trackPlayer(outputId: OutputId, proc: PlayerProcess, sourceId: SourceId): void {
+  private trackPlayer(outputId: OutputId, proc: PlayerProcess, sourceId: SourceId, attempt: number): void {
     let markExited: () => void = () => undefined;
     const exited = new Promise<void>((resolve) => { markExited = resolve; });
-    const record: PlayerRecord = { proc, sourceId, exited, hasExited: false, stopping: false, startTimer: null };
+    const record: PlayerRecord = { proc, sourceId, exited, hasExited: false, stopping: false, startTimer: null, attempt };
     this.players.set(outputId, record);
 
     const onEnd = (code: number | null) => {
@@ -224,6 +289,11 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
       const current = this.states.get(outputId);
       const inWindow = current?.state === "starting";
       if (inWindow && (code === null || code !== 0)) {
+        const retryable = this.sourceReady !== undefined && record.attempt < this.startAttempts;
+        if (retryable && this.desired.get(outputId) === record.sourceId) {
+          this.scheduleRetry(outputId, record.sourceId, record.attempt + 1);
+          return;
+        }
         this.setState(outputId, "failed", null);
       } else {
         this.setState(outputId, "unavailable", null);
