@@ -34,6 +34,7 @@ export interface CameraEventPayload {
   thumbnail?: string;
   smartFrame?: string;
   privacyBlur?: boolean;
+  focusMode?: string;
   position?: { pan: number; tilt: number; zoom: number };
 }
 

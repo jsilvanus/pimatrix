@@ -692,6 +692,39 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/v1/cameras/{cameraId}/focus:
+    post:
+      operationId: setCameraFocusMode
+      tags: [Cameras]
+      summary: Set autofocus or manual focus
+      description: Standard VISCA CAM_Focus auto or manual. Auto also ends a privacy blur. Not yet verified on a real PTZ330.
+      parameters:
+        - in: path
+          name: cameraId
+          required: true
+          schema:
+            $ref: "#/components/schemas/CameraId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CameraFocusRequest"
+      responses:
+        "200":
+          description: Focus mode updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CameraActionResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid focus mode
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/v1/cameras/{cameraId}/privacy-blur:
     post:
       operationId: setCameraPrivacyBlur
@@ -2269,6 +2302,13 @@ components:
         mode:
           type: string
           enum: [enable, disable, trigger]
+    CameraFocusRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [auto, manual]
     CameraPrivacyBlurRequest:
       type: object
       required: [enabled]
@@ -2295,7 +2335,7 @@ components:
           type: integer
     Camera:
       type: object
-      required: [id, label, model, connection, streaming, smartFrame, privacyBlur, position, presets]
+      required: [id, label, model, connection, streaming, smartFrame, privacyBlur, focusMode, position, presets]
       properties:
         id:
           $ref: "#/components/schemas/CameraId"
@@ -2316,6 +2356,9 @@ components:
         privacyBlur:
           type: boolean
           description: True while the privacy blur (manual focus driven near) is on.
+        focusMode:
+          type: string
+          enum: [auto, manual]
         position:
           $ref: "#/components/schemas/CameraPosition"
         presets:
