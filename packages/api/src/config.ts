@@ -63,6 +63,14 @@ export interface AppConfig {
   hdmi1Device?: string;
   hdmiSdlVideoDriver?: string;
   mediaMtxRtspUrl?: string;
+  /** DRM connector for the HDMI key output of the slide composite (PIMATRIX_COMPOSITE_HDMI_DEVICE). */
+  compositeHdmiDevice?: string;
+  /** Directory for the composite slide, key page files and settings (PIMATRIX_COMPOSITE_DATA_DIR). */
+  compositeDataDir: string;
+  /** ffmpeg used to render key pages (PIMATRIX_COMPOSITE_FFMPEG). */
+  compositeFfmpeg: string;
+  /** ATEM input number of media player 1's fill (PIMATRIX_ATEM_MEDIA_FILL_INPUT); key is the next number. */
+  atemMediaFillInput: number;
 }
 
 function optionalHttpUrl(value: string | undefined, name: string): string | undefined {
@@ -193,6 +201,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     }
   }
   const mediaMtxRtspUrl = optionalRtspUrl(env.PIMATRIX_MEDIAMTX_RTSP_URL, "PIMATRIX_MEDIAMTX_RTSP_URL");
+  const compositeHdmiDevice = env.PIMATRIX_COMPOSITE_HDMI_DEVICE?.trim() || undefined;
+  if (compositeHdmiDevice !== undefined && !/^[A-Za-z0-9._:/-]+$/.test(compositeHdmiDevice)) {
+    throw new Error("PIMATRIX_COMPOSITE_HDMI_DEVICE must be a DRM connector, device path or display name (letters, digits, . _ : / -), e.g. card1-HDMI-A-2");
+  }
+  const compositeDataDir = env.PIMATRIX_COMPOSITE_DATA_DIR?.trim() || "./data/composite";
+  const compositeFfmpeg = env.PIMATRIX_COMPOSITE_FFMPEG?.trim() || "ffmpeg";
+  if (/\s/.test(compositeFfmpeg)) {
+    throw new Error("PIMATRIX_COMPOSITE_FFMPEG must be a single executable name or path without spaces");
+  }
+  const atemMediaFillInput = validPort(env.PIMATRIX_ATEM_MEDIA_FILL_INPUT, 8010, "PIMATRIX_ATEM_MEDIA_FILL_INPUT");
   if (/\s/.test(hdmiPlayer)) {
     throw new Error("PIMATRIX_HDMI_PLAYER must be a single executable name or path without spaces");
   }
@@ -277,7 +295,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(hdmi0Device ? { hdmi0Device } : {}),
     ...(hdmi1Device ? { hdmi1Device } : {}),
     ...(hdmiSdlVideoDriver ? { hdmiSdlVideoDriver } : {}),
-    ...(mediaMtxRtspUrl ? { mediaMtxRtspUrl } : {})
+    ...(mediaMtxRtspUrl ? { mediaMtxRtspUrl } : {}),
+    ...(compositeHdmiDevice ? { compositeHdmiDevice } : {}),
+    compositeDataDir,
+    compositeFfmpeg,
+    atemMediaFillInput
   };
 }
 

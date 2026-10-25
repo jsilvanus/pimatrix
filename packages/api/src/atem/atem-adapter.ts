@@ -36,6 +36,26 @@ export interface AtemClient {
   cut(me?: number): Promise<void>;
   readonly state: unknown;
   on(event: string, listener: (...args: never[]) => void): unknown;
+  /** Media pool and keyer calls used by the slide composite. Optional so older fakes still fit. */
+  uploadStill?(index: number, data: Buffer, name: string, description: string): Promise<unknown>;
+  setMediaPlayerSource?(props: { sourceType: number; stillIndex: number }, player?: number): Promise<void>;
+  setDownstreamKeyFillSource?(input: number, key?: number): Promise<void>;
+  setDownstreamKeyCutSource?(input: number, key?: number): Promise<void>;
+  setDownstreamKeyOnAir?(onAir: boolean, key?: number): Promise<void>;
+}
+
+/** Zero-based media pool slot and DSK/player numbers the library expects. */
+export interface AtemDskSetup {
+  /** 0-based downstream keyer. */
+  dsk: number;
+  /** 0-based media player. */
+  mediaPlayer: number;
+  /** 0-based still slot in the media pool. */
+  stillIndex: number;
+  /** ATEM input number of the media player's fill. */
+  fillInput: number;
+  /** ATEM input number of the media player's key (cut). */
+  cutInput: number;
 }
 
 export interface AtemAdapterOptions {
@@ -156,6 +176,42 @@ export class AtemAdapter {
     if (!client) return;
     this.requireConnected();
     await client.cut(this.meIndex);
+  }
+
+  /**
+   * Upload a still to the media pool. `rgba` must be raw RGBA at the switcher's video
+   * format; the library converts it to the ATEM's YUV and key. Slot numbers are 0-based.
+   */
+  async uploadStill(stillIndex: number, rgba: Buffer, name: string): Promise<void> {
+    this.requireConnected();
+    const client = this.requireClient();
+    if (!client.uploadStill) throw new Error("ATEM client does not support media pool uploads");
+    await client.uploadStill(stillIndex, rgba, name, "pimatrix slide");
+  }
+
+  /** Point a media player at a still and route its fill and key to a DSK. */
+  async setupDownstreamKey(setup: AtemDskSetup): Promise<void> {
+    this.requireConnected();
+    const client = this.requireClient();
+    if (!client.setMediaPlayerSource || !client.setDownstreamKeyFillSource || !client.setDownstreamKeyCutSource) {
+      throw new Error("ATEM client does not support keyer control");
+    }
+    await client.setMediaPlayerSource({ sourceType: 1, stillIndex: setup.stillIndex }, setup.mediaPlayer);
+    await client.setDownstreamKeyFillSource(setup.fillInput, setup.dsk);
+    await client.setDownstreamKeyCutSource(setup.cutInput, setup.dsk);
+  }
+
+  /** Put a DSK on air or take it off. Zero-based DSK. */
+  async setDownstreamKeyOnAir(dsk: number, onAir: boolean): Promise<void> {
+    this.requireConnected();
+    const client = this.requireClient();
+    if (!client.setDownstreamKeyOnAir) throw new Error("ATEM client does not support keyer control");
+    await client.setDownstreamKeyOnAir(onAir, dsk);
+  }
+
+  private requireClient(): AtemClient {
+    if (!this.client) throw new Error("ATEM is not connected");
+    return this.client;
   }
 
   private requireConnected(): void {

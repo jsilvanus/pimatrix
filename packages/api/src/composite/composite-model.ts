@@ -214,3 +214,33 @@ export function applyCompositePatch(current: CompositeSettings, patch: Composite
     atem: { ...current.atem, ...(patch.atem ?? {}) }
   };
 }
+
+/** What the service is doing for one composite, reported next to its settings. */
+export type CompositeRunState = "stopped" | "waiting" | "busy" | "running" | "failed";
+
+export interface CompositeStatus extends CompositeSettings {
+  state: CompositeRunState;
+  /** Why the last apply failed, or null. */
+  lastError: string | null;
+  /** True once a slide has been sent. Without one, an enabled composite waits. */
+  hasSlide: boolean;
+  /** ISO time of the last state change. */
+  updatedAt: string;
+}
+
+/** The fields that change the picture (or the ATEM still) and so need a re-render. */
+export function renderSignature(settings: CompositeSettings): string {
+  return JSON.stringify([
+    settings.kind,
+    settings.width,
+    settings.height,
+    settings.side,
+    settings.slideAspect,
+    settings.slideScale,
+    settings.keyColor,
+    settings.keyMode,
+    settings.kind === "atem-media" ? settings.atem.mediaSlot : null,
+    settings.kind === "atem-media" ? settings.atem.mediaPlayer : null,
+    settings.kind === "atem-media" ? settings.atem.dskIndex : null
+  ]);
+}
