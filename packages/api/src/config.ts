@@ -51,6 +51,10 @@ export interface AppConfig {
   letsencryptEmail?: string;
   atemHost?: string;
   atemPort: number;
+  hdmiPlayer: string;
+  hdmi0Device?: string;
+  hdmi1Device?: string;
+  mediaMtxRtspUrl?: string;
 }
 
 function optionalHttpUrl(value: string | undefined, name: string): string | undefined {
@@ -164,6 +168,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const letsencryptEmail = env.LETSENCRYPT_EMAIL?.trim() || undefined;
   const atemHost = env.PIMATRIX_ATEM_HOST?.trim() || undefined;
   const atemPort = validPort(env.PIMATRIX_ATEM_PORT, 9990, "PIMATRIX_ATEM_PORT");
+  const hdmiPlayer = env.PIMATRIX_HDMI_PLAYER?.trim() || "ffplay";
+  const hdmi0Device = env.PIMATRIX_HDMI0_DEVICE?.trim() || undefined;
+  const hdmi1Device = env.PIMATRIX_HDMI1_DEVICE?.trim() || undefined;
+  const mediaMtxRtspUrl = optionalRtspUrl(env.PIMATRIX_MEDIAMTX_RTSP_URL, "PIMATRIX_MEDIAMTX_RTSP_URL");
+  if (/\s/.test(hdmiPlayer)) {
+    throw new Error("PIMATRIX_HDMI_PLAYER must be a single executable name or path without spaces");
+  }
   const canvaApiBaseUrl =
     optionalHttpUrl(env.CANVA_API_BASE_URL, "CANVA_API_BASE_URL") ??
     (canvaAccessToken ? "https://api.canva.com/rest" : undefined);
@@ -237,6 +248,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(tlsPort !== undefined ? { tlsPort } : {}),
     ...(letsencryptEmail ? { letsencryptEmail } : {}),
     ...(atemHost ? { atemHost } : {}),
-    atemPort
+    atemPort,
+    hdmiPlayer,
+    ...(hdmi0Device ? { hdmi0Device } : {}),
+    ...(hdmi1Device ? { hdmi1Device } : {}),
+    ...(mediaMtxRtspUrl ? { mediaMtxRtspUrl } : {})
   };
 }

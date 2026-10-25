@@ -92,6 +92,9 @@ Environment:
 - `PIMATRIX_STREAM_RESTART_MAX_MS`: maximum retry delay, default `30000` (maximum accepted: 5 minutes).
 - `PIMATRIX_DISPLAY_MODE`: `simulated`, `hardware`, or `disabled`; defaults to `disabled` unless simulation mode is active or configured.
 - `PIMATRIX_DISPLAY_SIMULATED`: set to `true` to simulate active display adapter state upon routing.
+- `PIMATRIX_HDMI_PLAYER`: player command for `hardware` display mode, one process per HDMI output; defaults to `ffplay`. Started with `-fs -noborder -an` (no audio) and the source RTSP URL; the output device is passed in `PIMATRIX_OUTPUT_DEVICE`. Unverified on hardware.
+- `PIMATRIX_HDMI0_DEVICE`, `PIMATRIX_HDMI1_DEVICE`: optional per-output device (DRM/KMS device or display name) for `hardware` mode. An output without a device is not configured.
+- `PIMATRIX_MEDIAMTX_RTSP_URL`: RTSP base URL of MediaMTX (for example `rtsp://127.0.0.1:8554`); a route's source is played from `<base>/<sourceId>`.
 - `PIMATRIX_AMX_TCP_ENABLED`: set to `true` to start the inbound AMX TCP listener.
 - `PIMATRIX_AMX_TCP_HOST`: inbound listener host; defaults to `127.0.0.1`.
 - `PIMATRIX_AMX_TCP_PORT`: inbound listener port; defaults to `6600`.
