@@ -183,3 +183,66 @@ test("connect logs a warning and rethrows when the connection fails", async () =
   await assert.rejects(adapter.connect("192.0.2.20"), /no route/);
   assert.deepEqual(warnings, ["ATEM connection failed"]);
 });
+
+test("a dropped ATEM is reconnected to the same address with backoff, and the log says so", async () => {
+  const infos: string[] = [];
+  const warns: string[] = [];
+  const logger = {
+    warn: (_obj: object, msg: string) => void warns.push(msg),
+    info: (_obj: object, msg: string) => void infos.push(msg)
+  };
+  const fakes: FakeAtem[] = [];
+  const adapter = new AtemAdapter({
+    logger,
+    reconnectMinMs: 5,
+    reconnectMaxMs: 20,
+    createClient: () => {
+      const fake = new FakeAtem();
+      fakes.push(fake);
+      return fake;
+    }
+  });
+  await adapter.connect("192.0.2.30");
+  fakes[0]!.emit("connected");
+  fakes[0]!.emit("disconnected");
+  assert.deepEqual(warns, ["ATEM disconnected"]);
+
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(fakes.length, 2);
+  assert.deepEqual(fakes[1]!.connectArgs, ["192.0.2.30", 9910]);
+
+  fakes[1]!.emit("connected");
+  assert.equal(adapter.getState().connected, true);
+  assert.ok(infos.includes("ATEM connected"));
+  assert.ok(infos.some((msg) => msg === "ATEM reconnect scheduled"));
+  await adapter.disconnect();
+});
+
+test("reconnect keeps trying while the ATEM refuses, and disconnect() stops it", async () => {
+  const fakes: FakeAtem[] = [];
+  const adapter = new AtemAdapter({
+    reconnectMinMs: 5,
+    reconnectMaxMs: 10,
+    createClient: () => {
+      const fake = new FakeAtem();
+      if (fakes.length > 0) {
+        fake.connect = async () => {
+          throw new Error("unreachable");
+        };
+      }
+      fakes.push(fake);
+      return fake;
+    }
+  });
+  await adapter.connect("192.0.2.31");
+  fakes[0]!.emit("connected");
+  fakes[0]!.emit("disconnected");
+
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const beforeStop = fakes.length;
+  assert.ok(beforeStop >= 3, `expected several retries, got ${beforeStop}`);
+
+  await adapter.disconnect();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(fakes.length, beforeStop, "no attempts after disconnect()");
+});

@@ -17,9 +17,15 @@ export const DEFAULT_ATEM_PORT = 9910;
 /** How long a connect may stay unconfirmed before a warning is logged. */
 export const ATEM_CONNECT_WARN_MS = 5000;
 
+/** First wait before a reconnect after the ATEM drops; doubles up to the maximum. */
+export const ATEM_RECONNECT_MIN_MS = 1000;
+/** Longest wait between reconnect attempts. */
+export const ATEM_RECONNECT_MAX_MS = 30000;
+
 /** The part of a logger the adapter uses (Fastify's logger fits). */
 export interface AtemLogger {
   warn(obj: object, msg: string): void;
+  info?(obj: object, msg: string): void;
 }
 
 export interface AtemTransitionState {
@@ -76,6 +82,9 @@ export interface AtemAdapterOptions {
   logger?: AtemLogger | undefined;
   /** Milliseconds before an unconfirmed connect is reported (default 5 s). */
   connectWarnMs?: number;
+  /** Reconnect backoff bounds (defaults: 1 s doubling to 30 s). */
+  reconnectMinMs?: number;
+  reconnectMaxMs?: number;
 }
 
 const IDLE_TRANSITION: AtemTransitionState = { inTransition: false, remainingFrames: 0 };
@@ -98,22 +107,51 @@ export class AtemAdapter {
   private listeners = new Set<AtemStateListener>();
   private readonly logger: AtemLogger | undefined;
   private readonly connectWarnMs: number;
+  private readonly reconnectMinMs: number;
+  private readonly reconnectMaxMs: number;
+  /** Where to reconnect to; set by connect(), cleared by disconnect(). */
+  private target: { host: string; port: number } | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectDelayMs: number;
 
   constructor(options: AtemAdapterOptions = {}) {
     this.meIndex = options.meIndex ?? 0;
     this.createClient = options.createClient ?? (() => new Atem() as unknown as AtemClient);
     this.logger = options.logger;
     this.connectWarnMs = options.connectWarnMs ?? ATEM_CONNECT_WARN_MS;
+    this.reconnectMinMs = options.reconnectMinMs ?? ATEM_RECONNECT_MIN_MS;
+    this.reconnectMaxMs = options.reconnectMaxMs ?? ATEM_RECONNECT_MAX_MS;
+    this.reconnectDelayMs = this.reconnectMinMs;
   }
 
   /**
    * Connect to an ATEM. A missing or empty host keeps the adapter a stub
-   * (nothing is opened, connected stays false).
+   * (nothing is opened, connected stays false). Once connected, a drop is
+   * retried with backoff until disconnect() is called.
    */
   async connect(host?: string, port: number = DEFAULT_ATEM_PORT): Promise<void> {
     const target = host?.trim();
     if (!target) return;
-    if (this.client) await this.disconnect();
+    this.clearReconnectTimer();
+    this.target = { host: target, port };
+    this.reconnectDelayMs = this.reconnectMinMs;
+    await this.open();
+  }
+
+  /** Opens one client to the current target. Used by connect() and by reconnect attempts. */
+  private async open(): Promise<void> {
+    if (!this.target) return;
+    const { host: target, port } = this.target;
+    if (this.client) {
+      const previous = this.client;
+      this.client = null;
+      this.connected = false;
+      try {
+        await previous.disconnect();
+      } catch {
+        /* already gone */
+      }
+    }
 
     const client = this.createClient();
     this.client = client;
@@ -130,13 +168,18 @@ export class AtemAdapter {
       if (this.client !== client) return;
       clearTimeout(warnTimer);
       this.connected = true;
+      this.reconnectDelayMs = this.reconnectMinMs;
+      this.logger?.info?.({ host: target, port }, "ATEM connected");
       this.emit();
     });
     client.on("disconnected", () => {
       if (this.client !== client) return;
       clearTimeout(warnTimer);
+      const wasConnected = this.connected;
       this.connected = false;
+      if (wasConnected) this.logger?.warn({ host: target, port }, "ATEM disconnected");
       this.emit();
+      this.scheduleReconnect();
     });
     client.on("stateChanged", () => {
       if (this.client === client && this.connected) this.emit();
@@ -152,11 +195,35 @@ export class AtemAdapter {
     } catch (error) {
       clearTimeout(warnTimer);
       this.logger?.warn({ host: target, port, err: error }, "ATEM connection failed");
+      if (this.client === client) this.scheduleReconnect();
       throw error;
     }
   }
 
+  /** Waits, then opens again. The wait doubles after each failed try, up to the maximum. */
+  private scheduleReconnect(): void {
+    if (!this.target || this.reconnectTimer) return;
+    const delay = this.reconnectDelayMs;
+    this.reconnectDelayMs = Math.min(this.reconnectMaxMs, this.reconnectDelayMs * 2);
+    this.logger?.info?.({ host: this.target.host, port: this.target.port, delayMs: delay }, "ATEM reconnect scheduled");
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (!this.target) return;
+      this.open().catch(() => undefined);
+    }, delay);
+    this.reconnectTimer.unref();
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+  }
+
   async disconnect(): Promise<void> {
+    // An explicit disconnect ends the reconnect loop.
+    this.target = null;
+    this.clearReconnectTimer();
+    this.reconnectDelayMs = this.reconnectMinMs;
     const client = this.client;
     this.client = null;
     const wasConnected = this.connected;
