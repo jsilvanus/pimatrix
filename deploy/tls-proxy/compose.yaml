@@ -15,7 +15,7 @@ services:
       - PIMATRIX_TLS_PORT=${PIMATRIX_TLS_PORT:-8443}
       - UPSTREAM_HOST=${UPSTREAM_HOST:-host.docker.internal:3000}
       - CERTBOT_STAGING=${CERTBOT_STAGING:-false}
-      - RESTRICT_TO_CANVA=${RESTRICT_TO_CANVA:-true}
+      - RESTRICT_WAN=${RESTRICT_WAN:-true}
     volumes:
       - letsencrypt_certs:/etc/letsencrypt
       - certbot_acme:/var/www/certbot

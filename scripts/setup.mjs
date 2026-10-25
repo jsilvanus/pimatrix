@@ -202,12 +202,6 @@ async function main() {
       defaultAuthAllowed
     );
 
-    cfg.PIMATRIX_CANVA_APP_TOKEN = await ask(
-      reader,
-      "Dedicated Canva integration token",
-      existing.PIMATRIX_CANVA_APP_TOKEN || "gen"
-    );
-
     cfg.PIMATRIX_AMX_ALLOWED_HOSTS = await ask(
       reader,
       "AMX TCP listener allowed IP whitelist",
@@ -223,12 +217,12 @@ async function main() {
     console.log();
 
     // -------------------------------------------------------------
-    // Section 3: External Domain & TLS (for Canva / Remote Access)
+    // Section 3: External Domain & TLS (Remote Access)
     // -------------------------------------------------------------
     console.log(`${c.cyan}${c.bold}▶ 3. External Domain & TLS (Let's Encrypt Reverse Proxy)${c.reset}`);
     const setupDomain = await askYesNo(
       reader,
-      "Do you want to configure external TLS reverse proxy for Canva cloud access?",
+      "Do you want to configure the external TLS reverse proxy?",
       Boolean(existing.PIMATRIX_DOMAIN || false)
     );
 
@@ -255,18 +249,18 @@ async function main() {
       );
       cfg.CERTBOT_STAGING = isStaging ? "true" : "false";
 
-      const restrictCanva = await askYesNo(
+      const restrictWan = await askYesNo(
         reader,
-        "Restrict WAN port strictly to Canva endpoints (blocks admin UI/matrix from internet)?",
-        existing.RESTRICT_TO_CANVA !== "false"
+        "Keep the WAN port closed (blocks the admin UI and matrix from the internet)?",
+        existing.RESTRICT_WAN !== "false"
       );
-      cfg.RESTRICT_TO_CANVA = restrictCanva ? "true" : "false";
+      cfg.RESTRICT_WAN = restrictWan ? "true" : "false";
     } else {
       cfg.PIMATRIX_DOMAIN = "";
       cfg.LETSENCRYPT_EMAIL = "";
       cfg.PIMATRIX_TLS_PORT = "8443";
       cfg.CERTBOT_STAGING = "false";
-      cfg.RESTRICT_TO_CANVA = "true";
+      cfg.RESTRICT_WAN = "true";
     }
 
     console.log();
@@ -412,7 +406,6 @@ async function main() {
       "# ==========================================",
       `PIMATRIX_API_KEY=${cfg.PIMATRIX_API_KEY || ""}`,
       `PIMATRIX_AUTH_ALLOWED_HOSTS=${cfg.PIMATRIX_AUTH_ALLOWED_HOSTS || ""}`,
-      `PIMATRIX_CANVA_APP_TOKEN=${cfg.PIMATRIX_CANVA_APP_TOKEN || ""}`,
       `PIMATRIX_AMX_ALLOWED_HOSTS=${cfg.PIMATRIX_AMX_ALLOWED_HOSTS || ""}`,
       `PIMATRIX_MEDIAMTX_PASSWORD=${cfg.PIMATRIX_MEDIAMTX_PASSWORD || ""}`,
       "",
@@ -423,7 +416,7 @@ async function main() {
       `LETSENCRYPT_EMAIL=${cfg.LETSENCRYPT_EMAIL || ""}`,
       `PIMATRIX_TLS_PORT=${cfg.PIMATRIX_TLS_PORT || "8443"}`,
       `CERTBOT_STAGING=${cfg.CERTBOT_STAGING || "false"}`,
-      `RESTRICT_TO_CANVA=${cfg.RESTRICT_TO_CANVA || "true"}`,
+      `RESTRICT_WAN=${cfg.RESTRICT_WAN || "true"}`,
       "",
       "# ==========================================",
       "# MediaMTX Streaming",

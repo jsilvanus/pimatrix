@@ -222,11 +222,11 @@ Once built, the `pimatrix` executable is available from the CLI workspace packag
 
 PiMatrix provides fine-grained security tailored for AV production facilities:
 - **LAN Direct HTTP:** Local touchscreens, monitors, and companion apps communicate via fast, unencrypted HTTP without TLS certificate overhead or renewal failures.
-- **Remote Access (Canva / Internet):** A dedicated WAN port can be routed through an Nginx reverse proxy + Certbot TLS termination on port 8443, preserving security for external cloud integrations.
+- **Remote Access:** An optional WAN port can be routed through an Nginx reverse proxy + Certbot TLS termination on port 8443. It stays closed (403) unless `RESTRICT_WAN=false`. Canva integration is in `picanva` now.
 - **Control Point Authentication:** Set PIMATRIX_API_KEY to protect HDMI routing, crop/effects, matrix switching, and PTZ camera movements.
 - **Web UI & Companion App:** The web console provides a password screen storing the token in localStorage. The Windows Companion app provides an API Key configuration field.
 - **LAN Operator Whitelist:** Exempt trusted touch panels and control room IPs from password entry with PIMATRIX_AUTH_ALLOWED_HOSTS.
-- `PIMATRIX_CORS_ORIGINS`: comma-separated browser origins (for example `http://kirkonpi.local:8080`) allowed to call `/api/v1` cross-origin. Preflights are answered and responses echo the origin only for listed origins. Unset = no CORS headers on `/api/v1`. The Canva routes keep their own `*` headers.
+- `PIMATRIX_CORS_ORIGINS`: comma-separated browser origins (for example `http://kirkonpi.local:8080`) allowed to call `/api/v1` cross-origin. Preflights are answered and responses echo the origin only for listed origins. Unset = no CORS headers on `/api/v1`.
 - **AMX IP Whitelist:** Restrict AMX NetLinx TCP connections on port 6600 using PIMATRIX_AMX_ALLOWED_HOSTS.
 - **Automated TLS Reverse Proxy:** A small Nginx + Certbot Alpine container in deploy/tls-proxy auto-provisions and renews Let's Encrypt certificates using PIMATRIX_DOMAIN and LETSENCRYPT_EMAIL.
 

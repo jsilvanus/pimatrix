@@ -46,11 +46,8 @@ export interface AppConfig {
   cam2CgiUser?: string;
   cam2CgiPassword?: string;
   cam3Name: string;
-  canvaApiBaseUrl?: string;
-  canvaAccessToken?: string;
   apiKey?: string;
   amxAllowedHosts?: string[];
-  canvaAppToken?: string;
   mediaMtxPassword?: string;
   authAllowedHosts?: string[];
   /** Browser origins allowed to call /api/v1 cross-origin (PIMATRIX_CORS_ORIGINS). Empty = no CORS. */
@@ -201,12 +198,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const cam2Login = cameraLogin(env, "PIMATRIX_CAM2");
   const cam3Name = env.PIMATRIX_CAM3_NAME?.trim() || "Camera 3";
 
-  const canvaAccessToken = env.CANVA_ACCESS_TOKEN?.trim() || undefined;
   const apiKey = env.PIMATRIX_API_KEY?.trim() || undefined;
   const amxAllowedHosts = env.PIMATRIX_AMX_ALLOWED_HOSTS
     ? env.PIMATRIX_AMX_ALLOWED_HOSTS.split(",").map((s) => s.trim()).filter(Boolean)
     : undefined;
-  const canvaAppToken = env.PIMATRIX_CANVA_APP_TOKEN?.trim() || undefined;
   const mediaMtxPassword = env.PIMATRIX_MEDIAMTX_PASSWORD?.trim() || undefined;
   const rawAuthAllowed = env.PIMATRIX_AUTH_ALLOWED_HOSTS || env.PIMATRIX_AUTH_WHITELIST_HOSTS || env.PIMATRIX_AUTH_WHITELIST_IPS;
   const authAllowedHosts = rawAuthAllowed
@@ -250,9 +245,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (/\s/.test(hdmiPlayer)) {
     throw new Error("PIMATRIX_HDMI_PLAYER must be a single executable name or path without spaces");
   }
-  const canvaApiBaseUrl =
-    optionalHttpUrl(env.CANVA_API_BASE_URL, "CANVA_API_BASE_URL") ??
-    (canvaAccessToken ? "https://api.canva.com/rest" : undefined);
 
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("PIMATRIX_PORT must be an integer between 1 and 65535");
@@ -302,8 +294,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     cam3Name,
     ...(cam1Host ? { cam1Host } : {}),
     ...(cam2Host ? { cam2Host } : {}),
-    ...(canvaApiBaseUrl ? { canvaApiBaseUrl } : {}),
-    ...(canvaAccessToken ? { canvaAccessToken } : {}),
     ...(hamaInputFormat ? { hamaInputFormat } : {}),
     ...(hamaWidth !== undefined ? { hamaWidth } : {}),
     ...(hamaHeight !== undefined ? { hamaHeight } : {}),
@@ -319,7 +309,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     hamaIdleGraceMs: hamaIdleGraceSeconds * 1000,
     ...(apiKey ? { apiKey } : {}),
     ...(amxAllowedHosts && amxAllowedHosts.length > 0 ? { amxAllowedHosts } : {}),
-    ...(canvaAppToken ? { canvaAppToken } : {}),
     ...(mediaMtxPassword ? { mediaMtxPassword } : {}),
     ...(authAllowedHosts && authAllowedHosts.length > 0 ? { authAllowedHosts } : {}),
     ...(corsOrigins && corsOrigins.length > 0 ? { corsOrigins } : {}),

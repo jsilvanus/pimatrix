@@ -226,23 +226,6 @@ export function renderPiPgmStageHtml(pipeline: PiPgmPipelineSnapshot): string {
         return;
       }
 
-      if (activeItem.kind === "canva" && activeItem.canva) {
-        if (activeItem.canva.mode === "exported_mp4" && step && step.assetUrl) {
-          content.innerHTML = \`
-            <video class="stage-video" src="\${escapeText(step.assetUrl)}" autoplay \${state.audioEnabled ? "" : "muted"} playsinline></video>
-          \`;
-        } else if (activeItem.canva.mode === "exported_slides" && step && step.assetUrl) {
-          content.innerHTML = \`
-            <img class="stage-image contain" src="\${escapeText(step.assetUrl)}" alt="\${escapeText(activeItem.title)}" />
-          \`;
-        } else {
-          content.innerHTML = \`
-            <iframe class="stage-iframe" src="\${escapeText(activeItem.canva.embedUrl)}" allow="autoplay; fullscreen"></iframe>
-          \`;
-        }
-        return;
-      }
-
       if (activeItem.kind === "youtube" && activeItem.youtube) {
         const muteParam = state.audioEnabled ? "0" : "1";
         const autoplayParam = state.playbackState === "playing" ? "1" : "0";
@@ -276,41 +259,6 @@ export function renderPiPgmStageHtml(pipeline: PiPgmPipelineSnapshot): string {
     }
 
     renderStage(currentPipeline);
-
-    // Listen for postMessage commands from Canva embed iframe or presenter window
-    window.addEventListener("message", async (event) => {
-      const data = event.data;
-      if (!data || typeof data !== "object") return;
-
-      if (
-        data.type === "pipgm:control" ||
-        data.type === "canva:control" ||
-        data.canvaAction ||
-        data.pipgmAction
-      ) {
-        const action = data.action || data.canvaAction || data.pipgmAction;
-        try {
-          await fetch("/api/v1/pipgm/canva/control", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              targetPipelineId: currentPipeline.id,
-              action: action,
-              pageNumber: data.pageNumber || data.page,
-              stepIndex: data.stepIndex,
-              fadeToBlack: data.fadeToBlack ?? data.ftb,
-              ftbToggle: data.ftbToggle ?? data.toggleFtb,
-              audioEnabled: data.audioEnabled,
-              muteToggle: data.muteToggle ?? data.toggleMute,
-              mode: data.mode
-            })
-          });
-        } catch (err) {
-          console.warn("Failed to forward postMessage control to PiPGM API:", err);
-        }
-      }
-    });
-
 
     const sse = new EventSource("/api/v1/events");
     sse.addEventListener("pipgm", (e) => {

@@ -99,7 +99,7 @@ test("PiPGM3 replaces non-used view (cam3 by default, or explicit slot) in 8-way
   }
 });
 
-test("Hymns, PowerPoint (.pptx with animations), Canva push/export, YouTube, Video, and Image items work end-to-end", async () => {
+test("Hymns, PowerPoint (.pptx with animations), YouTube, Video, and Image items work end-to-end", async () => {
   const app = buildApp(loadConfig({ PIMATRIX_MODE: "simulation" }));
   try {
     // 1. Hymn item from raw stanza text, cued onto PiPGM1 (Portrait)
@@ -169,107 +169,6 @@ test("Hymns, PowerPoint (.pptx with animations), Canva push/export, YouTube, Vid
     assert.equal(pptxItem.steps[0].effect, "initial");
     assert.equal(pptxItem.steps[1].effect, "fade");
     assert.equal(pptxItem.steps[2].effect, "wipe");
-
-    // 3. Team Canva App plugin push ("Send to PiPGM" button with autoExport)
-    const canvaOptionsRes = await app.inject({
-      method: "OPTIONS",
-      url: "/api/v1/pipgm/canva/push"
-    });
-    assert.equal(canvaOptionsRes.statusCode, 204);
-    assert.equal(canvaOptionsRes.headers["access-control-allow-origin"], "*");
-
-    const canvaPushRes = await app.inject({
-      method: "POST",
-      url: "/api/v1/pipgm/canva/push",
-      payload: {
-        designId: "DAF_CHURCH_2026",
-        title: "Parish Announcements",
-        pageCount: 3,
-        autoExport: true,
-        exportFormat: "mp4",
-        targetPipelineId: "PiPGM2",
-        cueImmediately: true,
-        orientation: "landscape"
-      }
-    });
-    assert.equal(canvaPushRes.statusCode, 201);
-    const canvaPushJson = canvaPushRes.json();
-    assert.equal(canvaPushJson.accepted, true);
-    assert.equal(canvaPushJson.item.canva.designId, "DAF_CHURCH_2026");
-    assert.equal(canvaPushJson.item.canva.pushedFromCanvaApp, true);
-    assert.equal(canvaPushJson.item.canva.mode, "exported_mp4");
-    assert.equal(canvaPushJson.item.canva.exportJob.status, "completed");
-    assert.equal(canvaPushJson.item.steps.length, 3);
-    assert.equal(canvaPushJson.pipeline.activeItemId, canvaPushJson.item.id);
-
-    // 3b. Canva Plugin & Embed Presentation Control (FTB, Mute, Next, GotoPage, Mode)
-    const canvaCtrlOptions = await app.inject({
-      method: "OPTIONS",
-      url: "/api/v1/pipgm/canva/control"
-    });
-    assert.equal(canvaCtrlOptions.statusCode, 204);
-    assert.equal(canvaCtrlOptions.headers["access-control-allow-origin"], "*");
-
-    // Toggle FTB via Canva control targeting designId
-    const canvaFtbRes = await app.inject({
-      method: "POST",
-      url: "/api/v1/pipgm/canva/control",
-      payload: {
-        designId: "DAF_CHURCH_2026",
-        action: "ftb",
-        fadeToBlack: true
-      }
-    });
-    assert.equal(canvaFtbRes.statusCode, 200);
-    const canvaFtbJson = canvaFtbRes.json();
-    assert.equal(canvaFtbJson.success, true);
-    assert.equal(canvaFtbJson.action, "ftb");
-    assert.equal(canvaFtbJson.pipelines.find((p: any) => p.id === "PiPGM2")?.fadeToBlack, true);
-
-    // Toggle Audio Mute via Canva control targeting designId
-    const canvaMuteRes = await app.inject({
-      method: "POST",
-      url: "/api/v1/pipgm/canva/control",
-      payload: {
-        designId: "DAF_CHURCH_2026",
-        action: "mute",
-        audioEnabled: false
-      }
-    });
-    assert.equal(canvaMuteRes.statusCode, 200);
-    assert.equal(canvaMuteRes.json().pipelines.find((p: any) => p.id === "PiPGM2")?.audioEnabled, false);
-
-    // Advance next slide via Canva control
-    const canvaNextRes = await app.inject({
-      method: "POST",
-      url: "/api/v1/pipgm/canva/control",
-      payload: {
-        designId: "DAF_CHURCH_2026",
-        action: "next"
-      }
-    });
-    assert.equal(canvaNextRes.statusCode, 200);
-    assert.equal(canvaNextRes.json().pipelines.find((p: any) => p.id === "PiPGM2")?.currentStep, 1);
-
-    // Jump to specific pageNumber (1-based page 3 -> 0-based step 2)
-    const canvaPageRes = await app.inject({
-      method: "POST",
-      url: "/api/v1/pipgm/canva/control",
-      payload: {
-        targetPipelineId: "PiPGM2",
-        action: "gotoPage",
-        pageNumber: 3
-      }
-    });
-    assert.equal(canvaPageRes.statusCode, 200);
-    assert.equal(canvaPageRes.json().pipelines.find((p: any) => p.id === "PiPGM2")?.currentStep, 2);
-
-    // Verify stage HTML includes the Canva embed postMessage listener
-    const stageRes = await app.inject({ method: "GET", url: "/pipgm/PiPGM2/stage" });
-    assert.equal(stageRes.statusCode, 200);
-    assert.ok(stageRes.payload.includes('addEventListener("message"'));
-    assert.ok(stageRes.payload.includes("/api/v1/pipgm/canva/control"));
-
 
     // 4. YouTube Video Embedding
     const ytRes = await app.inject({
