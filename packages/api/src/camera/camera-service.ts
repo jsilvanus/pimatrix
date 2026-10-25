@@ -12,6 +12,8 @@ export interface CameraServiceOptions {
   mode: "simulation" | "production";
   eventBroker?: PiMatrixEventBroker | undefined;
   logger?: FastifyBaseLogger | undefined;
+  /** Near focus limit (metres) restored when privacy blur goes off. */
+  nearLimitM?: number | undefined;
   cam1Name?: string | undefined;
   cam1Host?: string | undefined;
   cam1ViscaPort?: number | undefined;
@@ -57,6 +59,7 @@ export class CameraService {
           rtspUrl: options.mediaMtxRtspBaseUrl ? `${options.mediaMtxRtspBaseUrl}/cam1` : undefined,
           rtmpServer: options.mediaMtxRtmpBaseUrl,
           rtmpKey: "cam1",
+          nearLimitM: options.nearLimitM,
           logger: options.logger
         })
       );
@@ -77,6 +80,7 @@ export class CameraService {
           rtspUrl: options.mediaMtxRtspBaseUrl ? `${options.mediaMtxRtspBaseUrl}/cam2` : undefined,
           rtmpServer: options.mediaMtxRtmpBaseUrl,
           rtmpKey: "cam2",
+          nearLimitM: options.nearLimitM,
           logger: options.logger
         })
       );

@@ -32,6 +32,8 @@ export interface AppConfig {
   amxMasterHost?: string;
   amxMasterPort: number;
   cameraMode: "simulated" | "hardware";
+  /** Near focus limit in metres restored when privacy blur goes off (PIMATRIX_CAMERA_NEAR_LIMIT_M, default 1.5). */
+  cameraNearLimitM: number;
   cam1Name: string;
   cam1Host?: string;
   cam1ViscaPort: number;
@@ -189,6 +191,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('PIMATRIX_CAMERA_MODE must be "simulated" or "hardware"');
   }
   const cameraMode = rawCameraMode as "simulated" | "hardware";
+  const cameraNearLimitM = Number(env.PIMATRIX_CAMERA_NEAR_LIMIT_M ?? 1.5);
+  if (!Number.isFinite(cameraNearLimitM) || cameraNearLimitM < 0.1 || cameraNearLimitM > 50) {
+    throw new Error("PIMATRIX_CAMERA_NEAR_LIMIT_M must be a number of metres between 0.1 and 50");
+  }
   const cam1Name = env.PIMATRIX_CAM1_NAME?.trim() || "Camera 1";
   const cam1Host = env.PIMATRIX_CAM1_HOST?.trim() || undefined;
   const cam1ViscaPort = validPort(env.PIMATRIX_CAM1_VISCA_PORT, 52381, "PIMATRIX_CAM1_VISCA_PORT");
@@ -288,6 +294,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(amxMasterHost ? { amxMasterHost } : {}),
     amxMasterPort,
     cameraMode,
+    cameraNearLimitM,
     cam1Name,
     cam1ViscaPort,
     cam1CgiPort,

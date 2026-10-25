@@ -580,7 +580,7 @@ paths:
       description: >-
         On switches the camera from autofocus to manual focus, sets the near focus
         limit to the closest distance and drives focus to the nearest point, so the
-        picture is out of focus. Off returns the camera to autofocus. Uses standard
+        picture is out of focus. Off restores the normal near limit (PIMATRIX_CAMERA_NEAR_LIMIT_M, default 1.5 m, unverified mapping) and returns the camera to autofocus. Uses standard
         VISCA focus commands; not yet verified on a real PTZ330.
       parameters:
         - in: path
