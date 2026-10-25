@@ -9,13 +9,16 @@ const USER = "avstream";
 const PASSWORD = "s3cret-pass";
 const EXPECTED = `Basic ${Buffer.from(`${USER}:${PASSWORD}`).toString("base64")}`;
 
-/** A fake AVer CGI: answers 200 only to the expected Basic login, and records what it saw. */
-async function fakeCamera() {
-  const seen: Array<{ url: string; authorization: string | undefined }> = [];
+/**
+ * A fake AVer CGI: answers only to the expected Basic login, records what it saw.
+ * get_rtmp_status answers with `status` (default streaming) in the body.
+ */
+async function fakeCamera(status = "rtmp_status=streaming") {
+  const seen: Array<{ method: string | undefined; url: string; authorization: string | undefined }> = [];
   const server = http.createServer((req, res) => {
-    seen.push({ url: req.url ?? "", authorization: req.headers.authorization });
+    seen.push({ method: req.method, url: req.url ?? "", authorization: req.headers.authorization });
     res.statusCode = req.headers.authorization === EXPECTED ? 200 : 401;
-    res.end("ok");
+    res.end(req.url?.includes("get_rtmp_status") ? status : "ok");
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
   const port = (server.address() as AddressInfo).port;
@@ -28,7 +31,8 @@ function adapterFor(port: number, auth?: { user: string; password: string }) {
     label: "Camera 1",
     host: "127.0.0.1",
     cgiPort: port,
-    rtmpTargetUrl: "rtmp://127.0.0.1:1935/cam1",
+    rtmpServer: "rtmp://192.168.1.103:1935",
+    rtmpKey: "cam1",
     ...(auth ? { auth } : {})
   });
 }
@@ -38,12 +42,15 @@ test("the Basic login is sent in the Authorization header, never in the URL", as
   try {
     const adapter = adapterFor(cam.port, { user: USER, password: PASSWORD });
     await adapter.startStream();
-    assert.equal(cam.seen.length, 2, "URL and enable calls");
+    assert.equal(cam.seen.length, 2, "start and status calls");
     for (const call of cam.seen) {
       assert.equal(call.authorization, EXPECTED);
       assert.ok(!call.url.includes(PASSWORD) && !call.url.includes(USER + ":"), "login must not be in the URL");
     }
-    assert.match(cam.seen[1]!.url, /vdo_rtmp_enable,3,1/);
+    assert.equal(cam.seen[0]!.method, "POST");
+    assert.match(cam.seen[0]!.url, /^\/storks\?cmd=set_rtmp_start\(server=rtmp:\/\/192\.168\.1\.103:1935;key=cam1\)$/);
+    assert.equal(cam.seen[1]!.method, "GET");
+    assert.match(cam.seen[1]!.url, /^\/storks\?cmd=get_rtmp_status\(\d+\)$/);
   } finally {
     await cam.close();
   }
@@ -98,9 +105,47 @@ test("stop sends the disable call with the same login and clears streaming even 
     await adapter.startStream();
     await adapter.stopStream();
     const last = cam.seen[cam.seen.length - 1]!;
-    assert.match(last.url, /vdo_rtmp_enable,3,0/);
+    assert.equal(last.method, "POST");
+    assert.equal(last.url, "/storks?cmd=set_rtmp_stop");
     assert.equal(last.authorization, EXPECTED);
     assert.equal(adapter.getSnapshot().streaming, false);
+  } finally {
+    await cam.close();
+  }
+});
+
+test("a status of failed from the camera fails the start, and streaming stays off", async () => {
+  const cam = await fakeCamera("rtmp_status=failed");
+  try {
+    const adapter = adapterFor(cam.port, { user: USER, password: PASSWORD });
+    await assert.rejects(adapter.startStream(), (err: unknown) => {
+      assert.ok(err instanceof CameraCgiError);
+      assert.equal(err.reason, "rejected");
+      return true;
+    });
+    assert.equal(adapter.getSnapshot().streaming, false);
+  } finally {
+    await cam.close();
+  }
+});
+
+test("an unrecognised status answer does not fail the start", async () => {
+  const cam = await fakeCamera("<html>?</html>");
+  try {
+    const adapter = adapterFor(cam.port, { user: USER, password: PASSWORD });
+    await adapter.startStream();
+    assert.equal(adapter.getSnapshot().streaming, true);
+  } finally {
+    await cam.close();
+  }
+});
+
+test("without a server and key no RTMP call is made", async () => {
+  const cam = await fakeCamera();
+  try {
+    const adapter = new UdpViscaCameraAdapter({ id: "cam2", label: "Camera 2", host: "127.0.0.1", cgiPort: cam.port });
+    await adapter.startStream();
+    assert.equal(cam.seen.length, 0);
   } finally {
     await cam.close();
   }
