@@ -42,4 +42,4 @@ The user units are templates in this folder: `mediamtx.service`, `pimatrix.servi
    Enable `claude-rc` only after its fix is verified.
 5. Env: `cp deploy/pi/pimatrix.env.example /home/pi/apps/pimatrix.env`, then replace `PIMATRIX_API_KEY` with a real key. The file holds a secret, so keep it readable only by its owner (`chmod 600`).
 
-Production mode (`PIMATRIX_MODE=production`) refuses to start without `PIMATRIX_API_KEY` (or `PIMATRIX_CANVA_APP_TOKEN`). The service then exits at start, so check `journalctl --user -u pimatrix` if it does not stay up.
+Production mode (`PIMATRIX_MODE=production`) refuses to start without `PIMATRIX_API_KEY`. The service then exits at start, so check `journalctl --user -u pimatrix` if it does not stay up.

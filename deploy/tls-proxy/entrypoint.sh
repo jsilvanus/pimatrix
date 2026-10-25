@@ -6,7 +6,7 @@ EMAIL="${LETSENCRYPT_EMAIL:-${EMAIL:-admin@$DOMAIN}}"
 TLS_PORT="${PIMATRIX_TLS_PORT:-8443}"
 UPSTREAM="${UPSTREAM_HOST:-host.docker.internal:3000}"
 STAGING="${CERTBOT_STAGING:-false}"
-RESTRICT_CANVA="${RESTRICT_TO_CANVA:-true}"
+RESTRICT_WAN="${RESTRICT_WAN:-true}"
 
 echo "=================================================="
 echo " Starting PiMatrix TLS Reverse Proxy"
@@ -14,7 +14,7 @@ echo " Domain:        ${DOMAIN}"
 echo " Email:         ${EMAIL}"
 echo " TLS Port:      ${TLS_PORT}"
 echo " Upstream:      ${UPSTREAM}"
-echo " Canva Only:    ${RESTRICT_CANVA}"
+echo " WAN closed:    ${RESTRICT_WAN}"
 echo " Certbot Stage: ${STAGING}"
 echo "=================================================="
 
@@ -78,35 +78,14 @@ server {
     proxy_read_timeout 86400s;
     proxy_send_timeout 86400s;
 
-    # Canva presentation integration endpoints
-    location /canva/ {
-        proxy_pass http://${UPSTREAM};
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-
-    location /api/v1/pipgm/canva/ {
-        proxy_pass http://${UPSTREAM};
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-    }
-
 EOF
 
-    if [ "$RESTRICT_CANVA" = "true" ]; then
+    if [ "$RESTRICT_WAN" = "true" ]; then
         cat <<EOF >> /etc/nginx/conf.d/pimatrix.conf
-    # Block general LAN UI and sensitive AV hardware routes from public WAN port
+    # Block the LAN UI and AV hardware routes from the public WAN port
     location / {
         default_type text/plain;
-        return 403 "Forbidden: External WAN access is restricted to Canva presentation integrations.\n";
+        return 403 "Forbidden: External WAN access to PiMatrix is disabled.\n";
     }
 }
 EOF

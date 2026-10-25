@@ -128,11 +128,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
 
   const pipgmService = new PiPgmService({
     eventBroker,
-    canvaConfig: {
-      apiBaseUrl: config.canvaApiBaseUrl,
-      accessToken: config.canvaAccessToken,
-      fetchImpl
-    }
   });
 
   const cameraService = new CameraService({
@@ -358,7 +353,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
 
   // CORS for the /api/v1 routes, only for origins listed in PIMATRIX_CORS_ORIGINS.
   // Preflights are answered here, before routing, so an OPTIONS request never 404s.
-  // The Canva routes keep their own headers (they set "*" themselves).
   const corsAllowed = new Set(config.corsOrigins ?? []);
   const corsOriginFor = (origin: string | undefined): string | null => {
     if (!origin || corsAllowed.size === 0) return null;
@@ -410,7 +404,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     }
 
     // If no credentials configured, allow control in open development mode
-    if (!config.apiKey && !config.canvaAppToken) {
+    if (!config.apiKey) {
       return;
     }
 
@@ -421,21 +415,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       token = authHeader.slice(7).trim();
     } else if (typeof request.headers["x-api-key"] === "string") {
       token = request.headers["x-api-key"].trim();
-    }
-
-    // Canva control points: accept either canvaAppToken or apiKey
-    if (/^\/api\/v1\/pipgm\/(canva\/|items\/[^/]+\/canva\/)/.test(url)) {
-      if (config.canvaAppToken && token === config.canvaAppToken) {
-        return;
-      }
-      if (config.apiKey && token === config.apiKey) {
-        return;
-      }
-      return reply.status(401).send({
-        statusCode: 401,
-        error: "Unauthorized",
-        message: "Valid Canva application token or API key required"
-      });
     }
 
     // All other control points: verify apiKey
@@ -460,7 +439,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     const isOperator = isWhitelisted || !config.apiKey || presented === config.apiKey;
     return {
       authRequired: Boolean(config.apiKey),
-      canvaAuthRequired: Boolean(config.canvaAppToken),
       isWhitelisted,
       clientIp,
       mediaMtxPassword: isOperator ? (config.mediaMtxPassword ?? null) : null
@@ -1484,272 +1462,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     });
 
     return reply.code(201).send(item);
-  });
-
-  app.post<{
-    Body: {
-      designId?: unknown;
-      title?: unknown;
-      embedUrl?: unknown;
-      viewUrl?: unknown;
-      editUrl?: unknown;
-      pageCount?: unknown;
-      pages?: unknown;
-      exportUrls?: unknown;
-      exportFormat?: unknown;
-      mode?: unknown;
-      autoExport?: unknown;
-      targetPipelineId?: unknown;
-      cueImmediately?: unknown;
-      orientation?: unknown;
-    };
-  }>("/api/v1/pipgm/items/canva", async (request, reply) => {
-    const body = request.body ?? {};
-    if (
-      body.targetPipelineId !== undefined &&
-      (typeof body.targetPipelineId !== "string" || !pipgmService.isValidPipelineId(body.targetPipelineId))
-    ) {
-      return reply.code(422).send({
-        error: { code: "INVALID_PIPELINE_ID", message: "targetPipelineId must be PiPGM1, PiPGM2, or PiPGM3" }
-      });
-    }
-
-    const item = await pipgmService.createOrPushCanvaItem(
-      {
-        ...(typeof body.designId === "string" ? { designId: body.designId } : {}),
-        ...(typeof body.title === "string" ? { title: body.title } : {}),
-        ...(typeof body.embedUrl === "string" ? { embedUrl: body.embedUrl } : {}),
-        ...(typeof body.viewUrl === "string" ? { viewUrl: body.viewUrl } : {}),
-        ...(typeof body.editUrl === "string" ? { editUrl: body.editUrl } : {}),
-        ...(typeof body.pageCount === "number" ? { pageCount: body.pageCount } : {}),
-        ...(Array.isArray(body.pages) ? { pages: body.pages as never } : {}),
-        ...(Array.isArray(body.exportUrls) ? { exportUrls: body.exportUrls as string[] } : {}),
-        ...(body.exportFormat === "mp4" || body.exportFormat === "png"
-          ? { exportFormat: body.exportFormat }
-          : {}),
-        ...(body.mode === "embed" || body.mode === "exported_mp4" || body.mode === "exported_slides"
-          ? { mode: body.mode }
-          : {}),
-        ...(typeof body.autoExport === "boolean" ? { autoExport: body.autoExport } : {}),
-        ...(typeof body.targetPipelineId === "string"
-          ? { targetPipelineId: body.targetPipelineId as PiPgmPipelineId }
-          : {}),
-        ...(typeof body.cueImmediately === "boolean" ? { cueImmediately: body.cueImmediately } : {}),
-        ...(body.orientation === "landscape" || body.orientation === "portrait"
-          ? { orientation: body.orientation }
-          : {})
-      },
-      false
-    );
-
-    if (!item) {
-      return reply.code(422).send({
-        error: { code: "INVALID_CANVA_DESIGN", message: "Valid Canva designId or embedUrl/viewUrl is required" }
-      });
-    }
-
-    return reply.code(201).send(item);
-  });
-
-  // CORS preflight for the Canva App plugin running inside Canva's editor iframe
-
-  app.options("/api/v1/pipgm/canva/control", async (_request, reply) => {
-    return reply
-      .header("Access-Control-Allow-Origin", "*")
-      .header("Access-Control-Allow-Methods", "POST, OPTIONS")
-      .header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-      .code(204)
-      .send();
-  });
-
-  app.post<{
-    Body: {
-      designId?: unknown;
-      targetPipelineId?: unknown;
-      action?: unknown;
-      pageNumber?: unknown;
-      stepIndex?: unknown;
-      fadeToBlack?: unknown;
-      ftbToggle?: unknown;
-      audioEnabled?: unknown;
-      muteToggle?: unknown;
-      mode?: unknown;
-      sync?: unknown;
-    };
-  }>("/api/v1/pipgm/canva/control", async (request, reply) => {
-    reply.header("Access-Control-Allow-Origin", "*");
-    const body = request.body ?? {};
-
-    const validActions = new Set([
-      "next",
-      "prev",
-      "gotoPage",
-      "gotoStep",
-      "ftb",
-      "mute",
-      "play",
-      "pause",
-      "stop",
-      "restart",
-      "mode"
-    ]);
-
-    if (typeof body.action !== "string" || !validActions.has(body.action)) {
-      return reply.code(422).send({
-        error: {
-          code: "INVALID_CANVA_CONTROL_ACTION",
-          message: "action must be one of: next, prev, gotoPage, gotoStep, ftb, mute, play, pause, stop, restart, mode"
-        }
-      });
-    }
-
-    if (
-      body.targetPipelineId !== undefined &&
-      body.targetPipelineId !== "all" &&
-      (typeof body.targetPipelineId !== "string" || !pipgmService.isValidPipelineId(body.targetPipelineId))
-    ) {
-      return reply.code(422).send({
-        error: {
-          code: "INVALID_PIPELINE_ID",
-          message: "targetPipelineId must be PiPGM1, PiPGM2, PiPGM3, or all"
-        }
-      });
-    }
-
-    const result = pipgmService.controlCanvaPresentation({
-      action: body.action as never,
-      ...(typeof body.designId === "string" ? { designId: body.designId } : {}),
-      ...(typeof body.targetPipelineId === "string" ? { targetPipelineId: body.targetPipelineId } : {}),
-      ...(typeof body.pageNumber === "number" ? { pageNumber: body.pageNumber } : {}),
-      ...(typeof body.stepIndex === "number" ? { stepIndex: body.stepIndex } : {}),
-      ...(typeof body.fadeToBlack === "boolean" ? { fadeToBlack: body.fadeToBlack } : {}),
-      ...(typeof body.ftbToggle === "boolean" ? { ftbToggle: body.ftbToggle } : {}),
-      ...(typeof body.audioEnabled === "boolean" ? { audioEnabled: body.audioEnabled } : {}),
-      ...(typeof body.muteToggle === "boolean" ? { muteToggle: body.muteToggle } : {}),
-      ...(body.mode === "embed" || body.mode === "exported_mp4" || body.mode === "exported_slides" ? { mode: body.mode } : {}),
-      ...(typeof body.sync === "boolean" ? { sync: body.sync } : {})
-    });
-
-    return reply.code(200).send(result);
-  });
-
-  app.options("/api/v1/pipgm/canva/push", async (_request, reply) => {
-    return reply
-      .header("Access-Control-Allow-Origin", "*")
-      .header("Access-Control-Allow-Methods", "POST, OPTIONS")
-      .header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-      .code(204)
-      .send();
-  });
-
-  app.post<{
-    Body: {
-      designId?: unknown;
-      title?: unknown;
-      embedUrl?: unknown;
-      viewUrl?: unknown;
-      editUrl?: unknown;
-      pageCount?: unknown;
-      pages?: unknown;
-      exportUrls?: unknown;
-      exportFormat?: unknown;
-      mode?: unknown;
-      autoExport?: unknown;
-      targetPipelineId?: unknown;
-      cueImmediately?: unknown;
-      orientation?: unknown;
-    };
-  }>("/api/v1/pipgm/canva/push", async (request, reply) => {
-    reply.header("Access-Control-Allow-Origin", "*");
-    const body = request.body ?? {};
-
-    if (
-      body.targetPipelineId !== undefined &&
-      (typeof body.targetPipelineId !== "string" || !pipgmService.isValidPipelineId(body.targetPipelineId))
-    ) {
-      return reply.code(422).send({
-        error: { code: "INVALID_PIPELINE_ID", message: "targetPipelineId must be PiPGM1, PiPGM2, or PiPGM3" }
-      });
-    }
-
-    const item = await pipgmService.createOrPushCanvaItem(
-      {
-        ...(typeof body.designId === "string" ? { designId: body.designId } : {}),
-        ...(typeof body.title === "string" ? { title: body.title } : {}),
-        ...(typeof body.embedUrl === "string" ? { embedUrl: body.embedUrl } : {}),
-        ...(typeof body.viewUrl === "string" ? { viewUrl: body.viewUrl } : {}),
-        ...(typeof body.editUrl === "string" ? { editUrl: body.editUrl } : {}),
-        ...(typeof body.pageCount === "number" ? { pageCount: body.pageCount } : {}),
-        ...(Array.isArray(body.pages) ? { pages: body.pages as never } : {}),
-        ...(Array.isArray(body.exportUrls) ? { exportUrls: body.exportUrls as string[] } : {}),
-        ...(body.exportFormat === "mp4" || body.exportFormat === "png"
-          ? { exportFormat: body.exportFormat }
-          : {}),
-        ...(body.mode === "embed" || body.mode === "exported_mp4" || body.mode === "exported_slides"
-          ? { mode: body.mode }
-          : {}),
-        ...(typeof body.autoExport === "boolean" ? { autoExport: body.autoExport } : {}),
-        ...(typeof body.targetPipelineId === "string"
-          ? { targetPipelineId: body.targetPipelineId as PiPgmPipelineId }
-          : {}),
-        ...(typeof body.cueImmediately === "boolean" ? { cueImmediately: body.cueImmediately } : {}),
-        ...(body.orientation === "landscape" || body.orientation === "portrait"
-          ? { orientation: body.orientation }
-          : {})
-      },
-      true
-    );
-
-    if (!item) {
-      return reply.code(422).send({
-        error: { code: "INVALID_CANVA_DESIGN", message: "Valid Canva designId or embedUrl/viewUrl is required" }
-      });
-    }
-
-    const targetPipeline =
-      typeof body.targetPipelineId === "string"
-        ? pipgmService.getPipeline(body.targetPipelineId) ?? null
-        : null;
-
-    return reply.code(201).send({
-      accepted: true,
-      item,
-      pipeline: targetPipeline
-    });
-  });
-
-  app.post<{
-    Params: { itemId: string };
-    Body: { format?: unknown; orientation?: unknown; switchToExportedMode?: unknown };
-  }>("/api/v1/pipgm/items/:itemId/canva/export", async (request, reply) => {
-    const body = request.body ?? {};
-    const format = body.format === undefined ? "mp4" : body.format;
-    if (format !== "mp4" && format !== "png") {
-      return reply.code(422).send({
-        error: { code: "INVALID_EXPORT_FORMAT", message: "format must be 'mp4' or 'png'" }
-      });
-    }
-
-    const orientation =
-      body.orientation === "portrait" || body.orientation === "landscape"
-        ? body.orientation
-        : "landscape";
-
-    const updated = await pipgmService.exportCanvaItem(request.params.itemId, {
-      format,
-      orientation,
-      ...(typeof body.switchToExportedMode === "boolean"
-        ? { switchToExportedMode: body.switchToExportedMode }
-        : {})
-    });
-
-    if (!updated) {
-      return reply.code(404).send({
-        error: { code: "CANVA_ITEM_NOT_FOUND", message: `Canva item not found: ${request.params.itemId}` }
-      });
-    }
-
-    return reply.code(200).send(updated);
   });
 
   app.get<{ Params: { assetId: string } }>("/api/v1/pipgm/assets/:assetId", async (request, reply) => {

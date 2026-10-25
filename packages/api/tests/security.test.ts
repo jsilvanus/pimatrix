@@ -82,46 +82,6 @@ test("control points require authentication when PIMATRIX_API_KEY is configured"
   }
 });
 
-test("canva app token authenticates canva control endpoints", async () => {
-  const app = buildApp(
-    loadConfig({
-      PIMATRIX_MODE: "simulation",
-      PIMATRIX_API_KEY: "admin-key",
-      PIMATRIX_CANVA_APP_TOKEN: "canva-secret-token"
-    })
-  );
-
-  try {
-    // Unauthenticated Canva request rejected
-    const unauth = await app.inject({
-      method: "POST",
-      url: "/api/v1/pipgm/canva/control",
-      payload: { action: "next" }
-    });
-    assert.equal(unauth.statusCode, 401);
-
-    // Canva token authenticated
-    const withCanvaToken = await app.inject({
-      method: "POST",
-      url: "/api/v1/pipgm/canva/control",
-      headers: { authorization: "Bearer canva-secret-token" },
-      payload: { action: "next" }
-    });
-    assert.equal(withCanvaToken.statusCode, 200);
-
-    // Admin API key also accepted for Canva routes
-    const withAdminKey = await app.inject({
-      method: "POST",
-      url: "/api/v1/pipgm/canva/control",
-      headers: { authorization: "Bearer admin-key" },
-      payload: { action: "next" }
-    });
-    assert.equal(withAdminKey.statusCode, 200);
-  } finally {
-    await app.close();
-  }
-});
-
 test("AMX TCP listener enforces IP whitelist", async () => {
   // 1. When non-whitelisted IP connects, socket is closed immediately
   const blockedApp = buildApp(

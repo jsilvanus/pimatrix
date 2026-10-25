@@ -1,6 +1,6 @@
 # Security and Remote Access Architecture
 
-PiMatrix is designed for AV production environments where low latency and local reliability are paramount, while selectively allowing remote integrations (such as Canva presentation control) from external networks.
+PiMatrix is designed for AV production environments where low latency and local reliability are paramount, and keeps every remote path closed unless it is opened on purpose. Canva integration moved out to `picanva` (its own service, see its README).
 
 > [!TIP]
 > **Interactive Wizard:** Run 
@@ -46,9 +46,8 @@ pm run setup (or ./setup.sh / .\setup.ps1) to automatically configure your .env 
                                                     │
                                        ┌────────────┴───────────┐
                                        │        INTERNET        │
-                                       │   Canva Cloud App /    │
                                        │   Remote Operators     │
-                                       │   (HTTPS via TLS)      │
+                                       │   (closed by default)  │
                                        └────────────────────────┘
 ```
 
@@ -78,8 +77,8 @@ PIMATRIX_TLS_PORT=8443
 # Set to true during initial testing to avoid hitting Let's Encrypt production rate limits
 CERTBOT_STAGING=false
 
-# Restrict WAN port to only permit Canva presentation integration endpoints
-RESTRICT_TO_CANVA=true
+# Keep the WAN port closed (403 on every path). Set to false only on purpose.
+RESTRICT_WAN=true
 ```
 
 ### How It Works
@@ -87,7 +86,7 @@ RESTRICT_TO_CANVA=true
 2. **ACME HTTP-01 Challenge:** Nginx responds to Let's Encrypt validation requests on `http://<your-domain>/.well-known/acme-challenge/` (port 80).
 3. **Automatic Issuance & Hot Reload:** Certbot acquires the official certificate from Let's Encrypt and automatically reloads Nginx with the verified TLS certificate.
 4. **Automated Background Renewal:** A daemon runs every 12 hours inside the container. When the certificate nears expiration, Certbot automatically renews it and reloads Nginx.
-5. **Surface Hardening (`RESTRICT_TO_CANVA=true`):** External traffic hitting port 8443 is strictly limited to `/canva/` and `/api/v1/pipgm/canva/`. All attempts to access the admin UI, camera PTZ, or matrix routes from the WAN port receive an immediate `403 Forbidden`.
+5. **Surface Hardening (`RESTRICT_WAN=true`):** External traffic hitting port 8443 receives `403 Forbidden` on every path, including the admin UI, camera PTZ and matrix routes. The WAN port passes traffic only when `RESTRICT_WAN=false`.
 
 ### Running the TLS Proxy
 Run via Docker Compose:
@@ -130,14 +129,6 @@ PIMATRIX_AUTH_ALLOWED_HOSTS=127.0.0.1,192.168.1.50,192.168.1.100,10.0.0.0/24
 ---
 
 ## 4. Other Security & Authentication Features
-
-### Dedicated Canva App Token (`PIMATRIX_CANVA_APP_TOKEN`)
-- The Canva presentation app can be built with a dedicated token:
-  ```env
-  PIMATRIX_CANVA_APP_TOKEN=canva-secure-token-xyz
-  ```
-- Any request reaching `/canva/*` or `/api/v1/pipgm/canva/*` accepts either `PIMATRIX_CANVA_APP_TOKEN` or `PIMATRIX_API_KEY`.
-- Canva CORS preflight `OPTIONS` requests are automatically permitted without credentials.
 
 ### AMX NetLinx TCP IP Whitelist (`PIMATRIX_AMX_ALLOWED_HOSTS`)
 - Protects the line-oriented AMX TCP control port (default `6600`).

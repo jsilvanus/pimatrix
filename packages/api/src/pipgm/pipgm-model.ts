@@ -13,7 +13,6 @@ export type PiPgmPlaybackState = "playing" | "paused" | "stopped";
 
 export type PiPgmItemKind =
   | "pptx"
-  | "canva"
   | "youtube"
   | "video"
   | "image"
@@ -60,39 +59,6 @@ export interface PptxItemData {
   filename: string;
   slideCount: number;
   slides: PptxSlide[];
-}
-
-export type CanvaRenderMode = "embed" | "exported_mp4" | "exported_slides";
-export type CanvaExportStatus = "idle" | "pending" | "in_progress" | "completed" | "failed";
-
-export interface CanvaExportJob {
-  jobId: string | null;
-  status: CanvaExportStatus;
-  format: "mp4" | "png";
-  quality: "1080p" | "1080p_vertical";
-  downloadUrls: string[];
-  localAssetUrls: string[];
-  updatedAt: string;
-  error?: string | null;
-}
-
-export interface CanvaPage {
-  pageNumber: number;
-  title?: string;
-  durationMs?: number;
-  assetUrl?: string;
-}
-
-export interface CanvaItemData {
-  designId: string;
-  title: string;
-  mode: CanvaRenderMode;
-  embedUrl: string;
-  editUrl?: string;
-  pageCount: number;
-  pages: CanvaPage[];
-  pushedFromCanvaApp: boolean;
-  exportJob: CanvaExportJob;
 }
 
 export interface YouTubeItemData {
@@ -156,7 +122,6 @@ export interface PiPgmItem {
   createdAt: string;
   steps: PiPgmStepDescriptor[];
   pptx?: PptxItemData;
-  canva?: CanvaItemData;
   youtube?: YouTubeItemData;
   video?: VideoItemData;
   image?: ImageItemData;
@@ -226,7 +191,7 @@ export interface PiPgmAsset {
   id: string;
   filename: string;
   mimeType: string;
-  kind: "pptx" | "video" | "image" | "canva_export";
+  kind: "pptx" | "video" | "image";
   sizeBytes: number;
   createdAt: string;
   url: string;
