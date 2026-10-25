@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import {
+  AtemService,
   CamerasService,
   configureApiClient,
   EffectsService,
@@ -61,6 +62,10 @@ async function run(options: CliOptions): Promise<void> {
       "  multiview layout <auto|landscape|portrait>\n" +
       "  multiview slot <replaceSourceId> <sourceId|none>\n" +
       "  matrix route <input> <output>\n" +
+      "  atem show\n" +
+      "  atem program <input>\n" +
+      "  atem preview <input>\n" +
+      "  atem cut\n" +
       "  cameras list\n" +
       "  cameras show <cameraId>\n" +
       "  cameras move <cameraId> <direction> [--speed <1-24>] [--pan-speed <1-24>] [--tilt-speed <1-23>]\n" +
@@ -196,6 +201,35 @@ async function run(options: CliOptions): Promise<void> {
     });
     if (options.json) console.log(JSON.stringify(data, null, 2));
     else console.log(`Multiview slot ${arg1} set to: ${arg2}`);
+    return;
+  }
+
+  if (group === "atem" && action === "show" && options.command.length === 2) {
+    const data = await AtemService.getAtemState();
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else {
+      console.log(`Connected: ${data.connected ? "yes" : "no"}`);
+      console.log(`Program:   ${data.programInput ?? "-"}`);
+      console.log(`Preview:   ${data.previewInput ?? "-"}`);
+    }
+    return;
+  }
+
+  if (group === "atem" && (action === "program" || action === "preview") && options.command.length === 3) {
+    const input = Number(arg1);
+    if (!Number.isInteger(input) || input < 1) throw new Error("ATEM input must be a positive integer");
+    const data = action === "program"
+      ? await AtemService.setAtemProgram({ input })
+      : await AtemService.setAtemPreview({ input });
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`ATEM ${action} set to input ${input}`);
+    return;
+  }
+
+  if (group === "atem" && action === "cut" && options.command.length === 2) {
+    const data = await AtemService.cutAtem();
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log("ATEM cut sent");
     return;
   }
 

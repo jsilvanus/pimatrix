@@ -137,22 +137,25 @@ export class AtemAdapter {
 
   async setProgram(input: number): Promise<void> {
     assertInput(input, "input");
-    if (!this.client) return;
+    const client = this.client;
+    if (!client) return;
     this.requireConnected();
-    await this.client.changeProgramInput(input, this.meIndex);
+    await client.changeProgramInput(input, this.meIndex);
   }
 
   async setPreview(input: number): Promise<void> {
     assertInput(input, "input");
-    if (!this.client) return;
+    const client = this.client;
+    if (!client) return;
     this.requireConnected();
-    await this.client.changePreviewInput(input, this.meIndex);
+    await client.changePreviewInput(input, this.meIndex);
   }
 
   async cut(): Promise<void> {
-    if (!this.client) return;
+    const client = this.client;
+    if (!client) return;
     this.requireConnected();
-    await this.client.cut(this.meIndex);
+    await client.cut(this.meIndex);
   }
 
   private requireConnected(): void {
