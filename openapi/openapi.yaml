@@ -1753,7 +1753,7 @@ components:
           description: Put the DSK on air after an upload. Default false.
     Composite:
       type: object
-      required: [id, kind, enabled, width, height, side, slideAspect, slideScale, keyColor, keyMode, atem, state, lastError, hasSlide, updatedAt]
+      required: [id, kind, enabled, width, height, side, slideAspect, slideScale, keyColor, keyMode, atem, state, lastError, hasSlide, slideSource, pipelineId, feedError, updatedAt]
       properties:
         id:
           $ref: "#/components/schemas/CompositeId"
@@ -1795,6 +1795,16 @@ components:
           type: [string, "null"]
         hasSlide:
           type: boolean
+        slideSource:
+          type: string
+          enum: [upload, piprogram]
+          description: "upload = the PNG sent with PUT /composites/slide; piprogram = the frame of pipelineId as its slide changes"
+        pipelineId:
+          $ref: "#/components/schemas/PiPgmPipelineId"
+        feedError:
+          type: string
+          nullable: true
+          description: Why the piprogram feed last failed (unreachable, no frame), or null
         updatedAt:
           type: string
           format: date-time
@@ -1812,6 +1822,11 @@ components:
       properties:
         enabled:
           type: boolean
+        slideSource:
+          type: string
+          enum: [upload, piprogram]
+        pipelineId:
+          $ref: "#/components/schemas/PiPgmPipelineId"
         width:
           type: integer
         height:
