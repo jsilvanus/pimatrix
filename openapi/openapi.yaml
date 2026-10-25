@@ -1935,7 +1935,7 @@ components:
           description: Put the DSK on air after an upload. Default false.
     Composite:
       type: object
-      required: [id, kind, enabled, width, height, side, slideAspect, slideScale, keyColor, keyMode, atem, state, lastError, hasSlide, slideSource, pipelineId, feedError, updatedAt]
+      required: [id, kind, enabled, width, height, side, slideAspect, slideScale, offsetY, keyColor, keyMode, atem, state, lastError, hasSlide, slideSource, pipelineId, feedError, updatedAt]
       properties:
         id:
           $ref: "#/components/schemas/CompositeId"
@@ -1960,6 +1960,11 @@ components:
           minimum: 0.6
           maximum: 1
           description: Slide height as a fraction of the frame height
+        offsetY:
+          type: number
+          minimum: -1
+          maximum: 1
+          description: Vertical position of the slide, -1 top edge, 0 centred, 1 bottom edge
         keyColor:
           type: string
           pattern: "^#[0-9a-f]{6}$"
@@ -2022,6 +2027,10 @@ components:
         slideScale:
           type: number
           minimum: 0.6
+          maximum: 1
+        offsetY:
+          type: number
+          minimum: -1
           maximum: 1
         keyColor:
           type: string

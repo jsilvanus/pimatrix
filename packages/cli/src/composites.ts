@@ -4,12 +4,12 @@
  */
 
 export const COMPOSITE_FIELDS = [
-  "enabled", "width", "height", "side", "slideAspect", "slideScale", "keyColor", "keyMode",
+  "enabled", "width", "height", "side", "slideAspect", "slideScale", "offsetY", "keyColor", "keyMode",
   "atem.mediaSlot", "atem.mediaPlayer", "atem.dskIndex", "atem.autoOnAir", "slideSource", "pipelineId"
 ] as const;
 
 const BOOLEAN_FIELDS = new Set(["enabled", "atem.autoOnAir"]);
-const NUMBER_FIELDS = new Set(["width", "height", "slideScale", "atem.mediaSlot", "atem.mediaPlayer", "atem.dskIndex"]);
+const NUMBER_FIELDS = new Set(["width", "height", "slideScale", "offsetY", "atem.mediaSlot", "atem.mediaPlayer", "atem.dskIndex"]);
 
 export type CompositePatchResult =
   | { ok: true; patch: Record<string, unknown> }

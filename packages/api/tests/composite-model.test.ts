@@ -17,6 +17,7 @@ test("defaults: compose1 is the HDMI key output, compose2 the ATEM media output"
   assert.equal(compose1.side, "left");
   assert.equal(compose1.slideAspect, "10:16");
   assert.equal(compose1.slideScale, 1);
+  assert.equal(compose1.offsetY, 0);
   assert.equal(compose1.keyColor, "#00ff00");
   assert.equal(compose1.keyMode, "chroma");
   assert.deepEqual(compose2.atem, { mediaSlot: 1, mediaPlayer: 1, dskIndex: 1, autoOnAir: false });
@@ -84,4 +85,12 @@ test("normaliseHexColour accepts only six-digit hex colours", () => {
   assert.equal(normaliseHexColour("#ABCDEF"), "#abcdef");
   assert.equal(normaliseHexColour("#abc"), null);
   assert.equal(normaliseHexColour(12), null);
+});
+
+test("offsetY accepts -1..1 and rejects anything else", () => {
+  assert.deepEqual(parseCompositePatch({ offsetY: -0.5 }), { ok: true, patch: { offsetY: -0.5 } });
+  for (const bad of [1.1, -2, "0", null]) {
+    const result = parseCompositePatch({ offsetY: bad });
+    assert.equal(result.ok, false);
+  }
 });

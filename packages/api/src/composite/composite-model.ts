@@ -41,6 +41,8 @@ export interface CompositeSettings {
   slideAspect: SlideAspect;
   /** Slide height as a fraction of the frame height. */
   slideScale: number;
+  /** Vertical position of the slide: -1 top edge, 0 centred, 1 bottom edge. */
+  offsetY: number;
   /** Background colour of the HDMI key page, "#rrggbb". Ignored by luma and atem-media. */
   keyColor: string;
   keyMode: KeyMode;
@@ -59,6 +61,7 @@ export interface CompositePatch {
   side?: CompositeSide;
   slideAspect?: SlideAspect;
   slideScale?: number;
+  offsetY?: number;
   keyColor?: string;
   keyMode?: KeyMode;
   atem?: Partial<CompositeAtemSettings>;
@@ -77,7 +80,7 @@ export const MAX_FRAME_SIDE = 3840;
 export const DEFAULT_KEY_COLOR = "#00ff00";
 
 const PATCH_KEYS = new Set([
-  "enabled", "width", "height", "side", "slideAspect", "slideScale", "keyColor", "keyMode", "atem",
+  "enabled", "width", "height", "side", "slideAspect", "slideScale", "offsetY", "keyColor", "keyMode", "atem",
   "slideSource", "pipelineId"
 ]);
 const ATEM_KEYS = new Set(["mediaSlot", "mediaPlayer", "dskIndex", "autoOnAir"]);
@@ -96,6 +99,7 @@ export function defaultCompositeSettings(id: CompositeId): CompositeSettings {
     side: "left",
     slideAspect: "10:16",
     slideScale: 1,
+    offsetY: 0,
     keyColor: DEFAULT_KEY_COLOR,
     keyMode: "chroma",
     atem: { mediaSlot: 1, mediaPlayer: 1, dskIndex: 1, autoOnAir: false },
@@ -161,6 +165,14 @@ export function parseCompositePatch(input: unknown): CompositeValidation {
       return { ok: false, message: `slideScale must be a number between ${MIN_SLIDE_SCALE} and ${MAX_SLIDE_SCALE}` };
     }
     patch.slideScale = value;
+  }
+
+  if (body.offsetY !== undefined) {
+    const value = body.offsetY;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < -1 || value > 1) {
+      return { ok: false, message: "offsetY must be a number between -1 and 1" };
+    }
+    patch.offsetY = value;
   }
 
   if (body.keyColor !== undefined) {
@@ -236,6 +248,7 @@ export function applyCompositePatch(current: CompositeSettings, patch: Composite
     ...(patch.side !== undefined ? { side: patch.side } : {}),
     ...(patch.slideAspect !== undefined ? { slideAspect: patch.slideAspect } : {}),
     ...(patch.slideScale !== undefined ? { slideScale: patch.slideScale } : {}),
+    ...(patch.offsetY !== undefined ? { offsetY: patch.offsetY } : {}),
     ...(patch.keyColor !== undefined ? { keyColor: patch.keyColor } : {}),
     ...(patch.keyMode !== undefined ? { keyMode: patch.keyMode } : {}),
     ...(patch.slideSource !== undefined ? { slideSource: patch.slideSource } : {}),
