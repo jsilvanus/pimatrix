@@ -1487,6 +1487,61 @@ paths:
           $ref: "#/components/responses/NotFound"
         "422":
           description: Invalid request
+  /api/v1/sources/hama/capture:
+    get:
+      operationId: getHamaCapture
+      tags: [Sources]
+      summary: Hama capture state and what holds it (on demand)
+      description: >
+        Hama runs only while something needs it: a manual start, an output routed to Hama,
+        or the RTSP relay sending Hama. It stops after PIMATRIX_HAMA_IDLE_GRACE_SECONDS
+        with nothing holding it.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HamaCaptureStatus"
+  /api/v1/sources/hama/capture/start:
+    post:
+      operationId: startHamaCapture
+      tags: [Sources]
+      summary: Start Hama capture and hold it until stopped
+      description: Holds the capture on until POST .../stop. Outputs and the relay keep it on too.
+      responses:
+        "202":
+          description: Capture requested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HamaCaptureStatus"
+        "409":
+          description: Hama capture is disabled (PIMATRIX_HAMA_ENABLED is not true)
+  /api/v1/sources/hama/capture/stop:
+    post:
+      operationId: stopHamaCapture
+      tags: [Sources]
+      summary: Drop the manual hold and stop Hama capture now
+      description: >
+        Stops the capture at once. While Hama is routed or relayed this answers 409
+        unless force=1 is given. A later route or relay change starts it again.
+      parameters:
+        - in: query
+          name: force
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      responses:
+        "200":
+          description: Capture stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HamaCaptureStatus"
+        "409":
+          description: Hama is routed or relayed, or capture is disabled
   /api/v1/pipgm/assets/{assetId}:
     get:
       operationId: getPipgmAsset
@@ -1732,6 +1787,43 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
   schemas:
+    HamaCaptureStatus:
+      type: object
+      required: [enabled, state, demand, idleGraceSeconds]
+      properties:
+        enabled:
+          type: boolean
+        state:
+          type: string
+          enum: [disabled, idle, starting, running, degraded, failed, stopping]
+        demand:
+          type: object
+          required: [manual, routed, relayed, wanted]
+          properties:
+            manual:
+              type: boolean
+            routed:
+              type: boolean
+            relayed:
+              type: boolean
+            wanted:
+              type: boolean
+        idleGraceSeconds:
+          type: number
+        device:
+          type: string
+        width:
+          type: [integer, "null"]
+        height:
+          type: [integer, "null"]
+        videoCodec:
+          type: [string, "null"]
+        jobId:
+          type: [string, "null"]
+        attempt:
+          type: integer
+        lastError:
+          type: [string, "null"]
     AtemInputRequest:
       type: object
       required: [input]
@@ -1747,11 +1839,9 @@ components:
         connected:
           type: boolean
         programInput:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
         previewInput:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
         transition:
           type: object
           required: [inTransition, remainingFrames]
@@ -1829,8 +1919,7 @@ components:
           enum: [stopped, waiting, busy, running, failed]
           description: waiting = enabled but no slide yet; busy = rendering or uploading; running = shown or loaded; failed = see lastError
         lastError:
-          type: string
-          nullable: true
+          type: [string, "null"]
         hasSlide:
           type: boolean
         updatedAt:

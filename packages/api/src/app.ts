@@ -52,6 +52,7 @@ import type {
 import { PiPgmService } from "./pipgm/pipgm-service.js";
 import { renderPiPgmStageHtml } from "./pipgm/stage-html.js";
 import { buildHamaCaptureSpec, StreamSupervisor } from "./stream-supervisor.js";
+import { HamaOnDemand } from "./hama-on-demand.js";
 import { isIpWhitelisted } from "./ip-whitelist.js";
 
 /** Maps a failed camera CGI call to a 502 with a reason, so a bad login is visible in the API. */
@@ -194,6 +195,12 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     config.streamRestartMaxMs
   );
 
+  // Hama runs only while an output or the RTSP relay uses it, or while someone starts it by hand.
+  const hamaOnDemand = new HamaOnDemand(captureSupervisor, config.hamaIdleGraceMs, () => ({
+    routed: outputStore.list().some((output) => output.desiredSource === "hama"),
+    relayed: rtspOutState.streaming && rtspOutState.sourceId === "hama"
+  }));
+
   const mediaSnapshot = () => inspectMediaMtx(config.mediaMtxApiUrl, fetchImpl);
   const mediaStatus = async () => {
     const snapshot = await mediaSnapshot();
@@ -328,7 +335,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     : null;
 
   app.addHook("onReady", async () => {
-    captureSupervisor.start();
+    hamaOnDemand.sync();
     if (config.atemHost) {
       await atem.connect(config.atemHost, config.atemPort).catch((error: unknown) => {
         app.log.error({ err: error }, "ATEM connection failed; retrying is not automatic");
@@ -344,6 +351,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   });
 
   app.addHook("onClose", async () => {
+    hamaOnDemand.dispose();
     await Promise.all([
       atem.disconnect(),
       compositeService.close(),
@@ -659,6 +667,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         data: { output: current }
       });
 
+      hamaOnDemand.sync();
       return reply.code(202).send(current);
     }
   );
@@ -738,6 +747,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       data: { ...rtspOutState }
     });
 
+    hamaOnDemand.sync();
     return reply.code(200).send(rtspOutState);
   });
 
@@ -773,6 +783,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         data: { ...rtspOutState }
       });
 
+      hamaOnDemand.sync();
       return reply.code(200).send(rtspOutState);
     }
   );
@@ -2204,6 +2215,57 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     }
 
     return reply.code(200).send(updated);
+  });
+
+  // Hama capture: status and explicit start/stop (see openapi/openapi.yaml, "Hama capture").
+  const hamaCaptureStatus = () => {
+    const capture = captureSupervisor.snapshot();
+    const demand = hamaOnDemand.demand();
+    return {
+      enabled: config.hamaEnabled,
+      state: capture.state,
+      demand,
+      idleGraceSeconds: config.hamaIdleGraceMs / 1000,
+      device: config.hamaDevice,
+      width: config.hamaWidth ?? null,
+      height: config.hamaHeight ?? null,
+      videoCodec: config.hamaVideoCodec ?? null,
+      jobId: capture.jobId,
+      attempt: capture.attempt,
+      lastError: capture.lastError
+    };
+  };
+
+  app.get("/api/v1/sources/hama/capture", async () => hamaCaptureStatus());
+
+  app.post("/api/v1/sources/hama/capture/start", async (_request, reply) => {
+    if (!config.hamaEnabled) {
+      return reply.code(409).send({
+        error: { code: "CAPTURE_DISABLED", message: "Hama capture is off; set PIMATRIX_HAMA_ENABLED=true" }
+      });
+    }
+    hamaOnDemand.startManual();
+    return reply.code(202).send(hamaCaptureStatus());
+  });
+
+  app.post<{ Querystring: { force?: string } }>("/api/v1/sources/hama/capture/stop", async (request, reply) => {
+    if (!config.hamaEnabled) {
+      return reply.code(409).send({
+        error: { code: "CAPTURE_DISABLED", message: "Hama capture is off; set PIMATRIX_HAMA_ENABLED=true" }
+      });
+    }
+    const demand = hamaOnDemand.demand();
+    const inUse = demand.routed || demand.relayed;
+    if (inUse && request.query.force !== "1") {
+      return reply.code(409).send({
+        error: {
+          code: "CAPTURE_IN_USE",
+          message: "Hama is routed or relayed; route it elsewhere first, or stop with ?force=1"
+        }
+      });
+    }
+    await hamaOnDemand.stopNow();
+    return reply.code(200).send(hamaCaptureStatus());
   });
 
   const validPresets = new Set([

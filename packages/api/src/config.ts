@@ -20,6 +20,8 @@ export interface AppConfig {
   hamaFrameRate?: number;
   hamaVideoCodec?: HamaVideoCodec;
   hamaRtspUrl?: string;
+  /** How long Hama capture keeps running after nothing needs it (on demand). */
+  hamaIdleGraceMs: number;
   streamRestartMinMs: number;
   streamRestartMaxMs: number;
   displayMode: DisplayMode;
@@ -119,6 +121,14 @@ function optionalRtspUrl(value: string | undefined, name: string): string | unde
   return parsed.toString();
 }
 
+function nonNegativeInteger(value: string | undefined, fallback: number, name: string, max: number): number {
+  const result = Number(value ?? fallback);
+  if (!Number.isInteger(result) || result < 0 || result > max) {
+    throw new Error(`${name} must be an integer between 0 and ${max}`);
+  }
+  return result;
+}
+
 function positiveInteger(value: string | undefined, fallback: number, name: string, max = 10000): number {
   const result = Number(value ?? fallback);
   if (!Number.isInteger(result) || result < 1 || result > max) {
@@ -150,10 +160,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const hamaDevice = env.PIMATRIX_HAMA_DEVICE?.trim() || "/dev/video0";
   // Hama documents advertised ceilings, not Linux V4L2 modes; do not force a mode by default.
   const hamaInputFormat = env.PIMATRIX_HAMA_INPUT_FORMAT?.trim() || undefined;
-  const hamaWidth = env.PIMATRIX_HAMA_WIDTH === undefined ? undefined : positiveInteger(env.PIMATRIX_HAMA_WIDTH, 1, "PIMATRIX_HAMA_WIDTH");
-  const hamaHeight = env.PIMATRIX_HAMA_HEIGHT === undefined ? undefined : positiveInteger(env.PIMATRIX_HAMA_HEIGHT, 1, "PIMATRIX_HAMA_HEIGHT");
+  // 1280x720 by default: the Pi's CPU and the preview bandwidth both want less than the camera's maximum.
+  const hamaWidth = positiveInteger(env.PIMATRIX_HAMA_WIDTH, 1280, "PIMATRIX_HAMA_WIDTH");
+  const hamaHeight = positiveInteger(env.PIMATRIX_HAMA_HEIGHT, 720, "PIMATRIX_HAMA_HEIGHT");
+  const hamaIdleGraceSeconds = nonNegativeInteger(env.PIMATRIX_HAMA_IDLE_GRACE_SECONDS, 30, "PIMATRIX_HAMA_IDLE_GRACE_SECONDS", 3600);
   const hamaFrameRate = env.PIMATRIX_HAMA_FRAME_RATE === undefined ? undefined : positiveInteger(env.PIMATRIX_HAMA_FRAME_RATE, 1, "PIMATRIX_HAMA_FRAME_RATE");
-  const hamaVideoCodec = env.PIMATRIX_HAMA_VIDEO_CODEC || undefined;
+  // The Pi 4 hardware encoder: about 60% of a core against about 120% for libx264 at 1080p.
+  const hamaVideoCodec = (env.PIMATRIX_HAMA_VIDEO_CODEC?.trim() || "h264_v4l2m2m") as HamaVideoCodec;
   const hamaRtspUrl = optionalRtspUrl(env.PIMATRIX_HAMA_RTSP_URL, "PIMATRIX_HAMA_RTSP_URL");
   const streamRestartMinMs = positiveInteger(env.PIMATRIX_STREAM_RESTART_MIN_MS, 1000, "PIMATRIX_STREAM_RESTART_MIN_MS", 300000);
   const streamRestartMaxMs = positiveInteger(env.PIMATRIX_STREAM_RESTART_MAX_MS, 30000, "PIMATRIX_STREAM_RESTART_MAX_MS", 300000);
@@ -303,6 +316,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(fffleetClientId ? { fffleetClientId } : {}),
     ...(fffleetClientSecret ? { fffleetClientSecret } : {}),
     ...(hamaRtspUrl ? { hamaRtspUrl } : {}),
+    hamaIdleGraceMs: hamaIdleGraceSeconds * 1000,
     ...(apiKey ? { apiKey } : {}),
     ...(amxAllowedHosts && amxAllowedHosts.length > 0 ? { amxAllowedHosts } : {}),
     ...(canvaAppToken ? { canvaAppToken } : {}),
