@@ -33,11 +33,29 @@ export interface AtemTransitionState {
   remainingFrames: number;
 }
 
+export interface AtemFadeToBlackState {
+  /** True once the fade is complete and program is black. */
+  fullyBlack: boolean;
+  inTransition: boolean;
+  remainingFrames: number;
+}
+
+export interface AtemDownstreamKeyerState {
+  /** 1-based downstream keyer number, as printed on the switcher. */
+  dsk: number;
+  onAir: boolean;
+  /** Tie rides the keyer with the next M/E transition. */
+  tie: boolean;
+  inTransition: boolean;
+}
+
 export interface AtemAdapterState {
   connected: boolean;
   programInput: number | null;
   previewInput: number | null;
   transition: AtemTransitionState;
+  fadeToBlack: AtemFadeToBlackState;
+  downstreamKeyers: AtemDownstreamKeyerState[];
 }
 
 export type AtemStateListener = (state: AtemAdapterState) => void;
@@ -49,6 +67,9 @@ export interface AtemClient {
   changeProgramInput(input: number, me?: number): Promise<void>;
   changePreviewInput(input: number, me?: number): Promise<void>;
   cut(me?: number): Promise<void>;
+  autoTransition?(me?: number): Promise<void>;
+  fadeToBlack?(me?: number): Promise<void>;
+  setDownstreamKeyTie?(tie: boolean, key?: number): Promise<void>;
   readonly state: unknown;
   on(event: string, listener: (...args: never[]) => void): unknown;
   /** Media pool and keyer calls used by the slide composite. Optional so older fakes still fit. */
@@ -88,6 +109,7 @@ export interface AtemAdapterOptions {
 }
 
 const IDLE_TRANSITION: AtemTransitionState = { inTransition: false, remainingFrames: 0 };
+const IDLE_FTB: AtemFadeToBlackState = { fullyBlack: false, inTransition: false, remainingFrames: 0 };
 
 function assertInput(input: number, name: string): void {
   if (!Number.isInteger(input) || input < 1) {
@@ -240,7 +262,14 @@ export class AtemAdapter {
 
   getState(): AtemAdapterState {
     if (!this.client || !this.connected) {
-      return { connected: false, programInput: null, previewInput: null, transition: { ...IDLE_TRANSITION } };
+      return {
+        connected: false,
+        programInput: null,
+        previewInput: null,
+        transition: { ...IDLE_TRANSITION },
+        fadeToBlack: { ...IDLE_FTB },
+        downstreamKeyers: [],
+      };
     }
     const me = readMixEffect(this.client.state, this.meIndex);
     return {
@@ -248,6 +277,8 @@ export class AtemAdapter {
       programInput: me?.programInput ?? null,
       previewInput: me?.previewInput ?? null,
       transition: me?.transition ?? { ...IDLE_TRANSITION },
+      fadeToBlack: me?.fadeToBlack ?? { ...IDLE_FTB },
+      downstreamKeyers: readDownstreamKeyers(this.client.state),
     };
   }
 
@@ -280,6 +311,30 @@ export class AtemAdapter {
     if (!client) return;
     this.requireConnected();
     await client.cut(this.meIndex);
+  }
+
+  /** Auto (mix) transition of preview to program on the M/E row. */
+  async autoTransition(): Promise<void> {
+    this.requireConnected();
+    const client = this.requireClient();
+    if (!client.autoTransition) throw new Error("ATEM client does not support auto transitions");
+    await client.autoTransition(this.meIndex);
+  }
+
+  /** Fade to black toggle on the M/E row (the switcher fades out, or back in when already black). */
+  async fadeToBlack(): Promise<void> {
+    this.requireConnected();
+    const client = this.requireClient();
+    if (!client.fadeToBlack) throw new Error("ATEM client does not support fade to black");
+    await client.fadeToBlack(this.meIndex);
+  }
+
+  /** Set the tie of a downstream keyer. Zero-based DSK. */
+  async setDownstreamKeyTie(dsk: number, tie: boolean): Promise<void> {
+    this.requireConnected();
+    const client = this.requireClient();
+    if (!client.setDownstreamKeyTie) throw new Error("ATEM client does not support keyer control");
+    await client.setDownstreamKeyTie(tie, dsk);
   }
 
   /**
@@ -332,6 +387,25 @@ interface MixEffectReading {
   programInput: number | null;
   previewInput: number | null;
   transition: AtemTransitionState;
+  fadeToBlack: AtemFadeToBlackState;
+}
+
+/** Reads the downstream keyers from the library's state object without trusting its shape. */
+function readDownstreamKeyers(state: unknown): AtemDownstreamKeyerState[] {
+  const keyers = (state as { video?: { downstreamKeyers?: unknown } } | undefined)?.video?.downstreamKeyers;
+  if (!Array.isArray(keyers)) return [];
+  const result: AtemDownstreamKeyerState[] = [];
+  keyers.forEach((raw, index) => {
+    const k = raw as { onAir?: unknown; inTransition?: unknown; properties?: { tie?: unknown } } | undefined;
+    if (!k) return;
+    result.push({
+      dsk: index + 1,
+      onAir: k.onAir === true,
+      tie: k.properties?.tie === true,
+      inTransition: k.inTransition === true,
+    });
+  });
+  return result;
 }
 
 /** Reads one M/E row from the library's state object without trusting its shape. */
@@ -340,7 +414,12 @@ function readMixEffect(state: unknown, meIndex: number): MixEffectReading | null
   const mixEffects = video?.mixEffects;
   if (!Array.isArray(mixEffects)) return null;
   const me = mixEffects[meIndex] as
-    | { programInput?: unknown; previewInput?: unknown; transitionPosition?: { inTransition?: unknown; remainingFrames?: unknown } }
+    | {
+        programInput?: unknown;
+        previewInput?: unknown;
+        transitionPosition?: { inTransition?: unknown; remainingFrames?: unknown };
+        fadeToBlack?: { isFullyBlack?: unknown; inTransition?: unknown; remainingFrames?: unknown };
+      }
     | undefined;
   if (!me) return null;
   const position = me.transitionPosition;
@@ -350,6 +429,11 @@ function readMixEffect(state: unknown, meIndex: number): MixEffectReading | null
     transition: {
       inTransition: position?.inTransition === true,
       remainingFrames: readNumber(position?.remainingFrames) ?? 0,
+    },
+    fadeToBlack: {
+      fullyBlack: me.fadeToBlack?.isFullyBlack === true,
+      inTransition: me.fadeToBlack?.inTransition === true,
+      remainingFrames: readNumber(me.fadeToBlack?.remainingFrames) ?? 0,
     },
   };
 }

@@ -51,6 +51,8 @@ test("stub adapter without a host reports disconnected and opens nothing", async
     programInput: null,
     previewInput: null,
     transition: { inTransition: false, remainingFrames: 0 },
+    fadeToBlack: { fullyBlack: false, inTransition: false, remainingFrames: 0 },
+    downstreamKeyers: [],
   });
 });
 
@@ -93,8 +95,10 @@ test("connected state is read from the M/E row, as plain data", async () => {
     programInput: 3,
     previewInput: 4,
     transition: { inTransition: true, remainingFrames: 12 },
+    fadeToBlack: { fullyBlack: false, inTransition: false, remainingFrames: 0 },
+    downstreamKeyers: [],
   });
-  assert.deepEqual(Object.keys(state).sort(), ["connected", "previewInput", "programInput", "transition"]);
+  assert.deepEqual(Object.keys(state).sort(), ["connected", "downstreamKeyers", "fadeToBlack", "previewInput", "programInput", "transition"]);
 });
 
 test("state change listeners receive the new state and can unsubscribe", async () => {

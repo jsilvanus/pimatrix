@@ -14,6 +14,8 @@ export interface AtemRouteOptions {
 }
 
 const DEFAULT_MAX_INPUT = 40;
+/** Downstream keyers on an ATEM Extreme ISO class switcher. */
+const MAX_DSK = 4;
 
 function notConnected(reply: { code: (n: number) => { send: (b: unknown) => unknown } }): unknown {
   return reply.code(503).send({
@@ -63,6 +65,47 @@ export function registerAtemRoutes(
   app.post("/api/v1/atem/cut", async (_request, reply) => {
     if (!atem.getState().connected) return notConnected(reply);
     await atem.cut();
+    return reply.code(200).send(atem.getState());
+  });
+
+  app.post("/api/v1/atem/auto", async (_request, reply) => {
+    if (!atem.getState().connected) return notConnected(reply);
+    await atem.autoTransition();
+    return reply.code(200).send(atem.getState());
+  });
+
+  app.post("/api/v1/atem/ftb", async (_request, reply) => {
+    if (!atem.getState().connected) return notConnected(reply);
+    await atem.fadeToBlack();
+    return reply.code(200).send(atem.getState());
+  });
+
+  function parseDsk(value: unknown): number | null {
+    const dsk = Number(value);
+    return Number.isInteger(dsk) && dsk >= 1 && dsk <= MAX_DSK ? dsk : null;
+  }
+
+  app.put<{ Params: { dsk: string }; Body: { onAir?: unknown } }>("/api/v1/atem/dsk/:dsk/on-air", async (request, reply) => {
+    const dsk = parseDsk(request.params.dsk);
+    if (dsk === null || typeof request.body?.onAir !== "boolean") {
+      return reply.code(422).send({
+        error: { code: "INVALID_REQUEST", message: `dsk must be 1-${MAX_DSK} and onAir must be a boolean` },
+      });
+    }
+    if (!atem.getState().connected) return notConnected(reply);
+    await atem.setDownstreamKeyOnAir(dsk - 1, request.body.onAir);
+    return reply.code(200).send(atem.getState());
+  });
+
+  app.put<{ Params: { dsk: string }; Body: { tie?: unknown } }>("/api/v1/atem/dsk/:dsk/tie", async (request, reply) => {
+    const dsk = parseDsk(request.params.dsk);
+    if (dsk === null || typeof request.body?.tie !== "boolean") {
+      return reply.code(422).send({
+        error: { code: "INVALID_REQUEST", message: `dsk must be 1-${MAX_DSK} and tie must be a boolean` },
+      });
+    }
+    if (!atem.getState().connected) return notConnected(reply);
+    await atem.setDownstreamKeyTie(dsk - 1, request.body.tie);
     return reply.code(200).send(atem.getState());
   });
 }

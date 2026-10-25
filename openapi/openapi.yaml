@@ -357,6 +357,126 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/v1/atem/auto:
+    post:
+      operationId: autoAtem
+      tags: [ATEM]
+      summary: Auto (mix) transition of preview to program on the ATEM M/E row
+      responses:
+        "200":
+          description: Auto transition started; returns the new state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtemState"
+        "503":
+          description: ATEM is not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/atem/ftb:
+    post:
+      operationId: toggleAtemFadeToBlack
+      tags: [ATEM]
+      summary: Fade to black on the ATEM M/E row (fades back in when already black)
+      responses:
+        "200":
+          description: Fade started; returns the new state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtemState"
+        "503":
+          description: ATEM is not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/atem/dsk/{dsk}/on-air:
+    put:
+      operationId: setAtemDskOnAir
+      tags: [ATEM]
+      summary: Put a downstream keyer on air or take it off (cut, like the ON AIR button)
+      parameters:
+        - name: dsk
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 4
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [onAir]
+              properties:
+                onAir:
+                  type: boolean
+      responses:
+        "200":
+          description: Keyer updated; returns the new state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtemState"
+        "422":
+          description: Invalid keyer number or body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: ATEM is not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/atem/dsk/{dsk}/tie:
+    put:
+      operationId: setAtemDskTie
+      tags: [ATEM]
+      summary: Set the tie of a downstream keyer (rides with the next transition)
+      parameters:
+        - name: dsk
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 4
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tie]
+              properties:
+                tie:
+                  type: boolean
+      responses:
+        "200":
+          description: Tie updated; returns the new state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtemState"
+        "422":
+          description: Invalid keyer number or body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: ATEM is not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/v1/cameras:
     get:
       operationId: listCameras
@@ -1744,10 +1864,35 @@ components:
           maximum: 40
     AtemState:
       type: object
-      required: [connected, programInput, previewInput, transition]
+      required: [connected, programInput, previewInput, transition, fadeToBlack, downstreamKeyers]
       properties:
         connected:
           type: boolean
+        fadeToBlack:
+          type: object
+          required: [fullyBlack, inTransition, remainingFrames]
+          properties:
+            fullyBlack:
+              type: boolean
+            inTransition:
+              type: boolean
+            remainingFrames:
+              type: integer
+        downstreamKeyers:
+          type: array
+          items:
+            type: object
+            required: [dsk, onAir, tie, inTransition]
+            properties:
+              dsk:
+                type: integer
+                description: 1-based keyer number as printed on the switcher
+              onAir:
+                type: boolean
+              tie:
+                type: boolean
+              inTransition:
+                type: boolean
         programInput:
           type: [integer, "null"]
         previewInput:
