@@ -49,6 +49,8 @@ export interface AppConfig {
   domain?: string;
   tlsPort?: number;
   letsencryptEmail?: string;
+  atemHost?: string;
+  atemPort: number;
 }
 
 function optionalHttpUrl(value: string | undefined, name: string): string | undefined {
@@ -160,6 +162,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const domain = env.PIMATRIX_DOMAIN?.trim() || undefined;
   const tlsPort = env.PIMATRIX_TLS_PORT ? validPort(env.PIMATRIX_TLS_PORT, 8443, "PIMATRIX_TLS_PORT") : undefined;
   const letsencryptEmail = env.LETSENCRYPT_EMAIL?.trim() || undefined;
+  const atemHost = env.PIMATRIX_ATEM_HOST?.trim() || undefined;
+  const atemPort = validPort(env.PIMATRIX_ATEM_PORT, 9990, "PIMATRIX_ATEM_PORT");
   const canvaApiBaseUrl =
     optionalHttpUrl(env.CANVA_API_BASE_URL, "CANVA_API_BASE_URL") ??
     (canvaAccessToken ? "https://api.canva.com/rest" : undefined);
@@ -231,6 +235,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(authAllowedHosts && authAllowedHosts.length > 0 ? { authAllowedHosts } : {}),
     ...(domain ? { domain } : {}),
     ...(tlsPort !== undefined ? { tlsPort } : {}),
-    ...(letsencryptEmail ? { letsencryptEmail } : {})
+    ...(letsencryptEmail ? { letsencryptEmail } : {}),
+    ...(atemHost ? { atemHost } : {}),
+    atemPort
   };
 }
