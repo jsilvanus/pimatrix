@@ -132,7 +132,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     cam2CgiUser: config.cam2CgiUser,
     cam2CgiPassword: config.cam2CgiPassword,
     mediaMtxRtspBaseUrl: config.previewBaseUrl?.replace(/^http/, "rtsp"),
-    mediaMtxRtmpBaseUrl: config.previewBaseUrl?.replace(/^http/, "rtmp")
+    mediaMtxRtmpBaseUrl: config.mediaMtxRtmpUrl
   });
 
   const amxClient: AmxClient = createAmxClient(

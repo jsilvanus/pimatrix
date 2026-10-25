@@ -63,6 +63,8 @@ export interface AppConfig {
   hdmi1Device?: string;
   hdmiSdlVideoDriver?: string;
   mediaMtxRtspUrl?: string;
+  /** RTMP ingest base for the camera targets (e.g. rtmp://<pi-lan-ip>:1935); cam1/cam2 are appended. */
+  mediaMtxRtmpUrl?: string;
 }
 
 function optionalHttpUrl(value: string | undefined, name: string): string | undefined {
@@ -75,6 +77,20 @@ function optionalHttpUrl(value: string | undefined, name: string): string | unde
   }
   if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
     throw new Error(`${name} must be an HTTP or HTTPS URL without embedded credentials`);
+  }
+  return parsed.toString().replace(/\/$/, "");
+}
+
+function optionalRtmpUrl(value: string | undefined, name: string): string | undefined {
+  if (!value?.trim()) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(value.trim());
+  } catch {
+    throw new Error(`${name} must be a valid RTMP URL`);
+  }
+  if (parsed.protocol !== "rtmp:" || parsed.username || parsed.password || parsed.hash || parsed.search) {
+    throw new Error(`${name} must be an RTMP URL without embedded credentials, a query or a fragment`);
   }
   return parsed.toString().replace(/\/$/, "");
 }
@@ -193,6 +209,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     }
   }
   const mediaMtxRtspUrl = optionalRtspUrl(env.PIMATRIX_MEDIAMTX_RTSP_URL, "PIMATRIX_MEDIAMTX_RTSP_URL");
+  const mediaMtxRtmpUrl = optionalRtmpUrl(env.PIMATRIX_MEDIAMTX_RTMP_URL, "PIMATRIX_MEDIAMTX_RTMP_URL");
   if (/\s/.test(hdmiPlayer)) {
     throw new Error("PIMATRIX_HDMI_PLAYER must be a single executable name or path without spaces");
   }
@@ -277,7 +294,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(hdmi0Device ? { hdmi0Device } : {}),
     ...(hdmi1Device ? { hdmi1Device } : {}),
     ...(hdmiSdlVideoDriver ? { hdmiSdlVideoDriver } : {}),
-    ...(mediaMtxRtspUrl ? { mediaMtxRtspUrl } : {})
+    ...(mediaMtxRtspUrl ? { mediaMtxRtspUrl } : {}),
+    ...(mediaMtxRtmpUrl ? { mediaMtxRtmpUrl } : {})
   };
 }
 
