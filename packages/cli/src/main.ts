@@ -84,6 +84,7 @@ async function run(options: CliOptions): Promise<void> {
       "  cameras preset recall <cameraId> <presetId>\n" +
       "  cameras preset save <cameraId> <presetId> [--name <label>]\n" +
       "  cameras smartframe <cameraId> <enable|disable|trigger>\n" +
+      "  cameras privacy-blur <cameraId> <on|off>\n" +
       "  cameras stream start <cameraId>\n" +
       "  cameras stream stop <cameraId>\n" +
       "  hama status\n" +
@@ -413,6 +414,16 @@ async function run(options: CliOptions): Promise<void> {
     const data = await CamerasService.setCameraSmartFrame(cameraId, { mode });
     if (options.json) console.log(JSON.stringify(data, null, 2));
     else console.log(`Camera ${data.cameraId}: SmartFrame ${arg2}`);
+    return;
+  }
+
+  if (group === "cameras" && action === "privacy-blur" && options.command.length === 4) {
+    const cameraId = arg1 as CameraId;
+    if (!cameraIds.includes(cameraId)) throw new Error(`Unknown camera ID: ${arg1}`);
+    if (!["on", "off"].includes(arg2 ?? "")) throw new Error("Privacy blur must be 'on' or 'off'");
+    const data = await CamerasService.setCameraPrivacyBlur(cameraId, { enabled: arg2 === "on" });
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Camera ${data.cameraId}: privacy blur ${arg2}`);
     return;
   }
 

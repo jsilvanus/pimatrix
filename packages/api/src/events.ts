@@ -33,6 +33,7 @@ export interface CameraEventPayload {
   presetId?: number;
   thumbnail?: string;
   smartFrame?: string;
+  privacyBlur?: boolean;
   position?: { pan: number; tilt: number; zoom: number };
 }
 

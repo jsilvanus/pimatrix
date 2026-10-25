@@ -71,6 +71,7 @@ export interface CameraSnapshot {
   streaming: boolean;
   streamUrl: string | null;
   smartFrame: "enabled" | "disabled" | "triggered" | "unsupported";
+  privacyBlur?: boolean;
   position: CameraPosition;
   presets: CameraPreset[];
 }

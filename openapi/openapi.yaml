@@ -572,6 +572,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/v1/cameras/{cameraId}/privacy-blur:
+    post:
+      operationId: setCameraPrivacyBlur
+      tags: [Cameras]
+      summary: Blur the picture for privacy
+      description: >-
+        On switches the camera from autofocus to manual focus, sets the near focus
+        limit to the closest distance and drives focus to the nearest point, so the
+        picture is out of focus. Off returns the camera to autofocus. Uses standard
+        VISCA focus commands; not yet verified on a real PTZ330.
+      parameters:
+        - in: path
+          name: cameraId
+          required: true
+          schema:
+            $ref: "#/components/schemas/CameraId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CameraPrivacyBlurRequest"
+      responses:
+        "200":
+          description: Privacy blur updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CameraActionResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/v1/cameras/{cameraId}/stream/start:
     post:
       operationId: startCameraStream
@@ -2078,6 +2115,12 @@ components:
         mode:
           type: string
           enum: [enable, disable, trigger]
+    CameraPrivacyBlurRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
     CameraPreset:
       type: object
       required: [id]
@@ -2098,7 +2141,7 @@ components:
           type: integer
     Camera:
       type: object
-      required: [id, label, model, connection, streaming, smartFrame, position, presets]
+      required: [id, label, model, connection, streaming, smartFrame, privacyBlur, position, presets]
       properties:
         id:
           $ref: "#/components/schemas/CameraId"
@@ -2116,6 +2159,9 @@ components:
         smartFrame:
           type: string
           enum: [enabled, disabled, triggered, unsupported]
+        privacyBlur:
+          type: boolean
+          description: True while the privacy blur (manual focus driven near) is on.
         position:
           $ref: "#/components/schemas/CameraPosition"
         presets:

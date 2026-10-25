@@ -110,6 +110,32 @@ export function buildSmartFrame(mode: SmartFrameMode): number[] {
   }
 }
 
+/** Standard VISCA CAM_Focus: auto (AF) or manual (MF). */
+export function buildFocusMode(mode: "auto" | "manual"): number[] {
+  return [0x81, 0x01, 0x04, 0x38, mode === "auto" ? 0x02 : 0x03, 0xff];
+}
+
+/**
+ * Standard VISCA CAM_Focus Near (variable speed 0-7), and stop. Unverified on the
+ * AVer PTZ330: the AVer VISCA document has not been checked against these bytes.
+ */
+export function buildFocusNear(speed = 7): number[] {
+  return [0x81, 0x01, 0x04, 0x08, 0x30 | clamp(speed, 0, 7), 0xff];
+}
+
+export function buildFocusStop(): number[] {
+  return [0x81, 0x01, 0x04, 0x08, 0x00, 0xff];
+}
+
+/** Closest focus distance the near limit can take (standard VISCA scale, 0x1000 far .. 0xF000 near; unverified on the PTZ330). */
+export const NEAREST_FOCUS_LIMIT = 0xf000;
+
+/** Standard VISCA CAM_FocusNearLimit, four nibbles 0p 0q 0r 0s. */
+export function buildFocusNearLimit(position = NEAREST_FOCUS_LIMIT): number[] {
+  const v = clamp(position, 0, 0xffff);
+  return [0x81, 0x01, 0x04, 0x28, (v >> 12) & 0xf, (v >> 8) & 0xf, (v >> 4) & 0xf, v & 0xf, 0xff];
+}
+
 export function buildPanTiltInquiry(): number[] {
   return [0x81, 0x09, 0x06, 0x12, 0xff];
 }
