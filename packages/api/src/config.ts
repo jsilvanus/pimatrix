@@ -63,7 +63,7 @@ export interface AppConfig {
   hdmi1Device?: string;
   hdmiSdlVideoDriver?: string;
   mediaMtxRtspUrl?: string;
-  /** RTMP ingest base for the camera targets (e.g. rtmp://192.168.1.10:1935); cam1/cam2 are appended. */
+  /** RTMP ingest base for the camera targets (e.g. rtmp://<pi-lan-ip>:1935); cam1/cam2 are appended. */
   mediaMtxRtmpUrl?: string;
 }
 
