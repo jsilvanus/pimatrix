@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import type { CameraSnapshot } from "./camera/camera-adapter.js";
 import type { EffectsPipeline } from "./effects/effects-model.js";
 import type { MultiviewSnapshot, OutputSnapshot, SourceId, SourceState } from "./model.js";
-import type { PiPgmPipelineSnapshot } from "./pipgm/pipgm-model.js";
 
 export type FrontendTabId = "outputs" | "inputs" | "cameras" | "renderer";
 
@@ -36,7 +35,6 @@ export interface FrontendInitialState {
   outputs: OutputSnapshot[];
   effects: EffectsPipeline[];
   cameras: CameraSnapshot[];
-  pipgmPipelines: PiPgmPipelineSnapshot[];
   multiview: MultiviewSnapshot;
   matrix: MatrixRouteState;
   rtspOut: RtspOutState;

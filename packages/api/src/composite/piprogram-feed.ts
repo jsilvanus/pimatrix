@@ -18,6 +18,10 @@ export interface PiprogramSlideFeed {
 }
 
 export interface PiprogramPipelineSnapshot {
+  id: string;
+  orientation: "landscape" | "portrait";
+  /** The piprogram stage page, relative to piprogram's base URL. */
+  stageUrl: string;
   activeItemId: string | null;
   currentStep: number;
   fadeToBlack: boolean;
@@ -49,9 +53,18 @@ export class PiprogramClient {
     return (await response.json()) as PiprogramPipelineSnapshot;
   }
 
-  /** A transparent PNG of the pipeline's stage at the given size. */
-  async frame(pipelineId: PiprogramPipelineId, width: number, height: number): Promise<Buffer> {
-    const query = new URLSearchParams({ width: String(width), height: String(height), alpha: "1" });
+  /**
+   * A PNG of the pipeline's stage at the given size. Transparent by default, for a composite's
+   * key; opaque (no alpha) for a source picture.
+   */
+  async frame(
+    pipelineId: PiprogramPipelineId,
+    width: number,
+    height: number,
+    options: { transparent?: boolean } = {}
+  ): Promise<Buffer> {
+    const query = new URLSearchParams({ width: String(width), height: String(height) });
+    if (options.transparent !== false) query.set("alpha", "1");
     const response = await this.get(`/api/v1/pipgm/pipelines/${encodeURIComponent(pipelineId)}/frame.png?${query}`);
     return Buffer.from(await response.arrayBuffer());
   }

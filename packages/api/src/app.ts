@@ -43,17 +43,11 @@ import {
   type SourceId
 } from "./model.js";
 import { renderMultiviewHtml } from "./multiview-html.js";
-import type {
-  PiPgmControlAction,
-  PiPgmOrientation,
-  PiPgmPipelineId,
-  PptxAnimationEffect
-} from "./pipgm/pipgm-model.js";
-import { PiPgmService } from "./pipgm/pipgm-service.js";
-import { renderPiPgmStageHtml } from "./pipgm/stage-html.js";
+import { PipgmSourceFeed } from "./piprogram/pipgm-sources.js";
 import { buildHamaCaptureSpec, StreamSupervisor } from "./stream-supervisor.js";
 import { HamaOnDemand } from "./hama-on-demand.js";
 import { PiprogramClient, PiprogramFeed } from "./composite/piprogram-feed.js";
+import { PIPROGRAM_PIPELINE_IDS, type PiprogramPipelineId } from "./composite/composite-model.js";
 import { isIpWhitelisted } from "./ip-whitelist.js";
 
 /** Maps a failed camera CGI call to a 502 with a reason, so a bad login is visible in the API. */
@@ -82,6 +76,10 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   const atem = new AtemAdapter({ logger: app.log });
   registerAtemRoutes(app, atem);
   const eventBroker = new PiMatrixEventBroker();
+  // One piprogram client for the composite slides and the PiPGM sources.
+  const piprogramClient = config.piprogramUrl
+    ? new PiprogramClient({ baseUrl: config.piprogramUrl, apiKey: config.piprogramApiKey, fetch: fetchImpl })
+    : null;
   const compositeService = new CompositeService({
     dataDir: config.compositeDataDir,
     stateFile: path.join(config.compositeDataDir, "composites.json"),
@@ -99,9 +97,9 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   });
   registerCompositeRoutes(app, compositeService);
   // Slides from piprogram: composites with slideSource "piprogram" follow their pipeline's frame.
-  const piprogramFeed = config.piprogramUrl
+  const piprogramFeed = piprogramClient
     ? new PiprogramFeed(
-        new PiprogramClient({ baseUrl: config.piprogramUrl, apiKey: config.piprogramApiKey, fetch: fetchImpl }),
+        piprogramClient,
         {
           composites: () => compositeService.list(),
           setSlide: (id, png) => compositeService.setFeedSlide(id, png),
@@ -139,10 +137,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     resolution: "1920x1080",
     bitrateKbps: 6200
   };
-
-  const pipgmService = new PiPgmService({
-    eventBroker,
-  });
 
   const cameraService = new CameraService({
     mode: config.mode,
@@ -233,17 +227,30 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     return state;
   };
 
+  // PiPGM1-3 pictures come from piprogram (see src/piprogram/pipgm-sources.ts).
+  const pipgmPublisher = (id: PiprogramPipelineId) => new KeyPagePublisher({
+    rtspUrl: `${pipgmRtspBase}/${id}`,
+    ffmpeg: config.compositeFfmpeg,
+    encoder: config.compositeVideoCodec,
+    logger: app.log
+  });
+  const pipgmRtspBase = config.mediaMtxRtspUrl?.replace(/\/$/, "");
+  const pipgmSources = piprogramClient && pipgmRtspBase
+    ? new PipgmSourceFeed({
+        client: piprogramClient,
+        dataDir: path.join(config.compositeDataDir, "pipgm"),
+        publishers: {
+          PiPGM1: pipgmPublisher("PiPGM1"),
+          PiPGM2: pipgmPublisher("PiPGM2"),
+          PiPGM3: pipgmPublisher("PiPGM3")
+        },
+        onError: (id, message) => app.log.warn({ pipelineId: id, err: message }, "piprogram source feed")
+      })
+    : null;
+
   const listSources = async (includeHidden = false) => {
     const media = await mediaSnapshot();
-    const unhiddenIds = new Set<string>();
-    if (!pipgmService.isPipelineHidden("PiPGM3")) {
-      unhiddenIds.add("PiPGM3");
-    }
-
-    const items = getSources(media.readyPaths, config.previewBaseUrl, {
-      includeHidden,
-      unhiddenIds
-    });
+    const items = getSources(media.readyPaths, config.previewBaseUrl, { includeHidden });
 
     // Apply env-configured camera names (PIMATRIX_CAM1_NAME, PIMATRIX_CAM2_NAME, PIMATRIX_CAM3_NAME)
     const camNameById: Record<string, string | undefined> = {
@@ -265,15 +272,13 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       else if (capture.state === "failed") hama.state = "failed";
     }
 
-    for (const p of pipgmService.listPipelines(true)) {
-      const src = items.find((item) => item.id === p.id);
-      if (src && !media.readyPaths.has(p.id) && p.activeItemId !== null) {
+    for (const id of PIPROGRAM_PIPELINE_IDS) {
+      const snapshot = pipgmSources?.snapshot(id) ?? null;
+      const src = items.find((item) => item.id === id);
+      if (src && snapshot && !media.readyPaths.has(id) && snapshot.activeItemId !== null) {
         src.state = "live";
-        if (!src.preview.url) {
-          src.preview = {
-            available: true,
-            url: p.stageUrl
-          };
+        if (!src.preview.url && config.piprogramUrl) {
+          src.preview = { available: true, url: `${config.piprogramUrl}${snapshot.stageUrl}` };
         }
       }
     }
@@ -284,19 +289,14 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   const buildCurrentMultiview = async () => {
     const allSources = await listSources(true);
     const pipgmStatusById = new Map<string, MultiviewTilePiPgmStatus>();
-    for (const p of pipgmService.listPipelines(true)) {
-      pipgmStatusById.set(p.id, {
-        orientation: p.orientation,
-        fadeToBlack: p.fadeToBlack,
-        audioEnabled: p.audioEnabled,
-        signCode: p.mobileAlert.signCode,
-        cuedSummary: p.mobileAlert.cuedSummary
-      });
+    for (const id of PIPROGRAM_PIPELINE_IDS) {
+      const snapshot = pipgmSources?.snapshot(id);
+      if (snapshot) pipgmStatusById.set(id, { orientation: snapshot.orientation, fadeToBlack: snapshot.fadeToBlack });
     }
 
     return getMultiview(allSources, multiviewLayout, {
       slotOverrides: multiviewSlotOverrides,
-      pipgm3AutoReplace: pipgmService.isPipelineActiveOnMultiview("PiPGM3"),
+      pipgm3AutoReplace: (pipgmSources?.snapshot("PiPGM3")?.activeItemId ?? null) !== null,
       pipgmStatusById
     });
   };
@@ -306,7 +306,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     const outputs = outputStore.list();
     const effects = effectsStore.list();
     const cameras = cameraService.list();
-    const pipgmPipelines = pipgmService.listPipelines(true);
     const multiview = await buildCurrentMultiview();
     return renderOperatorFrontendHtml({
       activeTab,
@@ -315,7 +314,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       outputs,
       effects,
       cameras,
-      pipgmPipelines,
       multiview,
       matrix: matrixState,
       rtspOut: rtspOutState,
@@ -332,7 +330,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         port: config.amxTcpPort,
         outputStore,
         displayAdapter,
-        pipgmService,
         eventBroker,
         listSources: () => listSources(false),
         mode: config.mode,
@@ -346,6 +343,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   app.addHook("onReady", async () => {
     hamaOnDemand.sync();
     piprogramFeed?.start();
+    pipgmSources?.start();
     if (config.atemHost) {
       await atem.connect(config.atemHost, config.atemPort).catch((error: unknown) => {
         app.log.error({ err: error }, "ATEM connection failed; the adapter keeps retrying in the background");
@@ -363,6 +361,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   app.addHook("onClose", async () => {
     hamaOnDemand.dispose();
     piprogramFeed?.stop();
+    pipgmSources?.stop();
     await Promise.all([
       atem.disconnect(),
       compositeService.close(),
@@ -499,7 +498,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   (app as unknown as { amxListener?: AmxTcpListener | null }).amxListener = amxListener;
   (app as unknown as { eventBroker: PiMatrixEventBroker }).eventBroker = eventBroker;
   (app as unknown as { cameraService: CameraService }).cameraService = cameraService;
-  (app as unknown as { pipgmService: PiPgmService }).pipgmService = pipgmService;
   (app as unknown as { effectsStore: EffectsStore }).effectsStore = effectsStore;
   (app as unknown as { captureSupervisor: StreamSupervisor }).captureSupervisor = captureSupervisor;
 
@@ -542,11 +540,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     return reply.type("text/html; charset=utf-8").send(html);
   });
 
-  app.get("/pipgm", async (request, reply) => {
-    const html = await renderFrontendPage("renderer", request);
-    return reply.type("text/html; charset=utf-8").send(html);
-  });
-
   app.get("/health", async () => ({ status: "ok", service: "pimatrix" }));
 
   app.get("/ready", async (_request, reply) => {
@@ -582,7 +575,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         sources: visibleSources.length,
         outputs: outputStore.list().length,
         cameras: cameraService.list().length,
-        pipgmPipelines: pipgmService.listPipelines(true).length
+        pipgmSources: PIPROGRAM_PIPELINE_IDS.filter((id) => pipgmSources?.snapshot(id)).length
       }
     };
   });
@@ -978,532 +971,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   );
 
   // =========================================================================
-  // PiPGM Multi-Format Renderers & Control Endpoints
-  // =========================================================================
-
-  app.get<{ Params: { pipelineId: string } }>("/pipgm/:pipelineId/stage", async (request, reply) => {
-    const pipeline = pipgmService.getPipeline(request.params.pipelineId);
-    if (!pipeline) {
-      return reply.code(404).send({
-        error: { code: "PIPELINE_NOT_FOUND", message: `Unknown PiPGM pipeline: ${request.params.pipelineId}` }
-      });
-    }
-    const html = renderPiPgmStageHtml(pipeline);
-    return reply.type("text/html; charset=utf-8").send(html);
-  });
-
-  app.get<{ Querystring: { includeHidden?: string } }>("/api/v1/pipgm/pipelines", async (request) => {
-    const includeHidden = request.query?.includeHidden !== "false";
-    return { items: pipgmService.listPipelines(includeHidden) };
-  });
-
-  app.get<{ Params: { pipelineId: string } }>("/api/v1/pipgm/pipelines/:pipelineId", async (request, reply) => {
-    const pipeline = pipgmService.getPipeline(request.params.pipelineId);
-    if (!pipeline) {
-      return reply.code(404).send({
-        error: { code: "PIPELINE_NOT_FOUND", message: `Unknown PiPGM pipeline: ${request.params.pipelineId}` }
-      });
-    }
-    return reply.code(200).send(pipeline);
-  });
-
-  app.put<{
-    Params: { pipelineId: string };
-    Body: {
-      orientation?: unknown;
-      hidden?: unknown;
-      linked?: unknown;
-      fadeDurationMs?: unknown;
-    };
-  }>("/api/v1/pipgm/pipelines/:pipelineId/config", async (request, reply) => {
-    if (!pipgmService.isValidPipelineId(request.params.pipelineId)) {
-      return reply.code(404).send({
-        error: { code: "PIPELINE_NOT_FOUND", message: `Unknown PiPGM pipeline: ${request.params.pipelineId}` }
-      });
-    }
-
-    const body = request.body ?? {};
-    if (body.orientation !== undefined && body.orientation !== "landscape" && body.orientation !== "portrait") {
-      return reply.code(422).send({
-        error: { code: "INVALID_ORIENTATION", message: "orientation must be 'landscape' or 'portrait'" }
-      });
-    }
-    if (body.hidden !== undefined && typeof body.hidden !== "boolean") {
-      return reply.code(422).send({
-        error: { code: "INVALID_HIDDEN", message: "hidden must be a boolean" }
-      });
-    }
-    if (body.linked !== undefined && typeof body.linked !== "boolean") {
-      return reply.code(422).send({
-        error: { code: "INVALID_LINKED", message: "linked must be a boolean" }
-      });
-    }
-    if (
-      body.fadeDurationMs !== undefined &&
-      (typeof body.fadeDurationMs !== "number" ||
-        !Number.isFinite(body.fadeDurationMs) ||
-        body.fadeDurationMs < 0 ||
-        body.fadeDurationMs > 10000)
-    ) {
-      return reply.code(422).send({
-        error: { code: "INVALID_FADE_DURATION", message: "fadeDurationMs must be between 0 and 10000" }
-      });
-    }
-
-    const updated = pipgmService.updatePipelineConfig(request.params.pipelineId, {
-      ...(body.orientation !== undefined ? { orientation: body.orientation as PiPgmOrientation } : {}),
-      ...(body.hidden !== undefined ? { hidden: body.hidden } : {}),
-      ...(body.linked !== undefined ? { linked: body.linked } : {}),
-      ...(body.fadeDurationMs !== undefined ? { fadeDurationMs: body.fadeDurationMs } : {})
-    });
-
-    return reply.code(200).send(updated);
-  });
-
-  const validControlActions = new Set<PiPgmControlAction>([
-    "next",
-    "prev",
-    "gotoStep",
-    "gotoItem",
-    "play",
-    "pause",
-    "stop",
-    "restart"
-  ]);
-
-  app.post<{
-    Params: { pipelineId: string };
-    Body: {
-      action?: unknown;
-      stepIndex?: unknown;
-      itemId?: unknown;
-      itemIndex?: unknown;
-      advanceItemOnEnd?: unknown;
-      sync?: unknown;
-    };
-  }>("/api/v1/pipgm/pipelines/:pipelineId/control", async (request, reply) => {
-    if (!pipgmService.isValidPipelineId(request.params.pipelineId)) {
-      return reply.code(404).send({
-        error: { code: "PIPELINE_NOT_FOUND", message: `Unknown PiPGM pipeline: ${request.params.pipelineId}` }
-      });
-    }
-
-    const action = String(request.body?.action ?? "") as PiPgmControlAction;
-    if (!validControlActions.has(action)) {
-      return reply.code(422).send({
-        error: {
-          code: "INVALID_CONTROL_ACTION",
-          message: `action must be one of: ${[...validControlActions].join(", ")}`
-        }
-      });
-    }
-
-    const stepIndex = request.body?.stepIndex !== undefined ? Number(request.body.stepIndex) : undefined;
-    if (stepIndex !== undefined && (!Number.isInteger(stepIndex) || stepIndex < 0)) {
-      return reply.code(422).send({
-        error: { code: "INVALID_STEP_INDEX", message: "stepIndex must be a non-negative integer" }
-      });
-    }
-
-    const itemIndex = request.body?.itemIndex !== undefined ? Number(request.body.itemIndex) : undefined;
-    if (itemIndex !== undefined && (!Number.isInteger(itemIndex) || itemIndex < 0)) {
-      return reply.code(422).send({
-        error: { code: "INVALID_ITEM_INDEX", message: "itemIndex must be a non-negative integer" }
-      });
-    }
-
-    const updated = pipgmService.control(request.params.pipelineId, {
-      action,
-      ...(stepIndex !== undefined ? { stepIndex } : {}),
-      ...(typeof request.body?.itemId === "string" ? { itemId: request.body.itemId } : {}),
-      ...(itemIndex !== undefined ? { itemIndex } : {}),
-      ...(typeof request.body?.advanceItemOnEnd === "boolean"
-        ? { advanceItemOnEnd: request.body.advanceItemOnEnd }
-        : {}),
-      ...(typeof request.body?.sync === "boolean" ? { sync: request.body.sync } : {})
-    });
-
-    return reply.code(200).send(updated);
-  });
-
-  app.post<{
-    Params: { pipelineId: string };
-    Body: { fadeToBlack?: unknown; toggle?: unknown; durationMs?: unknown; sync?: unknown };
-  }>("/api/v1/pipgm/pipelines/:pipelineId/ftb", async (request, reply) => {
-    if (!pipgmService.isValidPipelineId(request.params.pipelineId)) {
-      return reply.code(404).send({
-        error: { code: "PIPELINE_NOT_FOUND", message: `Unknown PiPGM pipeline: ${request.params.pipelineId}` }
-      });
-    }
-
-    const body = request.body ?? {};
-    if (body.fadeToBlack !== undefined && typeof body.fadeToBlack !== "boolean") {
-      return reply.code(422).send({
-        error: { code: "INVALID_FTB_VALUE", message: "fadeToBlack must be a boolean" }
-      });
-    }
-
-    const durationMs = body.durationMs !== undefined ? Number(body.durationMs) : undefined;
-    if (durationMs !== undefined && (!Number.isFinite(durationMs) || durationMs < 0 || durationMs > 10000)) {
-      return reply.code(422).send({
-        error: { code: "INVALID_FADE_DURATION", message: "durationMs must be between 0 and 10000" }
-      });
-    }
-
-    const updated = pipgmService.setFadeToBlack(request.params.pipelineId, {
-      ...(typeof body.fadeToBlack === "boolean" ? { fadeToBlack: body.fadeToBlack } : {}),
-      ...(typeof body.toggle === "boolean" ? { toggle: body.toggle } : {}),
-      ...(durationMs !== undefined ? { durationMs } : {}),
-      ...(typeof body.sync === "boolean" ? { sync: body.sync } : {})
-    });
-
-    if (updated) {
-      const fx = effectsStore.setFadeToBlack(request.params.pipelineId as SourceId, {
-        fadeToBlack: updated.fadeToBlack
-      });
-      if (fx) {
-        eventBroker.emit({
-          type: "effects",
-          data: { sourceId: request.params.pipelineId as SourceId, effects: fx }
-        });
-      }
-    }
-
-    return reply.code(200).send(updated);
-  });
-
-  app.post<{
-    Params: { pipelineId: string };
-    Body: { audioEnabled?: unknown; toggle?: unknown; volume?: unknown; sync?: unknown };
-  }>("/api/v1/pipgm/pipelines/:pipelineId/audio", async (request, reply) => {
-    if (!pipgmService.isValidPipelineId(request.params.pipelineId)) {
-      return reply.code(404).send({
-        error: { code: "PIPELINE_NOT_FOUND", message: `Unknown PiPGM pipeline: ${request.params.pipelineId}` }
-      });
-    }
-
-    const body = request.body ?? {};
-    if (body.audioEnabled !== undefined && typeof body.audioEnabled !== "boolean") {
-      return reply.code(422).send({
-        error: { code: "INVALID_AUDIO_VALUE", message: "audioEnabled must be a boolean" }
-      });
-    }
-
-    const volume = body.volume !== undefined ? Number(body.volume) : undefined;
-    if (volume !== undefined && (!Number.isFinite(volume) || volume < 0 || volume > 100)) {
-      return reply.code(422).send({
-        error: { code: "INVALID_VOLUME", message: "volume must be between 0 and 100" }
-      });
-    }
-
-    const updated = pipgmService.setAudio(request.params.pipelineId, {
-      ...(typeof body.audioEnabled === "boolean" ? { audioEnabled: body.audioEnabled } : {}),
-      ...(typeof body.toggle === "boolean" ? { toggle: body.toggle } : {}),
-      ...(volume !== undefined ? { volume } : {}),
-      ...(typeof body.sync === "boolean" ? { sync: body.sync } : {})
-    });
-
-    if (updated) {
-      const fx = effectsStore.setMuted(request.params.pipelineId as SourceId, {
-        muted: !updated.audioEnabled
-      });
-      if (fx) {
-        eventBroker.emit({
-          type: "effects",
-          data: { sourceId: request.params.pipelineId as SourceId, effects: fx }
-        });
-      }
-    }
-
-    return reply.code(200).send(updated);
-  });
-
-  app.post<{
-    Params: { pipelineId: string };
-    Body: { itemId?: unknown; cueImmediately?: unknown };
-  }>("/api/v1/pipgm/pipelines/:pipelineId/playlist", async (request, reply) => {
-    if (!pipgmService.isValidPipelineId(request.params.pipelineId)) {
-      return reply.code(404).send({
-        error: { code: "PIPELINE_NOT_FOUND", message: `Unknown PiPGM pipeline: ${request.params.pipelineId}` }
-      });
-    }
-
-    const itemId = typeof request.body?.itemId === "string" ? request.body.itemId.trim() : "";
-    if (!itemId) {
-      return reply.code(422).send({
-        error: { code: "ITEM_ID_REQUIRED", message: "itemId is required" }
-      });
-    }
-
-    const updated = pipgmService.addItemToPipeline(
-      request.params.pipelineId,
-      itemId,
-      request.body?.cueImmediately === true
-    );
-    if (!updated) {
-      return reply.code(404).send({
-        error: { code: "ITEM_NOT_FOUND", message: `Unknown PiPGM item: ${itemId}` }
-      });
-    }
-
-    return reply.code(200).send(updated);
-  });
-
-  app.delete<{ Params: { pipelineId: string; itemId: string } }>(
-    "/api/v1/pipgm/pipelines/:pipelineId/playlist/:itemId",
-    async (request, reply) => {
-      if (!pipgmService.isValidPipelineId(request.params.pipelineId)) {
-        return reply.code(404).send({
-          error: { code: "PIPELINE_NOT_FOUND", message: `Unknown PiPGM pipeline: ${request.params.pipelineId}` }
-        });
-      }
-
-      const updated = pipgmService.removeItemFromPipeline(request.params.pipelineId, request.params.itemId);
-      return reply.code(200).send(updated);
-    }
-  );
-
-  // Shared Library & Format-Specific Item Creation
-  app.get("/api/v1/pipgm/items", async () => ({
-    items: pipgmService.listLibraryItems()
-  }));
-
-  app.get<{ Params: { itemId: string } }>("/api/v1/pipgm/items/:itemId", async (request, reply) => {
-    const item = pipgmService.getLibraryItem(request.params.itemId);
-    if (!item) {
-      return reply.code(404).send({
-        error: { code: "ITEM_NOT_FOUND", message: `Unknown PiPGM item: ${request.params.itemId}` }
-      });
-    }
-    return reply.code(200).send(item);
-  });
-
-  app.post<{
-    Body: {
-      title?: unknown;
-      hymnNumber?: unknown;
-      includeTitleSlide?: unknown;
-      stanzas?: unknown;
-      rawText?: unknown;
-      targetPipelineId?: unknown;
-      cueImmediately?: unknown;
-    };
-  }>("/api/v1/pipgm/items/hymn", async (request, reply) => {
-    const body = request.body ?? {};
-    const title = typeof body.title === "string" ? body.title.trim() : "";
-    if (!title) {
-      return reply.code(422).send({
-        error: { code: "TITLE_REQUIRED", message: "Hymn title is required" }
-      });
-    }
-
-    if (
-      body.targetPipelineId !== undefined &&
-      (typeof body.targetPipelineId !== "string" || !pipgmService.isValidPipelineId(body.targetPipelineId))
-    ) {
-      return reply.code(422).send({
-        error: { code: "INVALID_PIPELINE_ID", message: "targetPipelineId must be PiPGM1, PiPGM2, or PiPGM3" }
-      });
-    }
-
-    const stanzasInput = Array.isArray(body.stanzas)
-      ? (body.stanzas as Array<{ stanzaNumber?: string | number; lines: string[]; refrain?: boolean }>)
-      : undefined;
-
-    const item = pipgmService.createHymnItem({
-      title,
-      ...(typeof body.hymnNumber === "string" ? { hymnNumber: body.hymnNumber } : {}),
-      ...(typeof body.includeTitleSlide === "boolean" ? { includeTitleSlide: body.includeTitleSlide } : {}),
-      ...(stanzasInput ? { stanzas: stanzasInput } : {}),
-      ...(typeof body.rawText === "string" ? { rawText: body.rawText } : {}),
-      ...(typeof body.targetPipelineId === "string"
-        ? { targetPipelineId: body.targetPipelineId as PiPgmPipelineId }
-        : {}),
-      ...(typeof body.cueImmediately === "boolean" ? { cueImmediately: body.cueImmediately } : {})
-    });
-
-    return reply.code(201).send(item);
-  });
-
-  app.post<{
-    Body: {
-      title?: unknown;
-      urlOrId?: unknown;
-      startSeconds?: unknown;
-      endSeconds?: unknown;
-      autoplay?: unknown;
-      loop?: unknown;
-      targetPipelineId?: unknown;
-      cueImmediately?: unknown;
-    };
-  }>("/api/v1/pipgm/items/youtube", async (request, reply) => {
-    const body = request.body ?? {};
-    const urlOrId = typeof body.urlOrId === "string" ? body.urlOrId.trim() : "";
-    if (!urlOrId) {
-      return reply.code(422).send({
-        error: { code: "YOUTUBE_URL_REQUIRED", message: "urlOrId is required" }
-      });
-    }
-
-    if (
-      body.targetPipelineId !== undefined &&
-      (typeof body.targetPipelineId !== "string" || !pipgmService.isValidPipelineId(body.targetPipelineId))
-    ) {
-      return reply.code(422).send({
-        error: { code: "INVALID_PIPELINE_ID", message: "targetPipelineId must be PiPGM1, PiPGM2, or PiPGM3" }
-      });
-    }
-
-    const item = pipgmService.createYouTubeItem({
-      urlOrId,
-      ...(typeof body.title === "string" ? { title: body.title } : {}),
-      ...(typeof body.startSeconds === "number" ? { startSeconds: body.startSeconds } : {}),
-      ...(typeof body.endSeconds === "number" ? { endSeconds: body.endSeconds } : {}),
-      ...(typeof body.autoplay === "boolean" ? { autoplay: body.autoplay } : {}),
-      ...(typeof body.loop === "boolean" ? { loop: body.loop } : {}),
-      ...(typeof body.targetPipelineId === "string"
-        ? { targetPipelineId: body.targetPipelineId as PiPgmPipelineId }
-        : {}),
-      ...(typeof body.cueImmediately === "boolean" ? { cueImmediately: body.cueImmediately } : {})
-    });
-
-    if (!item) {
-      return reply.code(422).send({
-        error: { code: "INVALID_YOUTUBE_URL", message: "Could not extract a valid 11-character YouTube video ID" }
-      });
-    }
-
-    return reply.code(201).send(item);
-  });
-
-  app.post<{
-    Body: {
-      kind?: unknown;
-      title?: unknown;
-      filename?: unknown;
-      mimeType?: unknown;
-      dataBase64?: unknown;
-      fit?: unknown;
-      caption?: unknown;
-      durationMs?: unknown;
-      autoplay?: unknown;
-      loop?: unknown;
-      targetPipelineId?: unknown;
-      cueImmediately?: unknown;
-    };
-  }>("/api/v1/pipgm/items/media", async (request, reply) => {
-    const body = request.body ?? {};
-    const kind = body.kind;
-    if (kind !== "video" && kind !== "image") {
-      return reply.code(422).send({
-        error: { code: "INVALID_MEDIA_KIND", message: "kind must be 'video' or 'image'" }
-      });
-    }
-
-    const filename = typeof body.filename === "string" ? body.filename.trim() : "";
-    if (!filename) {
-      return reply.code(422).send({
-        error: { code: "FILENAME_REQUIRED", message: "filename is required" }
-      });
-    }
-
-    if (
-      body.targetPipelineId !== undefined &&
-      (typeof body.targetPipelineId !== "string" || !pipgmService.isValidPipelineId(body.targetPipelineId))
-    ) {
-      return reply.code(422).send({
-        error: { code: "INVALID_PIPELINE_ID", message: "targetPipelineId must be PiPGM1, PiPGM2, or PiPGM3" }
-      });
-    }
-
-    const item = pipgmService.createUploadedMediaItem({
-      kind,
-      filename,
-      ...(typeof body.title === "string" ? { title: body.title } : {}),
-      ...(typeof body.mimeType === "string" ? { mimeType: body.mimeType } : {}),
-      ...(typeof body.dataBase64 === "string" ? { dataBase64: body.dataBase64 } : {}),
-      ...(body.fit === "contain" || body.fit === "cover" ? { fit: body.fit } : {}),
-      ...(typeof body.caption === "string" ? { caption: body.caption } : {}),
-      ...(typeof body.durationMs === "number" ? { durationMs: body.durationMs } : {}),
-      ...(typeof body.autoplay === "boolean" ? { autoplay: body.autoplay } : {}),
-      ...(typeof body.loop === "boolean" ? { loop: body.loop } : {}),
-      ...(typeof body.targetPipelineId === "string"
-        ? { targetPipelineId: body.targetPipelineId as PiPgmPipelineId }
-        : {}),
-      ...(typeof body.cueImmediately === "boolean" ? { cueImmediately: body.cueImmediately } : {})
-    });
-
-    return reply.code(201).send(item);
-  });
-
-  app.post<{
-    Body: {
-      title?: unknown;
-      filename?: unknown;
-      dataBase64?: unknown;
-      animateBulletsByDefault?: unknown;
-      slides?: unknown;
-      targetPipelineId?: unknown;
-      cueImmediately?: unknown;
-    };
-  }>("/api/v1/pipgm/items/pptx", async (request, reply) => {
-    const body = request.body ?? {};
-    const filename = typeof body.filename === "string" ? body.filename.trim() : "";
-    if (!filename) {
-      return reply.code(422).send({
-        error: { code: "FILENAME_REQUIRED", message: "filename is required for .pptx upload" }
-      });
-    }
-
-    if (
-      body.targetPipelineId !== undefined &&
-      (typeof body.targetPipelineId !== "string" || !pipgmService.isValidPipelineId(body.targetPipelineId))
-    ) {
-      return reply.code(422).send({
-        error: { code: "INVALID_PIPELINE_ID", message: "targetPipelineId must be PiPGM1, PiPGM2, or PiPGM3" }
-      });
-    }
-
-    const slidesInput = Array.isArray(body.slides)
-      ? (body.slides as Array<{
-          slideNumber?: number;
-          title: string;
-          bullets?: string[];
-          notes?: string;
-          builds?: Array<{ effect?: PptxAnimationEffect; targetText?: string; durationMs?: number }>;
-        }>)
-      : undefined;
-
-    const item = pipgmService.createPptxItem({
-      filename,
-      ...(typeof body.title === "string" ? { title: body.title } : {}),
-      ...(typeof body.dataBase64 === "string" ? { dataBase64: body.dataBase64 } : {}),
-      ...(typeof body.animateBulletsByDefault === "boolean"
-        ? { animateBulletsByDefault: body.animateBulletsByDefault }
-        : {}),
-      ...(slidesInput ? { slides: slidesInput } : {}),
-      ...(typeof body.targetPipelineId === "string"
-        ? { targetPipelineId: body.targetPipelineId as PiPgmPipelineId }
-        : {}),
-      ...(typeof body.cueImmediately === "boolean" ? { cueImmediately: body.cueImmediately } : {})
-    });
-
-    return reply.code(201).send(item);
-  });
-
-  app.get<{ Params: { assetId: string } }>("/api/v1/pipgm/assets/:assetId", async (request, reply) => {
-    const asset = pipgmService.getAsset(request.params.assetId);
-    if (!asset) {
-      return reply.code(404).send({
-        error: { code: "ASSET_NOT_FOUND", message: `Unknown asset ID: ${request.params.assetId}` }
-      });
-    }
-    return reply
-      .header("Content-Type", asset.mimeType)
-      .header("Content-Disposition", `inline; filename="${asset.filename.replace(/"/g, "")}"`)
-      .send(asset.data ?? Buffer.alloc(0));
-  });
-
   // Cameras
   app.get("/api/v1/cameras", async () => ({ items: cameraService.list() }));
 
@@ -1817,7 +1284,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   app.get<{ Querystring: { includeHidden?: string } }>("/api/v1/effects", async (request) => {
     const includeHidden = request.query?.includeHidden === "true";
     const items = effectsStore.list().filter((e) => {
-      if (e.sourceId === "PiPGM3" && !includeHidden && pipgmService.isPipelineHidden("PiPGM3")) {
+      if (e.sourceId === "PiPGM3" && !includeHidden) {
         return false;
       }
       return true;
@@ -2245,14 +1712,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       });
     }
 
-    if (pipgmService.isValidPipelineId(sourceId)) {
-      pipgmService.setFadeToBlack(sourceId, {
-        fadeToBlack: nextFtb,
-        ...(typeof body.durationMs === "number" ? { durationMs: body.durationMs } : {}),
-        ...(typeof body.sync === "boolean" ? { sync: body.sync } : {})
-      });
-    }
-
     eventBroker.emit({
       type: "effects",
       data: { sourceId, effects: updated }
@@ -2300,13 +1759,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     if (!updated) {
       return reply.code(404).send({
         error: { code: "SOURCE_NOT_FOUND", message: `Unknown source ID: ${request.params.sourceId}` }
-      });
-    }
-
-    if (pipgmService.isValidPipelineId(sourceId)) {
-      pipgmService.setAudio(sourceId, {
-        audioEnabled: !nextMuted,
-        ...(typeof body.sync === "boolean" ? { sync: body.sync } : {})
       });
     }
 

@@ -1,7 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { EffectsPipeline } from "./effects/effects-model.js";
 import type { OutputSnapshot, SourceId, SourceState } from "./model.js";
-import type { PiPgmPipelineSnapshot } from "./pipgm/pipgm-model.js";
 import type { CompositeStatus } from "./composite/composite-model.js";
 
 export interface SourceEventPayload {
@@ -42,11 +41,6 @@ export interface EffectsEventPayload {
   effects: EffectsPipeline;
 }
 
-export interface PiPgmEventPayload {
-  action: string;
-  pipeline: PiPgmPipelineSnapshot;
-}
-
 export interface MatrixEventPayload {
   locked: boolean;
   routes: Record<number, number | null>;
@@ -73,7 +67,6 @@ export type PiMatrixEvent =
   | { type: "stream"; data: StreamEventPayload }
   | { type: "camera"; data: CameraEventPayload }
   | { type: "effects"; data: EffectsEventPayload }
-  | { type: "pipgm"; data: PiPgmEventPayload }
   | { type: "matrix"; data: MatrixEventPayload }
   | { type: "rtsp"; data: RtspOutEventPayload }
   | { type: "composite"; data: CompositeEventPayload }
