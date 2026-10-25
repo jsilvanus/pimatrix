@@ -34,10 +34,15 @@ export interface AppConfig {
   cam1Host?: string;
   cam1ViscaPort: number;
   cam1CgiPort: number;
+  /** HTTP Basic login for the camera CGI (PIMATRIX_CAM1_USER/PASSWORD). Never logged. */
+  cam1CgiUser?: string;
+  cam1CgiPassword?: string;
   cam2Name: string;
   cam2Host?: string;
   cam2ViscaPort: number;
   cam2CgiPort: number;
+  cam2CgiUser?: string;
+  cam2CgiPassword?: string;
   cam3Name: string;
   canvaApiBaseUrl?: string;
   canvaAccessToken?: string;
@@ -149,10 +154,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const cam1Host = env.PIMATRIX_CAM1_HOST?.trim() || undefined;
   const cam1ViscaPort = validPort(env.PIMATRIX_CAM1_VISCA_PORT, 52381, "PIMATRIX_CAM1_VISCA_PORT");
   const cam1CgiPort = validPort(env.PIMATRIX_CAM1_CGI_PORT, 80, "PIMATRIX_CAM1_CGI_PORT");
+  const cam1Login = cameraLogin(env, "PIMATRIX_CAM1");
   const cam2Name = env.PIMATRIX_CAM2_NAME?.trim() || "Camera 2";
   const cam2Host = env.PIMATRIX_CAM2_HOST?.trim() || undefined;
   const cam2ViscaPort = validPort(env.PIMATRIX_CAM2_VISCA_PORT, 52381, "PIMATRIX_CAM2_VISCA_PORT");
   const cam2CgiPort = validPort(env.PIMATRIX_CAM2_CGI_PORT, 80, "PIMATRIX_CAM2_CGI_PORT");
+  const cam2Login = cameraLogin(env, "PIMATRIX_CAM2");
   const cam3Name = env.PIMATRIX_CAM3_NAME?.trim() || "Camera 3";
 
   const canvaAccessToken = env.CANVA_ACCESS_TOKEN?.trim() || undefined;
@@ -233,9 +240,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     cam1Name,
     cam1ViscaPort,
     cam1CgiPort,
+    ...(cam1Login ? { cam1CgiUser: cam1Login.user, cam1CgiPassword: cam1Login.password } : {}),
     cam2Name,
     cam2ViscaPort,
     cam2CgiPort,
+    ...(cam2Login ? { cam2CgiUser: cam2Login.user, cam2CgiPassword: cam2Login.password } : {}),
     cam3Name,
     ...(cam1Host ? { cam1Host } : {}),
     ...(cam2Host ? { cam2Host } : {}),
@@ -270,4 +279,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(hdmiSdlVideoDriver ? { hdmiSdlVideoDriver } : {}),
     ...(mediaMtxRtspUrl ? { mediaMtxRtspUrl } : {})
   };
+}
+
+/** Camera CGI login from PREFIX_USER and PREFIX_PASSWORD. Both or neither: one alone is a config error. */
+function cameraLogin(env: NodeJS.ProcessEnv, prefix: string): { user: string; password: string } | undefined {
+  const user = env[`${prefix}_USER`]?.trim() || undefined;
+  const password = env[`${prefix}_PASSWORD`]?.trim() || undefined;
+  if (!user && !password) return undefined;
+  if (!user || !password) {
+    throw new Error(`${prefix}_USER and ${prefix}_PASSWORD must be set together`);
+  }
+  return { user, password };
 }

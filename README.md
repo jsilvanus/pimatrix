@@ -107,6 +107,7 @@ Environment:
 - `PIMATRIX_AMX_MASTER_PORT`: target AMX NetLinx master port; defaults to `6501`.
 - `PIMATRIX_CAMERA_MODE`: `simulated` (default) or `hardware`.
 - `PIMATRIX_CAM1_HOST`, `PIMATRIX_CAM1_VISCA_PORT` (default 52381), `PIMATRIX_CAM1_CGI_PORT` (default 80): Cam1 AVer PTZ330 network target.
+- `PIMATRIX_CAM1_USER`, `PIMATRIX_CAM1_PASSWORD` (same for `CAM2`): HTTP Basic login for the camera CGI, used for RTMP on/off. Sent only in the Authorization header, never in URLs or logs. Set both or neither. A rejected login answers 502 `CAMERA_LOGIN_REJECTED` on the stream start and stop routes.
 - `PIMATRIX_CAM2_HOST`, `PIMATRIX_CAM2_VISCA_PORT` (default 52381), `PIMATRIX_CAM2_CGI_PORT` (default 80): Cam2 AVer PTZ330 network target.
 - `LOG_LEVEL`: Fastify log level; defaults to `info`.
 
