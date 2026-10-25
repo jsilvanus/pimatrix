@@ -46,6 +46,8 @@ export interface AppConfig {
   canvaAppToken?: string;
   mediaMtxPassword?: string;
   authAllowedHosts?: string[];
+  /** Browser origins allowed to call /api/v1 cross-origin (PIMATRIX_CORS_ORIGINS). Empty = no CORS. */
+  corsOrigins?: string[];
   domain?: string;
   tlsPort?: number;
   letsencryptEmail?: string;
@@ -164,6 +166,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const authAllowedHosts = rawAuthAllowed
     ? rawAuthAllowed.split(",").map((s) => s.trim()).filter(Boolean)
     : undefined;
+  const corsOrigins = env.PIMATRIX_CORS_ORIGINS
+    ? env.PIMATRIX_CORS_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean)
+    : undefined;
   const domain = env.PIMATRIX_DOMAIN?.trim() || undefined;
   const tlsPort = env.PIMATRIX_TLS_PORT ? validPort(env.PIMATRIX_TLS_PORT, 8443, "PIMATRIX_TLS_PORT") : undefined;
   const letsencryptEmail = env.LETSENCRYPT_EMAIL?.trim() || undefined;
@@ -253,6 +258,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(canvaAppToken ? { canvaAppToken } : {}),
     ...(mediaMtxPassword ? { mediaMtxPassword } : {}),
     ...(authAllowedHosts && authAllowedHosts.length > 0 ? { authAllowedHosts } : {}),
+    ...(corsOrigins && corsOrigins.length > 0 ? { corsOrigins } : {}),
     ...(domain ? { domain } : {}),
     ...(tlsPort !== undefined ? { tlsPort } : {}),
     ...(letsencryptEmail ? { letsencryptEmail } : {}),

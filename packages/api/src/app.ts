@@ -316,6 +316,35 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     ]);
   });
 
+  // CORS for the /api/v1 routes, only for origins listed in PIMATRIX_CORS_ORIGINS.
+  // Preflights are answered here, before routing, so an OPTIONS request never 404s.
+  // The Canva routes keep their own headers (they set "*" themselves).
+  const corsAllowed = new Set(config.corsOrigins ?? []);
+  const corsOriginFor = (origin: string | undefined): string | null => {
+    if (!origin || corsAllowed.size === 0) return null;
+    return corsAllowed.has(origin) ? origin : null;
+  };
+  app.addHook("onRequest", async (request, reply) => {
+    if (request.method !== "OPTIONS" || !request.url.startsWith("/api/v1/")) return;
+    const allowed = corsOriginFor(request.headers.origin);
+    if (!allowed) return;
+    return reply
+      .code(204)
+      .header("Access-Control-Allow-Origin", allowed)
+      .header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+      .header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Api-Key")
+      .header("Access-Control-Max-Age", "600")
+      .header("Vary", "Origin")
+      .send();
+  });
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (!request.url.startsWith("/api/v1/") || reply.hasHeader("Access-Control-Allow-Origin")) return payload;
+    const allowed = corsOriginFor(request.headers.origin);
+    reply.header("Vary", "Origin");
+    if (allowed) reply.header("Access-Control-Allow-Origin", allowed);
+    return payload;
+  });
+
   // Authentication hook for control points
   app.addHook("onRequest", async (request, reply) => {
     const method = request.method;
