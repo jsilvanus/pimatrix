@@ -131,7 +131,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     cam2CgiPort: config.cam2CgiPort,
     cam2CgiUser: config.cam2CgiUser,
     cam2CgiPassword: config.cam2CgiPassword,
-    mediaMtxRtspBaseUrl: config.previewBaseUrl?.replace(/^http/, "rtsp"),
+    mediaMtxRtspBaseUrl: config.mediaMtxRtspUrl,
     mediaMtxRtmpBaseUrl: config.mediaMtxRtmpUrl
   });
 
