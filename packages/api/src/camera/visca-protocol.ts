@@ -136,6 +136,19 @@ export function buildFocusNearLimit(position = NEAREST_FOCUS_LIMIT): number[] {
   return [0x81, 0x01, 0x04, 0x28, (v >> 12) & 0xf, (v >> 8) & 0xf, (v >> 4) & 0xf, v & 0xf, 0xff];
 }
 
+/**
+ * Rough VISCA near-limit position for a distance in metres. Unverified: the
+ * real scale is lens-specific and the PTZ330 table has not been checked. It
+ * interpolates linearly in 1/distance between 0x1000 (infinity) and
+ * NEAREST_FOCUS_LIMIT (taken as 0.1 m), which is how focus positions usually
+ * behave. Treat as an approximation until read from a camera.
+ */
+export function nearLimitPositionForMetres(metres: number): number {
+  const closest = 0.1;
+  const d = Math.min(Math.max(metres, closest), 1000);
+  return Math.round(0x1000 + (NEAREST_FOCUS_LIMIT - 0x1000) * (closest / d));
+}
+
 export function buildPanTiltInquiry(): number[] {
   return [0x81, 0x09, 0x06, 0x12, 0xff];
 }

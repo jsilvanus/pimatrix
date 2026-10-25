@@ -6,6 +6,7 @@ import {
   buildFocusNearLimit,
   buildFocusStop,
   buildPanTiltDrive,
+  nearLimitPositionForMetres,
   buildPanTiltInquiry,
   buildPowerInquiry,
   buildPresetRecall,
@@ -253,6 +254,8 @@ export interface UdpViscaCameraConfig {
   rtmpKey?: string | undefined;
   /** How long the near drive runs before the stop, default 2500 ms. */
   focusDriveMs?: number | undefined;
+  /** Near focus limit in metres restored when privacy blur goes off, default 1.5. */
+  nearLimitM?: number | undefined;
   logger?: FastifyBaseLogger | undefined;
 }
 
@@ -268,6 +271,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   private readonly rtmpServer: string | null;
   private readonly rtmpKey: string | null;
   private readonly focusDriveMs: number;
+  private readonly nearLimitM: number;
   private readonly logger?: FastifyBaseLogger | undefined;
 
   private socket: dgram.Socket | null = null;
@@ -292,6 +296,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     this.rtmpServer = config.rtmpServer ?? null;
     this.rtmpKey = config.rtmpKey ?? null;
     this.focusDriveMs = config.focusDriveMs ?? 2500;
+    this.nearLimitM = config.nearLimitM ?? 1.5;
     this.logger = config.logger;
   }
 
@@ -402,6 +407,8 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
       await new Promise((resolve) => setTimeout(resolve, this.focusDriveMs));
       await this.sendCommand(buildFocusStop());
     } else {
+      // Put the normal near limit back first, so AF does not hunt at the blur distance.
+      await this.sendCommand(buildFocusNearLimit(nearLimitPositionForMetres(this.nearLimitM)));
       await this.sendCommand(buildFocusMode("auto"));
     }
     this.privacyBlur = enabled;

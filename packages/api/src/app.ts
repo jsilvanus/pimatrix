@@ -148,6 +148,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     mode: config.mode,
     eventBroker,
     logger: app.log,
+    nearLimitM: config.cameraNearLimitM,
     cam1Name: config.cam1Name,
     cam1Host: config.cam1Host,
     cam1ViscaPort: config.cam1ViscaPort,
