@@ -60,6 +60,7 @@ Default URL: `http://127.0.0.1:3000`.
 - `GET /api/v1/events` (Server-Sent Events stream for real-time status, source, and output changes)
 - `POST /api/v1/matrix/route` (requests Atlona matrix routing through AMX NetLinx master)
 - `GET /api/v1/atem` (ATEM switcher connection, program and preview input); `PUT /api/v1/atem/program` and `PUT /api/v1/atem/preview` (`{ "input": n }`); `POST /api/v1/atem/cut`. Answers 503 when no ATEM is configured or reachable.
+- `GET /api/v1/composites` (the two slide composites: `compose1` HDMI key page, `compose2` ATEM media still, with state and settings); `GET|PUT /api/v1/composites/{id}` (`PUT` takes any of `enabled`, `width`, `height`, `side` (`left|right`), `slideAspect` (`10:16|9:16`), `slideScale` (0.6-1), `keyColor`, `keyMode` (`chroma|luma`), `atem` `{ mediaSlot, mediaPlayer, dskIndex, autoOnAir }`); `POST /api/v1/composites/{id}/start|stop`; `PUT /api/v1/composites/slide` (raw `image/png` body, up to 10 MB); `GET /api/v1/composites/{id}/preview.png`. No video or audio goes into a composite. Unverified on hardware.
 - `GET /api/v1/cameras` (lists configured PTZ cameras with connection, streaming, and position state)
 - `GET /api/v1/cameras/{cameraId}` (get details, position, and saved presets)
 - `POST /api/v1/cameras/{cameraId}/move` (pan/tilt direction, panSpeed 1-24, tiltSpeed 1-23)
@@ -100,6 +101,10 @@ Environment:
 - Preview stream quality is set on each AVer camera, not by pimatrix. The AVer PTZ310/330 manual documents no CGI command for stream resolution, frame rate or bitrate, so pimatrix does not send one (unverified). On the camera web page, set Video & Audio: Bitrate to 521 kbps (closest to 500 kbps, and the lowest option), with CBR rate control if offered. Stream resolution is in the IP Streaming options: 960x540 or 640x480 (640x360 is not offered). Frame rate is set in the stream video settings on the camera; the manual does not list a 10 fps option. Video mode must not be NDI, because NDI turns these stream settings into read-only values.
 - `PIMATRIX_MEDIAMTX_RTSP_URL`: RTSP base URL of MediaMTX (for example `rtsp://127.0.0.1:8554`); a route's source is played from `<base>/<sourceId>`. Camera 1 and 2 pull their RTSP paths from `<base>/cam1` and `<base>/cam2`. It is no longer derived from `PIMATRIX_PREVIEW_BASE_URL`; unset means no camera RTSP URL.
 - `PIMATRIX_ATEM_HOST`: ATEM switcher address; unset keeps the ATEM adapter a stub. Control uses the `atem-connection` library (same as LCYT). Unverified on hardware.
+- `PIMATRIX_COMPOSITE_HDMI_DEVICE`: DRM connector (e.g. `card1-HDMI-A-2`) for the `compose1` HDMI key page. Unset = the HDMI key output is not configured (the composite reports `failed`). The page is a still shown with the same ffplay player as the HDMI routes; a slide change restarts it, so the output goes black for about a second. Unverified on hardware.
+- `PIMATRIX_COMPOSITE_DATA_DIR`: directory for the slide PNG, the key page files and `composites.json` (saved settings, restored at start); defaults to `./data/composite`.
+- `PIMATRIX_COMPOSITE_FFMPEG`: ffmpeg used to render the key page; defaults to `ffmpeg`. Renders are pipe-only, no temporary files.
+- `PIMATRIX_ATEM_MEDIA_FILL_INPUT`: ATEM input number of media player 1's fill for the DSK (the key is the next number); defaults to `8010`. Some ATEM models use `10010`. Unverified on hardware.
 - `PIMATRIX_ATEM_PORT`: ATEM control port (UDP); defaults to `9910`, the port atem-connection uses. A failed connection, or one not confirmed within 5 s, is logged as a warning with the host and port.
 - `PIMATRIX_AMX_TCP_ENABLED`: set to `true` to start the inbound AMX TCP listener.
 - `PIMATRIX_AMX_TCP_HOST`: inbound listener host; defaults to `127.0.0.1`.
@@ -198,6 +203,13 @@ npm run dev --workspace @pimatrix/cli -- cameras smartframe cam1 trigger
 npm run dev --workspace @pimatrix/cli -- cameras stream start cam1
 npm run dev --workspace @pimatrix/cli -- cameras stream stop cam1
 npm run dev --workspace @pimatrix/cli -- multiview show
+npm run dev --workspace @pimatrix/cli -- composites list
+npm run dev --workspace @pimatrix/cli -- composites set compose1 side right
+npm run dev --workspace @pimatrix/cli -- composites set compose2 atem.dskIndex 2
+npm run dev --workspace @pimatrix/cli -- composites slide ./slide.png
+npm run dev --workspace @pimatrix/cli -- composites start compose1
+npm run dev --workspace @pimatrix/cli -- composites preview compose1 ./key-page.png
+npm run dev --workspace @pimatrix/cli -- composites stop compose1
 npm run dev --workspace @pimatrix/cli -- multiview layout portrait
 ```
 

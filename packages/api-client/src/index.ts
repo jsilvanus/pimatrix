@@ -3,6 +3,7 @@ import { OpenAPI } from "./generated/core/OpenAPI.js";
 export { OpenAPI };
 export { SystemService } from "./generated/services/SystemService.js";
 export { AtemService } from "./generated/services/AtemService.js";
+export { CompositesService } from "./generated/services/CompositesService.js";
 export { SourcesService } from "./generated/services/SourcesService.js";
 export { OutputsService } from "./generated/services/OutputsService.js";
 export { CamerasService } from "./generated/services/CamerasService.js";
