@@ -53,9 +53,10 @@ test("a slide that is not a PNG is refused before ffmpeg starts", async () => {
 });
 
 test("a missing ffmpeg is reported as a readable error", async () => {
+  const signatureOnly = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   await assert.rejects(
-    renderKeyPage({ geometry: keyPageGeometry(base), slidePng: bluePng(), format: "rgba", ffmpeg: "/nonexistent/ffmpeg-for-test" }),
-    /could not start|ENOENT/
+    renderKeyPage({ geometry: keyPageGeometry(base), slidePng: signatureOnly, format: "rgba", ffmpeg: "/nonexistent/ffmpeg-for-test" }),
+    /ffmpeg could not start/
   );
 });
 
