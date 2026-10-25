@@ -1,0 +1,19 @@
+[Unit]
+Description=pimatrix labwc compositor (drives both HDMI outputs)
+After=seatd.service
+Requires=seatd.service
+
+[Service]
+User=pi
+Group=video
+RuntimeDirectory=pimatrix
+RuntimeDirectoryMode=0700
+Environment=XDG_RUNTIME_DIR=/run/pimatrix
+Environment=LIBSEAT_BACKEND=seatd
+Environment=WLR_BACKENDS=drm
+Environment=WLR_DRM_DEVICES=/dev/dri/card1
+ExecStart=/usr/bin/labwc
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

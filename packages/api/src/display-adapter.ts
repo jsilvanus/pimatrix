@@ -15,6 +15,8 @@ export interface DisplayAdapter {
   applyRoute(outputId: OutputId, sourceId: SourceId | null): Promise<DisplayOutputState>;
   getStatus(): DisplayAdapterState;
   close(): Promise<void>;
+  /** Optional push channel for state changes that happen outside applyRoute. */
+  onStateChange?(listener: (state: DisplayOutputState) => void): () => void;
 }
 
 export class SimulatedDisplayAdapter implements DisplayAdapter {

@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<!-- Place each pimatrix player window on its HDMI connector. Install as ~/.config/labwc/rc.xml. -->
+<labwc_config>
+  <windowRules>
+    <windowRule title="pimatrix-hdmi0"><action name="MoveToOutput" output="HDMI-A-1"/></windowRule>
+    <windowRule title="pimatrix-hdmi1"><action name="MoveToOutput" output="HDMI-A-2"/></windowRule>
+  </windowRules>
+</labwc_config>
