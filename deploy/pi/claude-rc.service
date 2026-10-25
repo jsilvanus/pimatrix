@@ -1,0 +1,12 @@
+# Untested fix: not yet verified on the Pi. Starts Claude Code remote control inside a screen session.
+[Unit]
+Description=Claude Code remote control (in screen session "claude")
+[Service]
+WorkingDirectory=/home/pi/apps
+Environment=PATH=/home/pi/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStartPre=/bin/sh -c 'until curl -s -o /dev/null --max-time 5 https://api.anthropic.com; do sleep 3; done'
+ExecStart=/usr/bin/screen -DmS claude /home/pi/.local/bin/claude rc --debug-file /home/pi/apps/claude-rc.debug.log
+Restart=always
+RestartSec=15
+[Install]
+WantedBy=default.target

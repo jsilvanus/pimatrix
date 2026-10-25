@@ -1,0 +1,8 @@
+[Unit]
+Description=MediaMTX
+[Service]
+WorkingDirectory=/home/pi/apps/mediamtx
+ExecStart=/home/pi/apps/mediamtx/mediamtx /home/pi/apps/mediamtx/mediamtx.yml
+Restart=on-failure
+[Install]
+WantedBy=default.target

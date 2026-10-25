@@ -1,0 +1,11 @@
+[Unit]
+Description=PiMatrix API
+After=mediamtx.service
+[Service]
+WorkingDirectory=/home/pi/apps/pimatrix
+EnvironmentFile=/home/pi/apps/pimatrix.env
+Environment=PATH=/home/pi/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/pi/.local/bin/node packages/api/dist/main.js
+Restart=on-failure
+[Install]
+WantedBy=default.target
