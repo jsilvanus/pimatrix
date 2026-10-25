@@ -338,7 +338,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     hamaOnDemand.sync();
     if (config.atemHost) {
       await atem.connect(config.atemHost, config.atemPort).catch((error: unknown) => {
-        app.log.error({ err: error }, "ATEM connection failed; retrying is not automatic");
+        app.log.error({ err: error }, "ATEM connection failed; the adapter keeps retrying in the background");
       });
     }
     if (amxListener) {
