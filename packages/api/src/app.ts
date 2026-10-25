@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { createFleet } from "fffleet";
 import Fastify, { type FastifyInstance } from "fastify";
 import { createAmxClient, type AmxClient } from "./amx/amx-client.js";
@@ -6,6 +7,9 @@ import { AmxTcpListener } from "./amx/amx-listener.js";
 import { AtemAdapter } from "./atem/atem-adapter.js";
 import { registerAtemRoutes } from "./atem/atem-routes.js";
 import { CameraService } from "./camera/camera-service.js";
+import { CompositeService } from "./composite/composite-service.js";
+import { registerCompositeRoutes } from "./composite/composite-routes.js";
+import { KeyPagePlayer } from "./composite/key-player.js";
 import { CameraCgiError } from "./camera/camera-adapter.js";
 import type { PanTiltDirection, SmartFrameMode, ZoomAction } from "./camera/visca-protocol.js";
 import type { AppConfig } from "./config.js";
@@ -76,6 +80,21 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   const atem = new AtemAdapter({ logger: app.log });
   registerAtemRoutes(app, atem);
   const eventBroker = new PiMatrixEventBroker();
+  const compositeService = new CompositeService({
+    dataDir: config.compositeDataDir,
+    stateFile: path.join(config.compositeDataDir, "composites.json"),
+    ffmpeg: config.compositeFfmpeg,
+    player: new KeyPagePlayer({
+      player: config.hdmiPlayer,
+      device: config.compositeHdmiDevice,
+      sdlVideoDriver: config.hdmiSdlVideoDriver,
+      title: "pimatrix-composite"
+    }),
+    atem,
+    atemFillInputBase: config.atemMediaFillInput,
+    onChange: (status) => eventBroker.emit({ type: "composite", data: { composite: status } })
+  });
+  registerCompositeRoutes(app, compositeService);
   // The HDMI player moves from "starting" to "active" on a timer, not on a route call,
   // so keep the output store and the event stream in step with every state change.
   displayAdapter.onStateChange?.((observed) => {
@@ -317,11 +336,16 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     if (amxListener) {
       await amxListener.start();
     }
+    // Restores saved composites in the background; the ATEM may still be connecting.
+    compositeService.restore().catch((error: unknown) => {
+      app.log.error({ err: error }, "Composite restore failed");
+    });
   });
 
   app.addHook("onClose", async () => {
     await Promise.all([
       atem.disconnect(),
+      compositeService.close(),
       captureSupervisor.stop(),
       cameraService.close(),
       amxListener ? amxListener.stop() : Promise.resolve(),

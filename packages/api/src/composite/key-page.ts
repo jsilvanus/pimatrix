@@ -1,0 +1,85 @@
+/**
+ * Key-page geometry and the ffmpeg filter graph that draws it. Both are pure: no
+ * process is started and no file is read here, so the layout can be unit-tested.
+ *
+ * Layout: the frame is width x height. The slide keeps its native aspect (10:16 or 9:16),
+ * is scaled to slideScale of the frame height, sits at the left or right edge and is
+ * centred vertically. Everything else is the background: the key colour for chroma keying,
+ * black for luma keying, and fully transparent for the ATEM media still (atem-media).
+ */
+
+import type { CompositeOutputKind, CompositeSide, KeyMode, SlideAspect } from "./composite-model.js";
+
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface KeyPageGeometry {
+  width: number;
+  height: number;
+  side: CompositeSide;
+  /** Where the slide is drawn. */
+  slide: Rect;
+  /** Fill colour of everything outside the slide, "#rrggbb". */
+  background: string;
+  /** True when the background must carry alpha 0 (ATEM media still). */
+  transparent: boolean;
+}
+
+export interface KeyPageInput {
+  kind: CompositeOutputKind;
+  width: number;
+  height: number;
+  side: CompositeSide;
+  slideAspect: SlideAspect;
+  slideScale: number;
+  keyColor: string;
+  keyMode: KeyMode;
+}
+
+const SLIDE_RATIO: Record<SlideAspect, number> = {
+  "10:16": 10 / 16,
+  "9:16": 9 / 16
+};
+
+/** Round to the nearest even number, the same rule the video effects use. */
+export function makeEven(value: number): number {
+  return Math.round(value / 2) * 2;
+}
+
+export function keyPageGeometry(input: KeyPageInput): KeyPageGeometry {
+  const slideHeight = Math.min(input.height, makeEven(input.height * input.slideScale));
+  const slideWidth = Math.min(input.width, makeEven(slideHeight * SLIDE_RATIO[input.slideAspect]));
+  // Vertical centring. Both heights are even, so the difference is even and the offset is whole.
+  const y = Math.round((input.height - slideHeight) / 2);
+  const x = input.side === "left" ? 0 : input.width - slideWidth;
+
+  const transparent = input.kind === "atem-media";
+  const background = input.keyMode === "luma" ? "#000000" : input.keyColor;
+
+  return {
+    width: input.width,
+    height: input.height,
+    side: input.side,
+    slide: { x, y, width: slideWidth, height: slideHeight },
+    background,
+    transparent
+  };
+}
+
+/**
+ * The filter_complex for one slide frame. Input 0 is the slide (a PNG on stdin); the
+ * background is generated, so the only input is [0:v]. The output label is [out].
+ */
+export function keyPageFilterGraph(geometry: KeyPageGeometry): string {
+  const { width, height, slide } = geometry;
+  const colour = geometry.transparent ? "black@0" : `0x${geometry.background.slice(1)}`;
+  return [
+    `color=c=${colour}:s=${width}x${height}:r=1,format=rgba[bg]`,
+    `[0:v]scale=${slide.width}:${slide.height}:flags=lanczos,format=rgba[slide]`,
+    `[bg][slide]overlay=x=${slide.x}:y=${slide.y}:format=auto,format=rgba[out]`
+  ].join(";");
+}

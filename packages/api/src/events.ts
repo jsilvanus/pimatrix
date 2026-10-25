@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import type { EffectsPipeline } from "./effects/effects-model.js";
 import type { OutputSnapshot, SourceId, SourceState } from "./model.js";
 import type { PiPgmPipelineSnapshot } from "./pipgm/pipgm-model.js";
+import type { CompositeStatus } from "./composite/composite-model.js";
 
 export interface SourceEventPayload {
   id: SourceId;
@@ -61,6 +62,10 @@ export interface RtspOutEventPayload {
   bitrateKbps?: number;
 }
 
+export interface CompositeEventPayload {
+  composite: CompositeStatus;
+}
+
 export type PiMatrixEvent =
   | { type: "source"; data: SourceEventPayload }
   | { type: "output"; data: OutputEventPayload }
@@ -70,6 +75,7 @@ export type PiMatrixEvent =
   | { type: "pipgm"; data: PiPgmEventPayload }
   | { type: "matrix"; data: MatrixEventPayload }
   | { type: "rtsp"; data: RtspOutEventPayload }
+  | { type: "composite"; data: CompositeEventPayload }
   | { type: "ready"; data: { status: string; time: string } };
 
 export class PiMatrixEventBroker {
