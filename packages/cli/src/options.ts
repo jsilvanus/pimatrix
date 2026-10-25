@@ -7,6 +7,7 @@ export interface CliOptions {
   tiltSpeed?: number;
   speed?: number;
   name?: string;
+  force?: boolean;
   x?: number;
   y?: number;
   width?: number;
@@ -28,6 +29,7 @@ export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env):
   let tiltSpeed: number | undefined;
   let speed: number | undefined;
   let name: string | undefined;
+  let force = false;
   let x: number | undefined;
   let y: number | undefined;
   let width: number | undefined;
@@ -70,6 +72,8 @@ export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env):
       if (!value || value.startsWith("--")) throw new Error("--speed requires a number");
       speed = Number(value);
       index += 1;
+    } else if (arg === "--force") {
+      force = true;
     } else if (arg === "--name") {
       const value = args[index + 1];
       if (!value || value.startsWith("--")) throw new Error("--name requires a string");
@@ -154,6 +158,7 @@ export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env):
     ...(tiltSpeed !== undefined ? { tiltSpeed } : {}),
     ...(speed !== undefined ? { speed } : {}),
     ...(name !== undefined ? { name } : {}),
+    ...(force ? { force } : {}),
     ...(x !== undefined ? { x } : {}),
     ...(y !== undefined ? { y } : {}),
     ...(width !== undefined ? { width } : {}),

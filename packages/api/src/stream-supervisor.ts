@@ -1,7 +1,7 @@
 import type { Fleet, JobHandle, JobSnapshot, JobSpecInput } from "fffleet";
 import type { AppConfig, HamaVideoCodec } from "./config.js";
 
-export type ManagedStreamState = "disabled" | "starting" | "running" | "degraded" | "failed" | "stopping";
+export type ManagedStreamState = "disabled" | "idle" | "starting" | "running" | "degraded" | "failed" | "stopping";
 
 export interface ManagedStreamSnapshot {
   state: ManagedStreamState;
@@ -131,6 +131,8 @@ export class StreamSupervisor {
   private currentState: ManagedStreamState;
   private lastError: string | null = null;
   private lastStderr: string | null = null;
+  /** Bumped by halt(): a launch that finishes after it is cancelled, and never schedules a retry. */
+  private generation = 0;
 
   constructor(
     private readonly fleet: Pick<Fleet, "submit" | "close"> | null,
@@ -139,7 +141,8 @@ export class StreamSupervisor {
     private readonly restartMinMs: number,
     private readonly restartMaxMs: number
   ) {
-    this.currentState = enabled ? "starting" : "disabled";
+    // On demand: an enabled capture waits in "idle" until something asks for it.
+    this.currentState = enabled ? "idle" : "disabled";
   }
 
   snapshot(): ManagedStreamSnapshot {
@@ -160,10 +163,11 @@ export class StreamSupervisor {
 
   private async launch(): Promise<void> {
     if (!this.fleet || this.stopping) return;
+    const generation = this.generation;
     this.attempt += 1;
     try {
       const job = await this.fleet.submit(this.makeSpec(this.attempt));
-      if (this.stopping) {
+      if (this.stopping || generation !== this.generation) {
         await job.cancel().catch(() => undefined);
         return;
       }
@@ -181,6 +185,7 @@ export class StreamSupervisor {
       });
       void this.watch(job);
     } catch (error) {
+      if (generation !== this.generation) return;
       this.lastError = error instanceof Error ? error.message : String(error);
       this.currentState = "degraded";
       this.scheduleRetry();
@@ -244,6 +249,24 @@ export class StreamSupervisor {
     this.currentState = "starting";
     this.launchPromise = this.launch();
     await this.launchPromise;
+  }
+
+  /**
+   * Stop the job and go back to "idle" without closing the supervisor, so a later
+   * start() can capture again. Used by the on-demand Hama capture.
+   */
+  async halt(): Promise<void> {
+    if (!this.enabled || this.stopping) return;
+    this.generation += 1;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.failures = 0;
+    this.currentState = "stopping";
+    await this.launchPromise?.catch(() => undefined);
+    const job = this.activeJob;
+    this.activeJob = null;
+    if (job) await job.cancel().catch(() => undefined);
+    this.currentState = "idle";
   }
 
   async stop(): Promise<void> {

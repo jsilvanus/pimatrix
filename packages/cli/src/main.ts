@@ -86,6 +86,9 @@ async function run(options: CliOptions): Promise<void> {
       "  cameras smartframe <cameraId> <enable|disable|trigger>\n" +
       "  cameras stream start <cameraId>\n" +
       "  cameras stream stop <cameraId>\n" +
+      "  hama status\n" +
+      "  hama start\n" +
+      "  hama stop [--force]\n" +
       "  pipgm list\n" +
       "  pipgm show <PiPGM1|PiPGM2|PiPGM3>\n" +
       "  pipgm orientation <pipelineId> <landscape|portrait>\n" +
@@ -428,6 +431,34 @@ async function run(options: CliOptions): Promise<void> {
     const data = await CamerasService.stopCameraStream(cameraId);
     if (options.json) console.log(JSON.stringify(data, null, 2));
     else console.log(`Camera ${data.cameraId}: streaming stopped`);
+    return;
+  }
+
+  // Hama capture (on demand): start/stop by hand, or see what holds it
+  if (group === "hama" && action === "status" && options.command.length === 2) {
+    const data = await SourcesService.getHamaCapture();
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else {
+      const demand = data.demand;
+      const holds = [demand.manual && "manual", demand.routed && "routed", demand.relayed && "relayed"].filter(Boolean);
+      console.log(`Hama capture: ${data.state} (${data.width ?? "?"}x${data.height ?? "?"}, ${data.videoCodec ?? "default codec"})`);
+      console.log(`Held by:      ${holds.length > 0 ? holds.join(", ") : "nothing"}; idle stop after ${data.idleGraceSeconds} s`);
+      if (data.lastError) console.log(`Last error:   ${data.lastError}`);
+    }
+    return;
+  }
+
+  if (group === "hama" && action === "start" && options.command.length === 2) {
+    const data = await SourcesService.startHamaCapture();
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Hama capture: ${data.state}`);
+    return;
+  }
+
+  if (group === "hama" && action === "stop" && options.command.length === 2) {
+    const data = await SourcesService.stopHamaCapture(options.force ? "1" : undefined);
+    if (options.json) console.log(JSON.stringify(data, null, 2));
+    else console.log(`Hama capture: ${data.state}`);
     return;
   }
 

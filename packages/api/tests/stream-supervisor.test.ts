@@ -114,14 +114,13 @@ test("stream supervisor restarts a failed job with a new id and closes its fleet
 });
 
 
-test("Hama capture does not force undocumented Linux modes by default", () => {
+test("Hama capture defaults to 1920x1080 on the Pi hardware encoder, with no forced input format", () => {
   const config = loadConfig({ PIMATRIX_HAMA_RTSP_URL: "rtsp://mediamtx:8554/hama" });
-  const spec = buildHamaCaptureSpec(config, 1);
-  const args = spec.ffmpeg?.args ?? [];
+  const args = buildHamaCaptureSpec(config, 1).ffmpeg?.args ?? [];
   assert.equal(args.includes("-input_format"), false);
   assert.equal(args.includes("-framerate"), false);
-  assert.equal(args.includes("-video_size"), false);
-  assert.equal(args.includes("-c:v"), false);
+  assert.equal(args[args.indexOf("-video_size") + 1], "1920x1080");
+  assert.equal(args[args.indexOf("-c:v") + 1], "h264_v4l2m2m");
 });
 
 test("Hama capture uses the Pi hardware encoder when PIMATRIX_HAMA_VIDEO_CODEC is h264_v4l2m2m", () => {
