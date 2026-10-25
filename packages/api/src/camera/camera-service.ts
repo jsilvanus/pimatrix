@@ -55,7 +55,8 @@ export class CameraService {
           cgiPort: options.cam1CgiPort,
           auth: basicAuth(options.cam1CgiUser, options.cam1CgiPassword),
           rtspUrl: options.mediaMtxRtspBaseUrl ? `${options.mediaMtxRtspBaseUrl}/cam1` : undefined,
-          rtmpTargetUrl: options.mediaMtxRtmpBaseUrl ? `${options.mediaMtxRtmpBaseUrl}/cam1` : undefined,
+          rtmpServer: options.mediaMtxRtmpBaseUrl,
+          rtmpKey: "cam1",
           logger: options.logger
         })
       );
@@ -74,7 +75,8 @@ export class CameraService {
           cgiPort: options.cam2CgiPort,
           auth: basicAuth(options.cam2CgiUser, options.cam2CgiPassword),
           rtspUrl: options.mediaMtxRtspBaseUrl ? `${options.mediaMtxRtspBaseUrl}/cam2` : undefined,
-          rtmpTargetUrl: options.mediaMtxRtmpBaseUrl ? `${options.mediaMtxRtmpBaseUrl}/cam2` : undefined,
+          rtmpServer: options.mediaMtxRtmpBaseUrl,
+          rtmpKey: "cam2",
           logger: options.logger
         })
       );

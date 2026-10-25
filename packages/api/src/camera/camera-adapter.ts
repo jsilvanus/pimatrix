@@ -233,7 +233,10 @@ export interface UdpViscaCameraConfig {
   /** HTTP Basic login for the camera CGI. Sent only as an Authorization header. */
   auth?: CameraLogin | undefined;
   rtspUrl?: string | undefined;
-  rtmpTargetUrl?: string | undefined;
+  /** RTMP server base the camera pushes to, e.g. rtmp://192.168.1.103:1935. */
+  rtmpServer?: string | undefined;
+  /** Stream key (the MediaMTX path name), e.g. cam1. */
+  rtmpKey?: string | undefined;
   logger?: FastifyBaseLogger | undefined;
 }
 
@@ -246,7 +249,8 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   private readonly cgiPort: number;
   private readonly authHeader: string | null;
   private readonly rtspUrl: string | null;
-  private readonly rtmpTargetUrl: string | null;
+  private readonly rtmpServer: string | null;
+  private readonly rtmpKey: string | null;
   private readonly logger?: FastifyBaseLogger | undefined;
 
   private socket: dgram.Socket | null = null;
@@ -267,7 +271,8 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
       ? `Basic ${Buffer.from(`${config.auth.user}:${config.auth.password}`).toString("base64")}`
       : null;
     this.rtspUrl = config.rtspUrl ?? `rtsp://${config.host}:554/live_st1`;
-    this.rtmpTargetUrl = config.rtmpTargetUrl ?? null;
+    this.rtmpServer = config.rtmpServer ?? null;
+    this.rtmpKey = config.rtmpKey ?? null;
     this.logger = config.logger;
   }
 
@@ -369,11 +374,16 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   }
 
   async startStream(): Promise<string | null> {
-    // Point the camera's RTMP push at MediaMTX, then switch it on. Failures are
-    // not hidden: a rejected login or an unreachable camera throws CameraCgiError.
-    if (this.rtmpTargetUrl) {
-      await this.cgiSet(`vdo_rtmp_url,3,${encodeURIComponent(this.rtmpTargetUrl)}`);
-      await this.cgiSet("vdo_rtmp_enable,3,1");
+    // One call sets the RTMP server and key and starts the push (AVer web UI API).
+    // Failures are not hidden: a rejected login or an unreachable camera throws
+    // CameraCgiError, and a "failed" status from the camera throws too.
+    if (this.rtmpServer && this.rtmpKey) {
+      await this.cgiCommand(`set_rtmp_start(server=${this.rtmpServer};key=${this.rtmpKey})`, "POST");
+      const status = await this.rtmpStatus();
+      if (status === "failed") {
+        this.logger?.warn({ camera: this.id }, "Camera reported the RTMP push as failed");
+        throw new CameraCgiError(`Camera ${this.id} reported the RTMP push as failed`, "rejected");
+      }
     }
     this.streaming = true;
     return this.rtspUrl;
@@ -381,24 +391,38 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
 
   async stopStream(): Promise<void> {
     try {
-      await this.cgiSet("vdo_rtmp_enable,3,0");
+      await this.cgiCommand("set_rtmp_stop", "POST");
     } finally {
       this.streaming = false;
     }
   }
 
-  /** One CGI "Set" call. The login goes only in the Authorization header. */
-  private async cgiSet(value: string): Promise<void> {
-    const url = `http://${this.host}:${this.cgiPort}/cgi-bin?Set=${value}`;
+  /**
+   * Reads rtmp_status from get_rtmp_status. Returns null when the answer has no
+   * recognisable status; that is logged, not treated as a failure.
+   */
+  private async rtmpStatus(): Promise<string | null> {
+    const body = await this.cgiCommand(`get_rtmp_status(${Date.now()})`, "GET");
+    const match = /rtmp_status\W+(streaming|stopped|failed)/.exec(body);
+    if (!match) {
+      this.logger?.warn({ camera: this.id }, "Camera RTMP status answer had no recognised rtmp_status");
+      return null;
+    }
+    return match[1]!;
+  }
+
+  /** One CGI call on /storks. The login goes only in the Authorization header. Returns the answer body. */
+  private async cgiCommand(cmd: string, method: "GET" | "POST"): Promise<string> {
+    const url = `http://${this.host}:${this.cgiPort}/storks?cmd=${cmd}`;
     const headers: Record<string, string> = this.authHeader ? { Authorization: this.authHeader } : {};
     let res: Response;
     try {
-      res = await fetch(url, { headers, signal: AbortSignal.timeout(2000) });
+      res = await fetch(url, { method, headers, signal: AbortSignal.timeout(2000) });
     } catch {
       this.logger?.warn({ camera: this.id }, "Camera CGI unreachable");
       throw new CameraCgiError(`Camera ${this.id} did not answer the CGI request`, "unreachable");
     }
-    await res.body?.cancel();
+    const body = await res.text();
     if (res.status === 401 || res.status === 403) {
       this.logger?.warn({ camera: this.id, status: res.status }, "Camera CGI rejected the login");
       throw new CameraCgiError(
@@ -410,6 +434,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     if (!res.ok) {
       throw new CameraCgiError(`Camera ${this.id} answered HTTP ${res.status} to the CGI request`, "rejected", res.status);
     }
+    return body;
   }
 
   async close(): Promise<void> {
