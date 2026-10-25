@@ -11,7 +11,16 @@
 
 import { Atem } from "atem-connection";
 
-export const DEFAULT_ATEM_PORT = 9990;
+/** UDP control port used by atem-connection (9910; 9990 is not a control port). */
+export const DEFAULT_ATEM_PORT = 9910;
+
+/** How long a connect may stay unconfirmed before a warning is logged. */
+export const ATEM_CONNECT_WARN_MS = 5000;
+
+/** The part of a logger the adapter uses (Fastify's logger fits). */
+export interface AtemLogger {
+  warn(obj: object, msg: string): void;
+}
 
 export interface AtemTransitionState {
   inTransition: boolean;
@@ -43,6 +52,10 @@ export interface AtemAdapterOptions {
   meIndex?: number;
   /** Creates the library client; tests pass a fake so no socket is opened. */
   createClient?: () => AtemClient;
+  /** Receives a warning when the connection fails or is not confirmed in time. */
+  logger?: AtemLogger | undefined;
+  /** Milliseconds before an unconfirmed connect is reported (default 5 s). */
+  connectWarnMs?: number;
 }
 
 const IDLE_TRANSITION: AtemTransitionState = { inTransition: false, remainingFrames: 0 };
@@ -63,10 +76,14 @@ export class AtemAdapter {
   private client: AtemClient | null = null;
   private connected = false;
   private listeners = new Set<AtemStateListener>();
+  private readonly logger: AtemLogger | undefined;
+  private readonly connectWarnMs: number;
 
   constructor(options: AtemAdapterOptions = {}) {
     this.meIndex = options.meIndex ?? 0;
     this.createClient = options.createClient ?? (() => new Atem() as unknown as AtemClient);
+    this.logger = options.logger;
+    this.connectWarnMs = options.connectWarnMs ?? ATEM_CONNECT_WARN_MS;
   }
 
   /**
@@ -80,23 +97,43 @@ export class AtemAdapter {
 
     const client = this.createClient();
     this.client = client;
+    const warnTimer = setTimeout(() => {
+      if (this.client === client && !this.connected) {
+        this.logger?.warn(
+          { host: target, port },
+          `ATEM not connected after ${this.connectWarnMs} ms; check PIMATRIX_ATEM_HOST and PIMATRIX_ATEM_PORT (control port is 9910)`
+        );
+      }
+    }, this.connectWarnMs);
+    warnTimer.unref();
     client.on("connected", () => {
       if (this.client !== client) return;
+      clearTimeout(warnTimer);
       this.connected = true;
       this.emit();
     });
     client.on("disconnected", () => {
       if (this.client !== client) return;
+      clearTimeout(warnTimer);
       this.connected = false;
       this.emit();
     });
     client.on("stateChanged", () => {
       if (this.client === client && this.connected) this.emit();
     });
-    // Listening keeps an 'error' event from becoming an unhandled crash.
-    client.on("error", () => undefined);
+    // Logging the error keeps it from becoming an unhandled crash.
+    client.on("error", (error: unknown) => {
+      if (this.client !== client) return;
+      this.logger?.warn({ host: target, port, err: error }, "ATEM connection error");
+    });
 
-    await client.connect(target, port);
+    try {
+      await client.connect(target, port);
+    } catch (error) {
+      clearTimeout(warnTimer);
+      this.logger?.warn({ host: target, port, err: error }, "ATEM connection failed");
+      throw error;
+    }
   }
 
   async disconnect(): Promise<void> {

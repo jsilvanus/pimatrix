@@ -98,7 +98,7 @@ Environment:
 - `PIMATRIX_HDMI_SDL_VIDEODRIVER`: SDL video driver set for each player; defaults to `kmsdrm` (no desktop on the Pi). Set empty to inherit. ffplay cannot choose a connector itself, so a wrapper set as `PIMATRIX_HDMI_PLAYER` must select the connector named in `PIMATRIX_OUTPUT_DEVICE`. The `deploy/pi/pimatrix-player` wrapper overrides this setting and sets `SDL_VIDEODRIVER=wayland`, because it runs ffplay as a client of the labwc compositor (see `deploy/pi/README.md`). Verified on a Pi 4 with two outputs; see `deploy/pi/README.md`.
 - `PIMATRIX_MEDIAMTX_RTSP_URL`: RTSP base URL of MediaMTX (for example `rtsp://127.0.0.1:8554`); a route's source is played from `<base>/<sourceId>`.
 - `PIMATRIX_ATEM_HOST`: ATEM switcher address; unset keeps the ATEM adapter a stub. Control uses the `atem-connection` library (same as LCYT). Unverified on hardware.
-- `PIMATRIX_ATEM_PORT`: ATEM control port; defaults to `9990`.
+- `PIMATRIX_ATEM_PORT`: ATEM control port (UDP); defaults to `9910`, the port atem-connection uses. A failed connection, or one not confirmed within 5 s, is logged as a warning with the host and port.
 - `PIMATRIX_AMX_TCP_ENABLED`: set to `true` to start the inbound AMX TCP listener.
 - `PIMATRIX_AMX_TCP_HOST`: inbound listener host; defaults to `127.0.0.1`.
 - `PIMATRIX_AMX_TCP_PORT`: inbound listener port; defaults to `6600`.
