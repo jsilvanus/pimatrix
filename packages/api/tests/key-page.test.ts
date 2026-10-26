@@ -90,3 +90,13 @@ test("offsetY moves the slide between the top and bottom edges", () => {
   const bottom = keyPageGeometry({ ...scaled, offsetY: 1 }).slide;
   assert.equal(bottom.y + bottom.height, 1080);
 });
+
+test("offsetX moves the slide between the left and right edges", () => {
+  const narrow = { ...base, slideScale: 0.6 };
+  const left = keyPageGeometry({ ...narrow, offsetX: -1 }).slide;
+  assert.equal(left.x, 0);
+  const right = keyPageGeometry({ ...narrow, offsetX: 1 }).slide;
+  assert.equal(right.x + right.width, 1920);
+  const mid = keyPageGeometry({ ...narrow, offsetX: 0 }).slide;
+  assert.equal(mid.x, Math.round((1920 - mid.width) / 2));
+});

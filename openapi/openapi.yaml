@@ -1695,7 +1695,7 @@ components:
           description: Put the DSK on air after an upload. Default false.
     Composite:
       type: object
-      required: [id, kind, enabled, width, height, side, slideAspect, slideScale, offsetY, keyColor, keyMode, atem, state, lastError, hasSlide, slideSource, pipelineId, feedError, updatedAt]
+      required: [id, kind, enabled, width, height, side, slideAspect, slideScale, offsetX, offsetY, keyColor, keyMode, atem, state, lastError, hasSlide, slideSource, pipelineId, feedError, updatedAt]
       properties:
         id:
           $ref: "#/components/schemas/CompositeId"
@@ -1720,6 +1720,11 @@ components:
           minimum: 0.6
           maximum: 1
           description: Slide height as a fraction of the frame height
+        offsetX:
+          type: number
+          minimum: -1
+          maximum: 1
+          description: Horizontal position of the slide, -1 left edge, 0 centred, 1 right edge. `side` follows it (left below 0); a PUT with only `side` sets offsetX to -1 or 1
         offsetY:
           type: number
           minimum: -1
@@ -1787,6 +1792,10 @@ components:
         slideScale:
           type: number
           minimum: 0.6
+          maximum: 1
+        offsetX:
+          type: number
+          minimum: -1
           maximum: 1
         offsetY:
           type: number

@@ -41,6 +41,8 @@ export interface CompositeSettings {
   slideAspect: SlideAspect;
   /** Slide height as a fraction of the frame height. */
   slideScale: number;
+  /** Horizontal position of the slide: -1 left edge, 0 centred, 1 right edge. `side` follows it (left below 0). */
+  offsetX: number;
   /** Vertical position of the slide: -1 top edge, 0 centred, 1 bottom edge. */
   offsetY: number;
   /** Background colour of the HDMI key page, "#rrggbb". Ignored by luma and atem-media. */
@@ -61,6 +63,7 @@ export interface CompositePatch {
   side?: CompositeSide;
   slideAspect?: SlideAspect;
   slideScale?: number;
+  offsetX?: number;
   offsetY?: number;
   keyColor?: string;
   keyMode?: KeyMode;
@@ -80,7 +83,7 @@ export const MAX_FRAME_SIDE = 3840;
 export const DEFAULT_KEY_COLOR = "#00ff00";
 
 const PATCH_KEYS = new Set([
-  "enabled", "width", "height", "side", "slideAspect", "slideScale", "offsetY", "keyColor", "keyMode", "atem",
+  "enabled", "width", "height", "side", "slideAspect", "slideScale", "offsetX", "offsetY", "keyColor", "keyMode", "atem",
   "slideSource", "pipelineId"
 ]);
 const ATEM_KEYS = new Set(["mediaSlot", "mediaPlayer", "dskIndex", "autoOnAir"]);
@@ -99,6 +102,7 @@ export function defaultCompositeSettings(id: CompositeId): CompositeSettings {
     side: "left",
     slideAspect: "10:16",
     slideScale: 1,
+    offsetX: -1,
     offsetY: 0,
     keyColor: DEFAULT_KEY_COLOR,
     keyMode: "chroma",
@@ -165,6 +169,14 @@ export function parseCompositePatch(input: unknown): CompositeValidation {
       return { ok: false, message: `slideScale must be a number between ${MIN_SLIDE_SCALE} and ${MAX_SLIDE_SCALE}` };
     }
     patch.slideScale = value;
+  }
+
+  if (body.offsetX !== undefined) {
+    const value = body.offsetX;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < -1 || value > 1) {
+      return { ok: false, message: "offsetX must be a number between -1 and 1" };
+    }
+    patch.offsetX = value;
   }
 
   if (body.offsetY !== undefined) {
@@ -240,12 +252,18 @@ function parseAtemPatch(input: unknown): { ok: true; patch: Partial<CompositeAte
 
 /** Applies a validated patch. Returns a new object; the current settings are not changed. */
 export function applyCompositePatch(current: CompositeSettings, patch: CompositePatch): CompositeSettings {
+  // `side` is the coarse form of offsetX: a patch with only `side` snaps to that edge, a
+  // patch with offsetX moves the slide freely and `side` follows (left below 0).
+  const offsetX =
+    patch.offsetX !== undefined ? patch.offsetX : patch.side !== undefined ? (patch.side === "left" ? -1 : 1) : current.offsetX;
+  const side: CompositeSide = patch.side !== undefined && patch.offsetX === undefined ? patch.side : offsetX < 0 ? "left" : "right";
   return {
     ...current,
     ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
     ...(patch.width !== undefined ? { width: patch.width } : {}),
     ...(patch.height !== undefined ? { height: patch.height } : {}),
-    ...(patch.side !== undefined ? { side: patch.side } : {}),
+    side,
+    offsetX,
     ...(patch.slideAspect !== undefined ? { slideAspect: patch.slideAspect } : {}),
     ...(patch.slideScale !== undefined ? { slideScale: patch.slideScale } : {}),
     ...(patch.offsetY !== undefined ? { offsetY: patch.offsetY } : {}),
@@ -278,7 +296,8 @@ export function renderSignature(settings: CompositeSettings): string {
     settings.kind,
     settings.width,
     settings.height,
-    settings.side,
+    settings.offsetX,
+    settings.offsetY,
     settings.slideAspect,
     settings.slideScale,
     settings.keyColor,
