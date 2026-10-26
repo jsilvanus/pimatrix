@@ -36,7 +36,7 @@ Quick options have a number (1-99) set when saving (`POST /api/v1/quick-options`
 
 AMX remains the only controller of the Atlona matrix.
 
-Atlona inputs: 1 Lukupulpetti, 2 Rack PC, 3 Pi 1, 4 Pi 2. Outputs: 1 Proj1, 2 Proj2, 3 Screen3, 4 Screen4, 5 Videomixer (2026-10-26; the current AT-UHD-PRO3-44M has only four outputs, so outputs 3-5 assume a larger matrix).
+Atlona inputs: 1 Lukupulpetti, 2 Rack PC, 3 Pi 1, 4 Pi 2. Outputs: 1 Proj1, 2 Proj2, 3 Screen3, 4 Screen4, 5 Videomixer (2026-10-26). The AT-UHD-PRO3-44M has five outputs: 4 is HDBaseT and 5 is HDMI out, usually mirrored with 4.
 
 ## Not verified
 
