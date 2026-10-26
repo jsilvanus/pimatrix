@@ -8,6 +8,7 @@ export { SourcesService } from "./generated/services/SourcesService.js";
 export { OutputsService } from "./generated/services/OutputsService.js";
 export { CamerasService } from "./generated/services/CamerasService.js";
 export { EffectsService } from "./generated/services/EffectsService.js";
+export { QuickOptionsService } from "./generated/services/QuickOptionsService.js";
 export type * from "./generated/index.js";
 
 export interface ApiClientOptions {
