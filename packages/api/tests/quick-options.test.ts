@@ -44,7 +44,7 @@ test("save, list, apply, rename and delete a quick option", async () => {
   assert.equal(saved.body.snapshot.effects.cam1.crop.aspectRatio, "9:16");
   assert.equal(saved.body.snapshot.effects.cam2.muted, true);
   assert.equal(saved.body.snapshot.effects.cam2.fadeToBlack, true);
-  assert.deepEqual(saved.body.snapshot.composites, { compose1: { slideSource: "piprogram", pipelineId: "PiPGM2" } });
+  assert.deepEqual(saved.body.snapshot.composites, { compose1: { slideSource: "piprogram", pipelineId: "PiPGM2", sourceId: "hama" } });
 
   const list = await json(app, "GET", "/api/v1/quick-options");
   assert.deepEqual(list.body.items.map((i: { name: string }) => i.name), ["Sunday"]);

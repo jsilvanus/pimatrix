@@ -8,6 +8,7 @@ import { AtemAdapter, type AtemClient } from "../src/atem/atem-adapter.js";
 import {
   CompositeNotFoundError,
   CompositeService,
+  InvalidCompositeError,
   InvalidSlideError,
   type CompositePlayer
 } from "../src/composite/composite-service.js";
@@ -21,12 +22,14 @@ interface Recorder {
   shows: string[];
   stops: number;
   atemCalls: unknown[][];
+  lives: Array<{ url: string; layout: unknown }>;
 }
 
 function fakePlayer(recorder: Recorder): CompositePlayer {
   return {
     async show(file: string) { recorder.shows.push(file); },
-    async stop() { recorder.stops += 1; }
+    async stop() { recorder.stops += 1; },
+    async showLive(url, layout) { recorder.lives.push({ url, layout }); }
   };
 }
 
@@ -65,7 +68,7 @@ async function makeAtem(connected: boolean, calls: unknown[][]): Promise<AtemAda
 
 function setup(options: { connected?: boolean; stateFile?: boolean; dataDir?: string } = {}) {
   const dataDir = options.dataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "pimatrix-composite-"));
-  const recorder: Recorder = { renders: [], shows: [], stops: 0, atemCalls: [] };
+  const recorder: Recorder = { renders: [], shows: [], stops: 0, atemCalls: [], lives: [] };
   const events: CompositeStatus[] = [];
   const atemPromise = makeAtem(options.connected ?? false, recorder.atemCalls);
   return {
@@ -76,6 +79,7 @@ function setup(options: { connected?: boolean; stateFile?: boolean; dataDir?: st
       dataDir,
       stateFile: options.stateFile === false ? undefined : path.join(dataDir, "composites.json"),
       player: fakePlayer(recorder),
+      liveSourceUrl: (id) => `rtsp://127.0.0.1:8554/${id}`,
       atem: await atemPromise,
       renderFrame: async (renderOptions) => {
         recorder.renders.push(renderOptions);
@@ -218,4 +222,29 @@ test("a preview is available only once a slide exists", async () => {
   const png = await service.previewPng("compose1");
   assert.ok(png && png.length > 0);
   assert.equal(env.recorder.renders.at(-1)?.format, "png");
+});
+
+test("HDMI key with a live source: publishes the source in the slide box without any slide", async () => {
+  const { make, recorder } = setup();
+  const service = await make();
+  await service.update("compose1", { slideSource: "source", sourceId: "cam1", slideScale: 0.8 });
+  const started = await service.update("compose1", { enabled: true });
+  assert.equal(started.hasSlide, true);
+  await service.idle();
+  assert.equal(recorder.lives.length, 1);
+  assert.equal(recorder.lives[0]?.url, "rtsp://127.0.0.1:8554/cam1");
+  assert.equal(recorder.shows.length, 0);
+  assert.equal(service.get("compose1").state, "running");
+  assert.equal(await service.previewPng("compose1"), null);
+  // switching source restarts the live render
+  await service.update("compose1", { sourceId: "rtmp1" });
+  await service.idle();
+  assert.equal(recorder.lives.length, 2);
+  assert.equal(recorder.lives[1]?.url, "rtsp://127.0.0.1:8554/rtmp1");
+});
+
+test("an ATEM media composite refuses a live source", async () => {
+  const { make } = setup();
+  const service = await make();
+  await assert.rejects(service.update("compose2", { slideSource: "source" }), InvalidCompositeError);
 });

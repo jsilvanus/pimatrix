@@ -5,7 +5,7 @@
 
 export const COMPOSITE_FIELDS = [
   "enabled", "width", "height", "side", "slideAspect", "slideScale", "offsetX", "offsetY", "keyColor", "keyMode",
-  "atem.mediaSlot", "atem.mediaPlayer", "atem.dskIndex", "atem.autoOnAir", "slideSource", "pipelineId"
+  "atem.mediaSlot", "atem.mediaPlayer", "atem.dskIndex", "atem.autoOnAir", "slideSource", "pipelineId", "sourceId"
 ] as const;
 
 const BOOLEAN_FIELDS = new Set(["enabled", "atem.autoOnAir"]);

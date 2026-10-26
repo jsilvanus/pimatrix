@@ -8,6 +8,7 @@ import type { FastifyInstance } from "fastify";
 import { parseCompositePatch, COMPOSITE_IDS, type CompositeStatus } from "./composite-model.js";
 import {
   CompositeNotFoundError,
+  InvalidCompositeError,
   InvalidSlideError,
   MAX_SLIDE_BYTES,
   type CompositeService
@@ -58,6 +59,9 @@ export function registerCompositeRoutes(app: FastifyInstance, composites: Compos
       return reply.code(200).send(await composites.update(request.params.id, validated.patch));
     } catch (error) {
       if (error instanceof CompositeNotFoundError) return notFound(reply, request.params.id);
+      if (error instanceof InvalidCompositeError) {
+        return reply.code(422).send({ error: { code: "INVALID_COMPOSITE", message: error.message } });
+      }
       throw error;
     }
   });

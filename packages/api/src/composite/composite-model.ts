@@ -15,8 +15,14 @@ export type CompositeOutputKind = "hdmi-key" | "atem-media";
 export type CompositeSide = "left" | "right";
 export type SlideAspect = "10:16" | "9:16";
 export type KeyMode = "chroma" | "luma";
-/** Where the slide comes from: a PUT of a PNG (default) or a piprogram pipeline's frame. */
-export type SlideSource = "upload" | "piprogram";
+/**
+ * Where the composite's picture comes from: a PUT of a PNG (default), a piprogram pipeline's
+ * frame, or a live video source (a Pi HDMI-key composite only: it runs a live ffmpeg render).
+ */
+export type SlideSource = "upload" | "piprogram" | "source";
+/** Sources that can feed a composite live: everything with a MediaMTX path except composites and multiview. */
+export const LIVE_SOURCE_IDS = ["hama", "rtmp1", "rtmp2", "cam1", "cam2", "cam3", "PiPGM1", "PiPGM2", "PiPGM3"] as const;
+export type LiveSourceId = (typeof LIVE_SOURCE_IDS)[number];
 export type PiprogramPipelineId = "PiPGM1" | "PiPGM2" | "PiPGM3";
 export const PIPROGRAM_PIPELINE_IDS = ["PiPGM1", "PiPGM2", "PiPGM3"] as const;
 
@@ -53,6 +59,8 @@ export interface CompositeSettings {
   slideSource: SlideSource;
   /** The piprogram pipeline this composite follows (used when slideSource is "piprogram"). */
   pipelineId: PiprogramPipelineId;
+  /** The live source this composite shows (used when slideSource is "source"). */
+  sourceId: LiveSourceId;
 }
 
 /** Fields a client may change. Missing fields keep their current value. */
@@ -70,6 +78,7 @@ export interface CompositePatch {
   atem?: Partial<CompositeAtemSettings>;
   slideSource?: SlideSource;
   pipelineId?: PiprogramPipelineId;
+  sourceId?: LiveSourceId;
 }
 
 export type CompositeValidation =
@@ -84,7 +93,7 @@ export const DEFAULT_KEY_COLOR = "#00ff00";
 
 const PATCH_KEYS = new Set([
   "enabled", "width", "height", "side", "slideAspect", "slideScale", "offsetX", "offsetY", "keyColor", "keyMode", "atem",
-  "slideSource", "pipelineId"
+  "slideSource", "pipelineId", "sourceId"
 ]);
 const ATEM_KEYS = new Set(["mediaSlot", "mediaPlayer", "dskIndex", "autoOnAir"]);
 
@@ -108,7 +117,8 @@ export function defaultCompositeSettings(id: CompositeId): CompositeSettings {
     keyMode: "chroma",
     atem: { mediaSlot: 1, mediaPlayer: 1, dskIndex: 1, autoOnAir: false },
     slideSource: "upload",
-    pipelineId: "PiPGM1"
+    pipelineId: "PiPGM1",
+    sourceId: "hama"
   };
 }
 
@@ -205,8 +215,8 @@ export function parseCompositePatch(input: unknown): CompositeValidation {
   }
 
   if (body.slideSource !== undefined) {
-    if (body.slideSource !== "upload" && body.slideSource !== "piprogram") {
-      return { ok: false, message: "slideSource must be upload or piprogram" };
+    if (body.slideSource !== "upload" && body.slideSource !== "piprogram" && body.slideSource !== "source") {
+      return { ok: false, message: "slideSource must be upload, piprogram or source" };
     }
     patch.slideSource = body.slideSource;
   }
@@ -216,6 +226,13 @@ export function parseCompositePatch(input: unknown): CompositeValidation {
       return { ok: false, message: `pipelineId must be one of ${PIPROGRAM_PIPELINE_IDS.join(", ")}` };
     }
     patch.pipelineId = body.pipelineId as PiprogramPipelineId;
+  }
+
+  if (body.sourceId !== undefined) {
+    if (!LIVE_SOURCE_IDS.includes(body.sourceId as LiveSourceId)) {
+      return { ok: false, message: `sourceId must be one of ${LIVE_SOURCE_IDS.join(", ")}` };
+    }
+    patch.sourceId = body.sourceId as LiveSourceId;
   }
 
   return { ok: true, patch };
@@ -271,6 +288,7 @@ export function applyCompositePatch(current: CompositeSettings, patch: Composite
     ...(patch.keyMode !== undefined ? { keyMode: patch.keyMode } : {}),
     ...(patch.slideSource !== undefined ? { slideSource: patch.slideSource } : {}),
     ...(patch.pipelineId !== undefined ? { pipelineId: patch.pipelineId } : {}),
+    ...(patch.sourceId !== undefined ? { sourceId: patch.sourceId } : {}),
     atem: { ...current.atem, ...(patch.atem ?? {}) }
   };
 }

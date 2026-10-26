@@ -87,6 +87,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     dataDir: config.compositeDataDir,
     stateFile: path.join(config.compositeDataDir, "composites.json"),
     ffmpeg: config.compositeFfmpeg,
+    liveSourceUrl: (sourceId) => (config.mediaMtxRtspUrl ? `${config.mediaMtxRtspUrl.replace(/\/$/, "")}/${sourceId}` : undefined),
     // compose1 is published to MediaMTX, so the route can send it to any Pi HDMI output.
     player: new KeyPagePublisher({
       rtspUrl: config.mediaMtxRtspUrl ? `${config.mediaMtxRtspUrl.replace(/\/$/, "")}/compose1` : undefined,

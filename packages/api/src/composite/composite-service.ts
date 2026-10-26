@@ -14,11 +14,15 @@ import {
   type CompositeStatus
 } from "./composite-model.js";
 import { keyPageGeometry } from "./key-page.js";
+import type { LiveKeyLayout } from "./key-publisher.js";
 import { isPng, renderKeyPage, type RenderKeyPageOptions } from "./key-render.js";
 import type { KeyPagePlayer } from "./key-player.js";
 
 /** The part of the HDMI key player the service uses (tests pass a fake). */
-export type CompositePlayer = Pick<KeyPagePlayer, "show" | "stop">;
+export type CompositePlayer = Pick<KeyPagePlayer, "show" | "stop"> & {
+  /** Live source in the slide box (the RTSP publisher has it; the ffplay still player does not). */
+  showLive?: (sourceUrl: string, layout: LiveKeyLayout) => Promise<void>;
+};
 
 /** Largest slide accepted, in bytes. A 1080p slide PNG is far below this. */
 export const MAX_SLIDE_BYTES = 10 * 1024 * 1024;
@@ -29,6 +33,13 @@ export class CompositeNotFoundError extends Error {
   constructor(id: string) {
     super(`Unknown composite: ${id}`);
     this.name = "CompositeNotFoundError";
+  }
+}
+
+export class InvalidCompositeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidCompositeError";
   }
 }
 
@@ -48,6 +59,8 @@ export interface CompositeServiceOptions {
   ffmpeg?: string;
   /** HDMI key output. */
   player: CompositePlayer;
+  /** RTSP URL of a source, for slideSource "source". Undefined = live sources are unavailable. */
+  liveSourceUrl?: (sourceId: string) => string | undefined;
   /** ATEM adapter; the ATEM output stays idle when it is not connected. */
   atem: AtemAdapter;
   /** ATEM input number of media player 1's fill. */
@@ -97,7 +110,7 @@ export class CompositeService {
       atem: { ...settings.atem },
       state: runtime.state,
       lastError: runtime.lastError,
-      hasSlide: this.slideFor(settings) !== null,
+      hasSlide: this.hasPicture(settings),
       feedError: this.feedErrors.get(settings.id) ?? null,
       updatedAt: runtime.updatedAt
     };
@@ -111,15 +124,18 @@ export class CompositeService {
   async update(id: string, patch: CompositePatch): Promise<CompositeStatus> {
     const current = this.requireSettings(id);
     const next = applyCompositePatch(current, patch);
+    if (next.slideSource === "source" && next.kind !== "hdmi-key") {
+      throw new InvalidCompositeError(`${current.id} is an ATEM media still and cannot show a live source`);
+    }
     const becameEnabled = !current.enabled && next.enabled;
     const changedPicture = renderSignature(current) !== renderSignature(next);
-    const changedSource = current.slideSource !== next.slideSource || current.pipelineId !== next.pipelineId;
+    const changedSource = current.slideSource !== next.slideSource || current.pipelineId !== next.pipelineId || current.sourceId !== next.sourceId;
     this.settings.set(current.id, next);
     this.persist();
 
     if (!next.enabled) {
       if (current.enabled) this.schedule(current.id, () => this.takeDown(current.id, next));
-    } else if (changedSource && current.enabled && !this.slideFor(next)) {
+    } else if (changedSource && current.enabled && !this.hasPicture(next)) {
       // The new source has no slide yet: take the output down rather than keep the old one.
       this.schedule(current.id, () => this.takeDown(current.id, next));
     } else if (becameEnabled || ((changedPicture || changedSource) && current.enabled)) {
@@ -163,6 +179,11 @@ export class CompositeService {
     this.options.onChange?.(this.get(id));
   }
 
+  /** True when the composite has something to show: a live source, or a slide. */
+  private hasPicture(settings: CompositeSettings): boolean {
+    return settings.slideSource === "source" || this.slideFor(settings) !== null;
+  }
+
   /** The slide a composite uses: the piprogram frame or the manual one. */
   private slideFor(settings: CompositeSettings): Buffer | null {
     return settings.slideSource === "piprogram"
@@ -173,6 +194,7 @@ export class CompositeService {
   /** A PNG of what the composite would show now (its key page). Null without a slide. */
   async previewPng(id: string): Promise<Buffer | null> {
     const settings = this.requireSettings(id);
+    if (settings.slideSource === "source") return null;
     const slide = this.slideFor(settings);
     if (!slide) return null;
     return await this.renderFrame({
@@ -221,10 +243,30 @@ export class CompositeService {
     this.queues.set(id, tracked);
   }
 
+  /** A live source in the slide box, published as compose1. Needs the RTSP publisher and the source's URL. */
+  private async applyLive(settings: CompositeSettings): Promise<void> {
+    const url = this.options.liveSourceUrl?.(settings.sourceId);
+    const showLive = this.options.player.showLive;
+    if (!url || !showLive) throw new Error("Live sources need PIMATRIX_MEDIAMTX_RTSP_URL");
+    this.setRuntime(settings.id, "busy", null);
+    const geometry = keyPageGeometry(settings);
+    await showLive.call(this.options.player, url, {
+      width: geometry.width,
+      height: geometry.height,
+      background: geometry.background,
+      slide: geometry.slide
+    });
+    this.setRuntime(settings.id, "running", null);
+  }
+
   /** Render and show (hdmi-key) or upload and key (atem-media) the current settings. */
   private async apply(id: CompositeId): Promise<void> {
     const settings = this.requireSettings(id);
     if (!settings.enabled) return;
+    if (settings.slideSource === "source") {
+      await this.applyLive(settings);
+      return;
+    }
     const slide = this.slideFor(settings);
     if (!slide) {
       this.setRuntime(id, "waiting", null);

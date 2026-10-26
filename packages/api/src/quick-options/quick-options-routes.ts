@@ -48,7 +48,7 @@ export function captureSnapshot(deps: Pick<QuickOptionDeps, "outputStore" | "eff
   const composites: QuickOptionSnapshot["composites"] = {};
   for (const status of deps.compositeService.list()) {
     if (status.kind !== "hdmi-key") continue;
-    composites[status.id] = { slideSource: status.slideSource, pipelineId: status.pipelineId };
+    composites[status.id] = { slideSource: status.slideSource, pipelineId: status.pipelineId, sourceId: status.sourceId };
   }
   return { outputs, effects, composites };
 }
@@ -79,8 +79,12 @@ export async function applySnapshot(deps: QuickOptionDeps, snapshot: QuickOption
   for (const [id, saved] of Object.entries(snapshot.composites)) {
     const current = deps.compositeService.get(id);
     if (current.kind !== "hdmi-key") continue;
-    if (current.slideSource !== saved.slideSource || current.pipelineId !== saved.pipelineId) {
-      await deps.compositeService.update(id as CompositeId, { slideSource: saved.slideSource, pipelineId: saved.pipelineId });
+    if (current.slideSource !== saved.slideSource || current.pipelineId !== saved.pipelineId || current.sourceId !== saved.sourceId) {
+      await deps.compositeService.update(id as CompositeId, {
+        slideSource: saved.slideSource,
+        pipelineId: saved.pipelineId,
+        sourceId: saved.sourceId
+      });
     }
   }
   return {
