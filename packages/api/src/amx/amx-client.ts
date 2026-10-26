@@ -3,7 +3,7 @@ import type { FastifyBaseLogger } from "fastify";
 
 export interface AmxRouteRequest {
   input: number; // 1-4 Atlona input
-  output: number; // 1-4 Atlona output
+  output: number; // 1-5 Atlona output (1 Proj1, 2 Proj2, 3 Screen3, 4 Screen4, 5 Videomixer)
 }
 
 export interface AmxRouteResponse {
@@ -20,7 +20,7 @@ export type AmxClientStatus = "connected" | "unavailable" | "not-configured" | "
 export interface AmxClient {
   routeMatrix(input: number, output: number, timeoutMs?: number): Promise<AmxRouteResponse>;
   getStatus(): Promise<AmxClientStatus>;
-  /** Atlona output (1-4) -> input (null = unknown), read from AMX; null when AMX cannot answer. */
+  /** Atlona output (1-5) -> input (null = unknown), read from AMX; null when AMX cannot answer. */
   atlonaRoutes(timeoutMs?: number): Promise<Record<number, number | null> | null>;
   close(): Promise<void>;
 }
@@ -235,7 +235,7 @@ export class TcpAmxClient implements AmxClient {
     });
   }
 
-  /** ATLONA:STATUS:<reqId>; -> ATLONA:STATUS:<reqId>:<o1>,<o2>,<o3>,<o4>; (0 = unknown). */
+  /** ATLONA:STATUS:<reqId>; -> ATLONA:STATUS:<reqId>:<o1>,...,<o5>; (0 = unknown). */
   async atlonaRoutes(timeoutMs = 1500): Promise<Record<number, number | null> | null> {
     try {
       const socket = await this.getConnectedSocket();

@@ -77,6 +77,6 @@ test("AMX TCP: quick options by number, program and STATUS:ALL", async () => {
     const all = await send("STATUS:ALL");
     assert.match(all, /^STATUS:ALL:mode=simulation,hdmi0=none,hdmi0state=unavailable,hdmi1=none,/);
     assert.match(all, /cam1pwr=unknown,cam1link=simulated/);
-    assert.match(all, /atlona=1\/2\/0\/3,program=unavailable;$/);
+    assert.match(all, /atlona=1\/2\/0\/0\/3,program=unavailable;$/);
   });
 });
