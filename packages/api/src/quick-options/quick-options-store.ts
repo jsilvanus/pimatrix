@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { CropSettings, RotationDegrees } from "../effects/effects-model.js";
 import type { CompositeId } from "../composite/composite-model.js";
-import { PIPROGRAM_PIPELINE_IDS, type PiprogramPipelineId } from "../composite/composite-model.js";
+import { LIVE_SOURCE_IDS, PIPROGRAM_PIPELINE_IDS, type LiveSourceId, type PiprogramPipelineId } from "../composite/composite-model.js";
 import { sourceDefinitions } from "../model.js";
 
 export const MAX_QUICK_OPTION_NAME = 40;
@@ -28,8 +28,10 @@ export interface SnapshotEffects {
 }
 
 export interface SnapshotComposite {
-  slideSource: "upload" | "piprogram";
+  slideSource: "upload" | "piprogram" | "source";
   pipelineId: PiprogramPipelineId;
+  /** Older saved options have no sourceId; they apply as "hama" (unused unless slideSource is "source"). */
+  sourceId: LiveSourceId;
 }
 
 export interface QuickOptionSnapshot {
@@ -129,10 +131,11 @@ export function parseSnapshot(input: unknown): QuickOptionSnapshot | null {
   for (const [id, raw] of Object.entries(input.composites)) {
     if (id !== "compose1" || !isObject(raw)) continue;
     if (
-      (raw.slideSource === "upload" || raw.slideSource === "piprogram") &&
+      (raw.slideSource === "upload" || raw.slideSource === "piprogram" || raw.slideSource === "source") &&
       (PIPROGRAM_PIPELINE_IDS as readonly string[]).includes(raw.pipelineId as string)
     ) {
-      composites[id] = { slideSource: raw.slideSource, pipelineId: raw.pipelineId as PiprogramPipelineId };
+      const sourceId = (LIVE_SOURCE_IDS as readonly string[]).includes(raw.sourceId as string) ? (raw.sourceId as LiveSourceId) : "hama";
+      composites[id] = { slideSource: raw.slideSource, pipelineId: raw.pipelineId as PiprogramPipelineId, sourceId };
     }
   }
   return { outputs, effects, composites };

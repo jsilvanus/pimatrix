@@ -1695,7 +1695,7 @@ components:
           description: Put the DSK on air after an upload. Default false.
     Composite:
       type: object
-      required: [id, kind, enabled, width, height, side, slideAspect, slideScale, offsetX, offsetY, keyColor, keyMode, atem, state, lastError, hasSlide, slideSource, pipelineId, feedError, updatedAt]
+      required: [id, kind, enabled, width, height, side, slideAspect, slideScale, offsetX, offsetY, keyColor, keyMode, atem, state, lastError, hasSlide, slideSource, pipelineId, sourceId, feedError, updatedAt]
       properties:
         id:
           $ref: "#/components/schemas/CompositeId"
@@ -1749,10 +1749,12 @@ components:
           type: boolean
         slideSource:
           type: string
-          enum: [upload, piprogram]
-          description: "upload = the PNG sent with PUT /composites/slide; piprogram = the frame of pipelineId as its slide changes"
+          enum: [upload, piprogram, source]
+          description: "upload = the PNG sent with PUT /composites/slide; piprogram = the frame of pipelineId as its slide changes; source = the live video of sourceId filled into the slide box (compose1 only, a live ffmpeg render)"
         pipelineId:
           $ref: "#/components/schemas/PiPgmPipelineId"
+        sourceId:
+          $ref: "#/components/schemas/LiveSourceId"
         feedError:
           type: string
           nullable: true
@@ -1776,9 +1778,11 @@ components:
           type: boolean
         slideSource:
           type: string
-          enum: [upload, piprogram]
+          enum: [upload, piprogram, source]
         pipelineId:
           $ref: "#/components/schemas/PiPgmPipelineId"
+        sourceId:
+          $ref: "#/components/schemas/LiveSourceId"
         width:
           type: integer
         height:
@@ -1831,6 +1835,10 @@ components:
     OutputId:
       type: string
       enum: [hdmi0, hdmi1, multiview]
+    LiveSourceId:
+      type: string
+      enum: [hama, rtmp1, rtmp2, cam1, cam2, cam3, PiPGM1, PiPGM2, PiPGM3]
+      description: A source that can be shown live in a composite
     PiPgmPipelineId:
       type: string
       enum: [PiPGM1, PiPGM2, PiPGM3]
@@ -2341,9 +2349,11 @@ components:
       properties:
         slideSource:
           type: string
-          enum: [upload, piprogram]
+          enum: [upload, piprogram, source]
         pipelineId:
           $ref: "#/components/schemas/PiPgmPipelineId"
+        sourceId:
+          $ref: "#/components/schemas/LiveSourceId"
     QuickOptionSnapshot:
       type: object
       required: [outputs, effects, composites]

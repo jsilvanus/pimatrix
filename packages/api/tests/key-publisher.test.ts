@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
-import { KeyPagePublisher, publishArgs, type PublishProcess } from "../src/composite/key-publisher.js";
+import { KeyPagePublisher, liveArgs, publishArgs, type PublishProcess } from "../src/composite/key-publisher.js";
 
 class FakeProcess extends EventEmitter implements PublishProcess {
   killed: NodeJS.Signals | null = null;
@@ -81,4 +81,28 @@ test("ffmpeg exiting inside the start window rejects the show", async () => {
 test("without an RTSP URL the publisher refuses to start", async () => {
   const publisher = new KeyPagePublisher({ rtspUrl: undefined, spawn: () => new FakeProcess() });
   await assert.rejects(publisher.show("/data/a.png"), /PIMATRIX_MEDIAMTX_RTSP_URL/);
+});
+
+const layout = { width: 1920, height: 1080, background: "#00ff00", slide: { x: 0, y: 0, width: 676, height: 1080 } };
+
+test("liveArgs fills the source into the slide box on the key page and publishes at 25 fps", () => {
+  const args = liveArgs("rtsp://127.0.0.1:8554/hama", layout, "rtsp://127.0.0.1:8554/compose1", "libx264");
+  assert.equal(args[args.indexOf("-i") + 1], "rtsp://127.0.0.1:8554/hama");
+  assert.equal(args[args.indexOf("-rtsp_transport") + 1], "tcp");
+  const graph = args[args.indexOf("-filter_complex") + 1] ?? "";
+  assert.match(graph, /color=c=0x00ff00:s=1920x1080:r=25/);
+  assert.match(graph, /scale=676:1080:force_original_aspect_ratio=increase,crop=676:1080/);
+  assert.match(graph, /overlay=x=0:y=0/);
+  assert.equal(args[args.indexOf("-r") + 1], "25");
+  assert.equal(args[args.indexOf("-tune") + 1], "zerolatency");
+  assert.equal(args[args.length - 1], "rtsp://127.0.0.1:8554/compose1");
+});
+
+test("showLive replaces the running process", async () => {
+  const { publisher, spawned } = harness();
+  await publisher.show("/data/a.png");
+  await publisher.showLive("rtsp://127.0.0.1:8554/cam1", layout);
+  assert.equal(spawned.length, 2);
+  assert.equal(spawned[0]?.proc.killed, "SIGTERM");
+  assert.ok(spawned[1]?.args.includes("-filter_complex"));
 });

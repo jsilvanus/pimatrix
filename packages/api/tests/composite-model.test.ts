@@ -109,3 +109,17 @@ test("offsetX moves the slide freely and side follows it", () => {
   assert.equal(applyCompositePatch(moved, { side: "right" }).offsetX, 1);
   assert.equal(applyCompositePatch(moved, { slideScale: 0.8 }).offsetX, 0.4);
 });
+
+test("sourceId and slideSource source: validated, defaulted and applied", () => {
+  assert.equal(defaultCompositeSettings("compose1").sourceId, "hama");
+  assert.deepEqual(parseCompositePatch({ slideSource: "source", sourceId: "cam2" }), {
+    ok: true,
+    patch: { slideSource: "source", sourceId: "cam2" }
+  });
+  for (const bad of ["compose1", "multiview", "nope", 3]) {
+    assert.equal(parseCompositePatch({ sourceId: bad }).ok, false);
+  }
+  const next = applyCompositePatch(defaultCompositeSettings("compose1"), { slideSource: "source", sourceId: "rtmp1" });
+  assert.equal(next.slideSource, "source");
+  assert.equal(next.sourceId, "rtmp1");
+});
