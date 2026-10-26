@@ -761,6 +761,73 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/v1/cameras/{cameraId}/freed:
+    get:
+      operationId: getCameraFreed
+      tags: [Cameras]
+      summary: Read the camera's FreeD output settings
+      parameters:
+        - in: path
+          name: cameraId
+          required: true
+          schema:
+            $ref: "#/components/schemas/CameraId"
+      responses:
+        "200":
+          description: FreeD state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CameraFreedResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          description: The camera CGI did not answer or rejected the request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      operationId: setCameraFreed
+      tags: [Cameras]
+      summary: Turn the camera's FreeD output on or off, optionally setting the target
+      description: >-
+        Sends the FreeD target (when `target` is given) through the camera CGI, switches
+        FreeD on or off, then reads the state back. Uses the camera's CGI port and login.
+        Commands follow the camera web UI; not yet verified on a real PTZ330 beyond the read-back.
+      parameters:
+        - in: path
+          name: cameraId
+          required: true
+          schema:
+            $ref: "#/components/schemas/CameraId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CameraFreedRequest"
+      responses:
+        "200":
+          description: FreeD updated; state read back
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CameraFreedResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: The camera CGI did not answer or rejected the request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/v1/cameras/{cameraId}/privacy-blur:
     post:
       operationId: setCameraPrivacyBlur
@@ -2089,6 +2156,54 @@ components:
         mode:
           type: string
           enum: [auto, manual]
+    CameraFreedRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+        target:
+          type: object
+          required: [camId, addr, port]
+          properties:
+            camId:
+              type: integer
+              minimum: 1
+              maximum: 65535
+              description: FreeD camera ID the camera sends (the web UI shows it, e.g. 101)
+            addr:
+              type: string
+              format: ipv4
+              description: Address the camera sends FreeD to
+            port:
+              type: integer
+              minimum: 1
+              maximum: 65535
+    CameraFreedResponse:
+      type: object
+      required: [cameraId, freed]
+      properties:
+        cameraId:
+          $ref: "#/components/schemas/CameraId"
+        success:
+          type: boolean
+        action:
+          type: string
+        freed:
+          type: object
+          required: [enabled, camId, addr, port]
+          properties:
+            enabled:
+              type: boolean
+            camId:
+              type: integer
+              nullable: true
+            addr:
+              type: string
+              nullable: true
+            port:
+              type: integer
+              nullable: true
     CameraPowerRequest:
       type: object
       required: [on]
