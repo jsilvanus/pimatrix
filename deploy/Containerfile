@@ -7,7 +7,6 @@ COPY openapi/ ./openapi/
 COPY packages/api/package*.json ./packages/api/
 COPY packages/api-client/package*.json ./packages/api-client/
 COPY packages/cli/package*.json ./packages/cli/
-COPY packages/web/package*.json ./packages/web/
 
 RUN npm install
 
@@ -27,14 +26,12 @@ COPY package*.json ./
 COPY packages/api/package*.json ./packages/api/
 COPY packages/api-client/package*.json ./packages/api-client/
 COPY packages/cli/package*.json ./packages/cli/
-COPY packages/web/package*.json ./packages/web/
 
 RUN npm install --omit=dev
 
 COPY --from=builder /app/packages/api/dist ./packages/api/dist
 COPY --from=builder /app/packages/api-client/dist ./packages/api-client/dist
 COPY --from=builder /app/packages/cli/dist ./packages/cli/dist
-COPY --from=builder /app/packages/web/dist ./packages/web/dist
 COPY --from=builder /app/openapi ./openapi
 
 USER node

@@ -8,13 +8,12 @@
   },
   "workspaces": [
     "packages/api-client",
-    "packages/web",
     "packages/api",
     "packages/cli"
   ],
   "scripts": {
     "generate:api": "npm run generate --workspace @pimatrix/api-client",
-    "build": "npm run generate:api && npm run build --workspace @pimatrix/api-client && npm run build --workspace @pimatrix/web && npm run build --workspace @pimatrix/api && npm run build --workspace @pimatrix/cli",
+    "build": "npm run generate:api && npm run build --workspace @pimatrix/api-client && npm run build --workspace @pimatrix/api && npm run build --workspace @pimatrix/cli",
     "test": "npm run test --workspace @pimatrix/api && npm run test --workspace @pimatrix/cli",
     "typecheck": "npm run build",
     "lab:up": "docker compose -f dev/streaming-lab/compose.yaml up -d --build",
