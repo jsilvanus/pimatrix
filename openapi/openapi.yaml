@@ -14,6 +14,7 @@ tags:
   - name: Effects
   - name: ATEM
   - name: Composites
+  - name: QuickOptions
 paths:
   /health:
     get:
@@ -1096,6 +1097,108 @@ paths:
           $ref: "#/components/responses/NotFound"
         "422":
           description: Invalid request
+  /api/v1/quick-options:
+    get:
+      operationId: listQuickOptions
+      tags: [QuickOptions]
+      summary: Saved quick options (named snapshots of the Outputs state), oldest first
+      responses:
+        "200":
+          description: The saved quick options
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuickOptionList"
+    post:
+      operationId: saveQuickOption
+      tags: [QuickOptions]
+      summary: Save the current Outputs state under a name
+      description: Captures the routed source of hdmi0/hdmi1 (multiview allowed), crop/rotation/fade-to-black/mute of every source, and the slide source of the HDMI key composite. ATEM and camera state is never captured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuickOptionName"
+      responses:
+        "201":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuickOption"
+        "409":
+          description: A quick option with this name exists (names compare case-insensitively)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: The name is empty or longer than 40 characters, or 50 quick options are already saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/quick-options/{id}:
+    parameters:
+      - $ref: "#/components/parameters/QuickOptionIdPath"
+    put:
+      operationId: renameQuickOption
+      tags: [QuickOptions]
+      summary: Rename a quick option
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuickOptionName"
+      responses:
+        "200":
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuickOption"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Another quick option has this name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: The name is empty or longer than 40 characters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteQuickOption
+      tags: [QuickOptions]
+      summary: Delete a quick option
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/quick-options/{id}/apply:
+    parameters:
+      - $ref: "#/components/parameters/QuickOptionIdPath"
+    post:
+      operationId: applyQuickOption
+      tags: [QuickOptions]
+      summary: Restore a quick option
+      description: Routes the outputs, restores source effects and the HDMI key composite's slide source. Only values that differ are written. Never touches the ATEM or the cameras.
+      responses:
+        "200":
+          description: The state after applying
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuickOptionState"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /api/v1/matrix:
     get:
       operationId: getMatrix
@@ -1453,6 +1556,13 @@ paths:
                 $ref: "#/components/schemas/Error"
 components:
   parameters:
+    QuickOptionIdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        example: qo-1a2b3c4d
     CompositeIdPath:
       name: id
       in: path
@@ -2194,3 +2304,98 @@ components:
         rotation:
           type: integer
           enum: [0, 90, 180, 270]
+    QuickOptionName:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 40
+          description: Trimmed before it is checked
+    QuickOptionEffects:
+      type: object
+      required: [crop, rotation, fadeToBlack, muted]
+      properties:
+        crop:
+          $ref: "#/components/schemas/CropSettings"
+        rotation:
+          type: integer
+          enum: [0, 90, 180, 270]
+        fadeToBlack:
+          type: boolean
+        muted:
+          type: boolean
+    QuickOptionComposite:
+      type: object
+      required: [slideSource, pipelineId]
+      properties:
+        slideSource:
+          type: string
+          enum: [upload, piprogram]
+        pipelineId:
+          $ref: "#/components/schemas/PiPgmPipelineId"
+    QuickOptionSnapshot:
+      type: object
+      required: [outputs, effects, composites]
+      properties:
+        outputs:
+          type: object
+          required: [hdmi0, hdmi1]
+          description: Routed source per output; null = nothing, "multiview" = the multiview feed
+          properties:
+            hdmi0:
+              type: string
+              nullable: true
+            hdmi1:
+              type: string
+              nullable: true
+        effects:
+          type: object
+          description: Effects by source id
+          additionalProperties:
+            $ref: "#/components/schemas/QuickOptionEffects"
+        composites:
+          type: object
+          description: HDMI key composites only (compose1); the ATEM media composite is never captured
+          additionalProperties:
+            $ref: "#/components/schemas/QuickOptionComposite"
+    QuickOption:
+      type: object
+      required: [id, name, createdAt, snapshot]
+      properties:
+        id:
+          type: string
+          example: qo-1a2b3c4d
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        snapshot:
+          $ref: "#/components/schemas/QuickOptionSnapshot"
+    QuickOptionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuickOption"
+    QuickOptionState:
+      type: object
+      required: [outputs, effects, composites]
+      description: The state after applying
+      properties:
+        outputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Output"
+        effects:
+          type: array
+          items:
+            $ref: "#/components/schemas/EffectsPipeline"
+        composites:
+          type: array
+          items:
+            $ref: "#/components/schemas/Composite"

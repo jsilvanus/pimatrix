@@ -36,3 +36,8 @@ test("the list table has one row per composite and shows the colour only for the
   assert.equal(rows[1]?.[6], "-");
   assert.equal(rows[1]?.[8], "ATEM is not connected");
 });
+
+test("quick commands parse as positional words", () => {
+  assert.deepEqual(parseArgs(["quick", "save", "Sunday service"], {}).command, ["quick", "save", "Sunday service"]);
+  assert.deepEqual(parseArgs(["quick", "apply", "qo-1a2b3c4d"], {}).command, ["quick", "apply", "qo-1a2b3c4d"]);
+});

@@ -40,6 +40,7 @@ import {
   type MultiviewLayoutMode,
   type MultiviewTilePiPgmStatus,
   type OutputId,
+  type OutputSnapshot,
   type SourceId
 } from "./model.js";
 import { renderMultiviewHtml } from "./multiview-html.js";
@@ -49,6 +50,8 @@ import { HamaOnDemand } from "./hama-on-demand.js";
 import { PiprogramClient, PiprogramFeed } from "./composite/piprogram-feed.js";
 import { PIPROGRAM_PIPELINE_IDS, type PiprogramPipelineId } from "./composite/composite-model.js";
 import { isIpWhitelisted } from "./ip-whitelist.js";
+import { QuickOptionStore } from "./quick-options/quick-options-store.js";
+import { registerQuickOptionRoutes } from "./quick-options/quick-options-routes.js";
 
 /** Maps a failed camera CGI call to a 502 with a reason, so a bad login is visible in the API. */
 function sendCameraCgiError(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, err: unknown): unknown {
@@ -610,6 +613,18 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     };
   });
 
+  /** Sets an output's route: store, display adapter, event stream and Hama on demand. */
+  async function routeOutput(outputId: OutputId, sourceId: SourceId | null): Promise<OutputSnapshot | undefined> {
+    const output = outputStore.setDesiredSource(outputId, sourceId);
+    if (!output) return undefined;
+    const observed = await displayAdapter.applyRoute(outputId, sourceId);
+    outputStore.setObservedState(outputId, observed.observedSource, observed.state);
+    const current = outputStore.get(outputId) ?? output;
+    eventBroker.emit({ type: "output", data: { output: current } });
+    hamaOnDemand.sync();
+    return current;
+  }
+
   app.get("/api/v1/outputs", async () => ({ items: outputStore.list() }));
 
   app.put<{ Params: { outputId: string }; Body: { sourceId?: unknown } }>(
@@ -632,29 +647,12 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         });
       }
 
-      const output = outputStore.setDesiredSource(
-        request.params.outputId,
-        requestedSource as SourceId | null
-      );
-      if (!output) {
+      const current = await routeOutput(request.params.outputId as OutputId, requestedSource as SourceId | null);
+      if (!current) {
         return reply.code(404).send({
           error: { code: "OUTPUT_NOT_FOUND", message: `Unknown output ID: ${request.params.outputId}` }
         });
       }
-
-      const observed = await displayAdapter.applyRoute(
-        request.params.outputId as OutputId,
-        requestedSource as SourceId | null
-      );
-      outputStore.setObservedState(request.params.outputId, observed.observedSource, observed.state);
-
-      const current = outputStore.get(request.params.outputId as OutputId) ?? output;
-      eventBroker.emit({
-        type: "output",
-        data: { output: current }
-      });
-
-      hamaOnDemand.sync();
       return reply.code(202).send(current);
     }
   );
@@ -1857,6 +1855,20 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       url: `/api/v1/sources/${activeSource}/effects/crop`,
       payload: request.body
     }).then((res) => reply.code(res.statusCode).send(JSON.parse(res.payload)));
+  });
+
+  registerQuickOptionRoutes(app, {
+    store: new QuickOptionStore(config.quickOptionsFile),
+    outputStore,
+    effectsStore,
+    compositeService,
+    routeOutput: (outputId, sourceId) => routeOutput(outputId, sourceId as SourceId | null),
+    effectsChanged: (sourceId, effects) => {
+      eventBroker.emit({ type: "effects", data: { sourceId, effects } });
+      if (sourceId === "hama" && captureSupervisor.snapshot().state === "running") {
+        void captureSupervisor.restart().catch(() => undefined);
+      }
+    }
   });
 
   app.setNotFoundHandler(async (request, reply) =>

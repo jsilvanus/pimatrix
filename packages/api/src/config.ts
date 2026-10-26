@@ -75,6 +75,8 @@ export interface AppConfig {
   compositeVideoCodec: "libx264" | "h264_v4l2m2m";
   /** Directory for the composite slide, key page files and settings (PIMATRIX_COMPOSITE_DATA_DIR). */
   compositeDataDir: string;
+  /** File for the saved quick options (PIMATRIX_QUICK_OPTIONS_FILE). */
+  quickOptionsFile: string;
   /** ffmpeg used to render key pages (PIMATRIX_COMPOSITE_FFMPEG). */
   compositeFfmpeg: string;
   /** ATEM input number of media player 1's fill (PIMATRIX_ATEM_MEDIA_FILL_INPUT); key is the next number. */
@@ -254,6 +256,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('PIMATRIX_COMPOSITE_VIDEO_CODEC must be "libx264" or "h264_v4l2m2m"');
   }
   const compositeDataDir = env.PIMATRIX_COMPOSITE_DATA_DIR?.trim() || "./data/composite";
+  const quickOptionsFile = env.PIMATRIX_QUICK_OPTIONS_FILE?.trim() || "./data/quick-options.json";
   const compositeFfmpeg = env.PIMATRIX_COMPOSITE_FFMPEG?.trim() || "ffmpeg";
   if (/\s/.test(compositeFfmpeg)) {
     throw new Error("PIMATRIX_COMPOSITE_FFMPEG must be a single executable name or path without spaces");
@@ -346,6 +349,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(piprogramApiKey ? { piprogramApiKey } : {}),
     ...(compositeHdmiDevice ? { compositeHdmiDevice } : {}),
     compositeDataDir,
+    quickOptionsFile,
     compositeVideoCodec,
     compositeFfmpeg,
     atemMediaFillInput,

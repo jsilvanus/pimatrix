@@ -8,6 +8,7 @@ import {
   configureApiClient,
   EffectsService,
   OutputsService,
+  QuickOptionsService,
   SourcesService,
   SystemService
 } from "@pimatrix/api-client";
@@ -60,6 +61,11 @@ async function run(options: CliOptions): Promise<void> {
       "  multiview show\n" +
       "  multiview layout <auto|landscape|portrait>\n" +
       "  multiview slot <replaceSourceId> <sourceId|none>\n" +
+      "  quick list\n" +
+      "  quick save <name>\n" +
+      "  quick apply <id|name>\n" +
+      "  quick rename <id|name> <new name>\n" +
+      "  quick delete <id|name>\n" +
       "  matrix route <input> <output>\n" +
       "  atem show\n" +
       "  atem program <input>\n" +
@@ -311,6 +317,51 @@ async function run(options: CliOptions): Promise<void> {
     await writeFile(arg2 ?? "", Buffer.from(await response.arrayBuffer()));
     console.log(`Preview written to ${arg2}`);
     return;
+  }
+
+  if (group === "quick") {
+    const items = (await QuickOptionsService.listQuickOptions()).items;
+    // An id or a name (case-insensitive) picks the quick option.
+    const find = (ref: string | undefined) => {
+      const found = items.find((item) => item.id === ref || item.name.toLowerCase() === (ref ?? "").toLowerCase());
+      if (!found) throw new Error(`Unknown quick option: ${ref ?? ""}`);
+      return found;
+    };
+    if (action === "list" && options.command.length === 2) {
+      if (options.json) console.log(JSON.stringify(items, null, 2));
+      else printTable(["ID", "NAME", "SAVED"], items.map((item) => [item.id, item.name, item.createdAt]));
+      return;
+    }
+    if (action === "save" && options.command.length === 3) {
+      const data = await QuickOptionsService.saveQuickOption({ name: arg1 ?? "" });
+      if (options.json) console.log(JSON.stringify(data, null, 2));
+      else console.log(`Saved quick option ${data.id}: ${data.name}`);
+      return;
+    }
+    if (action === "apply" && options.command.length === 3) {
+      const target = find(arg1);
+      const data = await QuickOptionsService.applyQuickOption(target.id);
+      if (options.json) console.log(JSON.stringify(data, null, 2));
+      else {
+        console.log(`Applied quick option ${target.name}`);
+        for (const output of data.outputs) console.log(`  ${output.id}: ${output.desiredSource ?? "none"} (${output.state})`);
+      }
+      return;
+    }
+    if (action === "rename" && options.command.length === 4) {
+      const target = find(arg1);
+      const data = await QuickOptionsService.renameQuickOption(target.id, { name: arg2 ?? "" });
+      if (options.json) console.log(JSON.stringify(data, null, 2));
+      else console.log(`Renamed ${target.name} to ${data.name}`);
+      return;
+    }
+    if (action === "delete" && options.command.length === 3) {
+      const target = find(arg1);
+      await QuickOptionsService.deleteQuickOption(target.id);
+      if (options.json) console.log(JSON.stringify({ deleted: target.id }));
+      else console.log(`Deleted quick option ${target.name}`);
+      return;
+    }
   }
 
   if (group === "matrix" && action === "route" && options.command.length === 4) {
