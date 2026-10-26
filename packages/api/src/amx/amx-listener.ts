@@ -22,7 +22,7 @@ export interface AmxControl {
   /** "unavailable" when piprogram is not configured. */
   program(): "on" | "off" | "unavailable";
   setProgram(on: boolean): Promise<void>;
-  /** Atlona output 1..4 -> input, as pimatrix last knew it. */
+  /** Atlona output 1..5 -> input, as pimatrix last knew it. */
   atlonaRoutes(): Record<number, number | null>;
 }
 
@@ -299,7 +299,7 @@ export class AmxTcpListener {
         fields.push(`${cam.id}pwr=${cam.power}`, `${cam.id}link=${cam.connection}`);
       }
       const routes = control.atlonaRoutes();
-      fields.push(`atlona=${[1, 2, 3, 4].map((out) => routes[out] ?? 0).join("/")}`);
+      fields.push(`atlona=${[1, 2, 3, 4, 5].map((out) => routes[out] ?? 0).join("/")}`);
       fields.push(`program=${control.program()}`);
     }
     return fields.join(",");

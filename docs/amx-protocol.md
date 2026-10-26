@@ -9,7 +9,7 @@ Both sides poll the other every 2 seconds. Ports: PiMatrix listens on 6600 (`PIM
 | Request | Reply |
 |---|---|
 | `PING;` | `PONG;` |
-| `STATUS:ALL;` | `STATUS:ALL:<key=value,...>;` keys: `mode`, `hdmi0`, `hdmi0state`, `hdmi1`, `hdmi1state`, `multiviewstate`, `cam<n>pwr` (`on`/`standby`/`unknown`, last command), `cam<n>link`, `atlona` (`o1/o2/o3/o4` input per output, 0 unknown), `program` |
+| `STATUS:ALL;` | `STATUS:ALL:<key=value,...>;` keys: `mode`, `hdmi0`, `hdmi0state`, `hdmi1`, `hdmi1state`, `multiviewstate`, `cam<n>pwr` (`on`/`standby`/`unknown`, last command), `cam<n>link`, `atlona` (`o1/o2/o3/o4/o5` input per output, 0 unknown), `program` |
 | `OUTPUT:SET:<hdmi0\|hdmi1>:<sourceId\|none>;` | `OUTPUT:OK:<outputId>:<sourceId\|none>;` |
 | `OUTPUT:LIST;`, `SOURCE:LIST;`, `SOURCE:GET:<id>;` | see README |
 | `QUICK:LIST;` | `QUICK:LIST:<n>=<name>,...;` |
@@ -32,9 +32,11 @@ Quick options have a number (1-99) set when saving (`POST /api/v1/quick-options`
 | `PING;` | `PONG;` |
 | `DEV:VERSION;` | `DEV:VERSION:<n>;` |
 | `ATLONA:ROUTE:<reqId>:<in>:<out>;` | `ATLONA:CONFIRMED:<reqId>:<in>:<out>;` or `ATLONA:ERR:<reqId>:<reason>;` |
-| `ATLONA:STATUS:<reqId>;` | `ATLONA:STATUS:<reqId>:<o1>,<o2>,<o3>,<o4>;` (input per output, 0 unknown) |
+| `ATLONA:STATUS:<reqId>;` | `ATLONA:STATUS:<reqId>:<o1>,<o2>,<o3>,<o4>,<o5>;` (input per output, 0 unknown) |
 
 AMX remains the only controller of the Atlona matrix.
+
+Atlona inputs: 1 Lukupulpetti, 2 Rack PC, 3 Pi 1, 4 Pi 2. Outputs: 1 Proj1, 2 Proj2, 3 Screen3, 4 Screen4, 5 Videomixer (2026-10-26; the current AT-UHD-PRO3-44M has only four outputs, so outputs 3-5 assume a larger matrix).
 
 ## Not verified
 
