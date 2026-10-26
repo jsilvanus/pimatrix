@@ -157,6 +157,11 @@ export function buildZoomInquiry(): number[] {
   return [0x81, 0x09, 0x04, 0x47, 0xff];
 }
 
+/** Standard VISCA CAM_Power: on (wake from standby) or standby. Tested on cam1 only. */
+export function buildPower(on: boolean): number[] {
+  return [0x81, 0x01, 0x04, 0x00, on ? 0x02 : 0x03, 0xff];
+}
+
 export function buildPowerInquiry(): number[] {
   return [0x81, 0x09, 0x04, 0x00, 0xff];
 }

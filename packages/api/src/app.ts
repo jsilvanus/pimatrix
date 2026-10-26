@@ -1177,6 +1177,33 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
 
   app.post<{
     Params: { cameraId: string };
+    Body: { on?: unknown };
+  }>("/api/v1/cameras/:cameraId/power", async (request, reply) => {
+    const camera = cameraService.get(request.params.cameraId);
+    if (!camera) {
+      return reply.code(404).send({
+        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+      });
+    }
+
+    const on = request.body?.on;
+    if (typeof on !== "boolean") {
+      return reply.code(422).send({
+        error: { code: "INVALID_POWER", message: "on must be true (wake) or false (standby)" }
+      });
+    }
+
+    await cameraService.setPower(request.params.cameraId, on);
+
+    return reply.code(200).send({
+      cameraId: request.params.cameraId,
+      success: true,
+      action: `power:${on ? "on" : "standby"}`
+    });
+  });
+
+  app.post<{
+    Params: { cameraId: string };
     Body: { enabled?: unknown };
   }>("/api/v1/cameras/:cameraId/privacy-blur", async (request, reply) => {
     const camera = cameraService.get(request.params.cameraId);

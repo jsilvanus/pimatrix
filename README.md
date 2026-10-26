@@ -72,6 +72,7 @@ Default URL: `http://127.0.0.1:3000`.
 - `POST /api/v1/cameras/{cameraId}/presets/{presetId}/save` (saves current position to preset 0-254)
 - `POST /api/v1/cameras/{cameraId}/smartframe` (controls SmartFrame AI auto-framing: enable, disable, trigger)
 - `POST /api/v1/cameras/{cameraId}/focus` (`{mode: auto|manual}`: VISCA AF or MF; auto also ends a privacy blur; `focusMode` is in the camera snapshot. Unverified on a real PTZ330)
+- `POST /api/v1/cameras/{cameraId}/power` (`{on}`: VISCA CAM_Power, true wakes the camera, false sends it to standby; no UI yet; tested on cam1 only; sent from UDP source port 52381, configurable per camera)
 - `POST /api/v1/cameras/{cameraId}/privacy-blur` (`{enabled}`: AF to MF, near limit to closest, focus driven near so the picture blurs; off returns to AF. Standard VISCA focus bytes, unverified on a real PTZ330)
 - `POST /api/v1/cameras/{cameraId}/stream/start` (commands camera to push RTMP feed or activates RTSP pull)
 - `POST /api/v1/cameras/{cameraId}/stream/stop` (stops camera streaming feed)

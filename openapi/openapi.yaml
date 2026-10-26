@@ -725,6 +725,42 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/v1/cameras/{cameraId}/power:
+    post:
+      operationId: setCameraPower
+      tags: [Cameras]
+      summary: Wake the camera or send it to standby
+      description: >-
+        Standard VISCA CAM_Power. `on: true` wakes the camera from standby, `on: false`
+        sends it to standby. The command leaves from UDP source port 52381 (configurable
+        per camera). Tested on cam1 only.
+      parameters:
+        - in: path
+          name: cameraId
+          required: true
+          schema:
+            $ref: "#/components/schemas/CameraId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CameraPowerRequest"
+      responses:
+        "200":
+          description: Power command sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CameraActionResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/v1/cameras/{cameraId}/privacy-blur:
     post:
       operationId: setCameraPrivacyBlur
@@ -2053,6 +2089,13 @@ components:
         mode:
           type: string
           enum: [auto, manual]
+    CameraPowerRequest:
+      type: object
+      required: [on]
+      properties:
+        on:
+          type: boolean
+          description: true wakes the camera, false sends it to standby
     CameraPrivacyBlurRequest:
       type: object
       required: [enabled]

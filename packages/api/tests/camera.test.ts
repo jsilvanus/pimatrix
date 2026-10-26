@@ -8,6 +8,7 @@ import {
 } from "../src/camera/camera-adapter.js";
 import {
   buildPanTiltDrive,
+  buildPower,
   buildPresetRecall,
   buildPresetSave,
   buildSmartFrame,
@@ -303,4 +304,83 @@ test("SimulatedCameraAdapter tracks focus mode", async () => {
   assert.equal(adapter.getSnapshot().focusMode, "manual");
   await adapter.setFocusMode("auto");
   assert.equal(adapter.getSnapshot().privacyBlur, false);
+});
+
+test("VISCA power frames: on wakes, off sends to standby", () => {
+  assert.deepEqual(buildPower(true), [0x81, 0x01, 0x04, 0x00, 0x02, 0xff]);
+  assert.deepEqual(buildPower(false), [0x81, 0x01, 0x04, 0x00, 0x03, 0xff]);
+});
+
+test("UdpViscaCameraAdapter sends power from the VISCA source port", async () => {
+  const server = dgram.createSocket("udp4");
+  const received: { body: number[]; port: number }[] = [];
+  await new Promise<void>((resolve) => server.bind(0, "127.0.0.1", () => resolve()));
+  server.on("message", (msg, rinfo) => received.push({ body: [...msg.subarray(8)], port: rinfo.port }));
+
+  // Port 0 = any free source port in tests; production defaults to 52381.
+  const adapter = new UdpViscaCameraAdapter({
+    id: "cam1",
+    label: "Camera 1",
+    host: "127.0.0.1",
+    viscaPort: server.address().port,
+    viscaSourcePort: 0
+  });
+
+  await adapter.setPower(false);
+  await adapter.setPower(true);
+  await new Promise((r) => setTimeout(r, 50));
+
+  assert.deepEqual(
+    received.map((r) => r.body),
+    [
+      [0x81, 0x01, 0x04, 0x00, 0x03, 0xff],
+      [0x81, 0x01, 0x04, 0x00, 0x02, 0xff]
+    ]
+  );
+
+  await adapter.close();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+});
+
+test("SimulatedCameraAdapter accepts power commands", async () => {
+  const adapter = new SimulatedCameraAdapter("cam1", "Camera 1");
+  await adapter.setPower(false);
+  await adapter.setPower(true);
+  assert.equal(adapter.getSnapshot().id, "cam1");
+});
+
+test("Camera power REST endpoint validates and answers", async () => {
+  const app = buildApp(loadConfig({ PIMATRIX_MODE: "simulation" }));
+
+  const onRes = await app.inject({
+    method: "POST",
+    url: "/api/v1/cameras/cam1/power",
+    payload: { on: true }
+  });
+  assert.equal(onRes.statusCode, 200);
+  assert.equal(onRes.json().action, "power:on");
+
+  const standbyRes = await app.inject({
+    method: "POST",
+    url: "/api/v1/cameras/cam1/power",
+    payload: { on: false }
+  });
+  assert.equal(standbyRes.statusCode, 200);
+  assert.equal(standbyRes.json().action, "power:standby");
+
+  const badRes = await app.inject({
+    method: "POST",
+    url: "/api/v1/cameras/cam1/power",
+    payload: { on: "yes" }
+  });
+  assert.equal(badRes.statusCode, 422);
+
+  const missingRes = await app.inject({
+    method: "POST",
+    url: "/api/v1/cameras/unknown-cam/power",
+    payload: { on: true }
+  });
+  assert.equal(missingRes.statusCode, 404);
+
+  await app.close();
 });
