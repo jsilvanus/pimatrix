@@ -94,3 +94,18 @@ test("offsetY accepts -1..1 and rejects anything else", () => {
     assert.equal(result.ok, false);
   }
 });
+
+test("offsetX moves the slide freely and side follows it", () => {
+  assert.equal(defaultCompositeSettings("compose1").offsetX, -1);
+  assert.deepEqual(parseCompositePatch({ offsetX: 0.25 }), { ok: true, patch: { offsetX: 0.25 } });
+  for (const bad of [-1.01, 2, "0", null, Number.NaN]) {
+    assert.equal(parseCompositePatch({ offsetX: bad }).ok, false);
+  }
+  const base = defaultCompositeSettings("compose1");
+  const moved = applyCompositePatch(base, { offsetX: 0.4 });
+  assert.equal(moved.offsetX, 0.4);
+  assert.equal(moved.side, "right");
+  assert.equal(applyCompositePatch(moved, { side: "left" }).offsetX, -1);
+  assert.equal(applyCompositePatch(moved, { side: "right" }).offsetX, 1);
+  assert.equal(applyCompositePatch(moved, { slideScale: 0.8 }).offsetX, 0.4);
+});

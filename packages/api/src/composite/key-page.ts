@@ -36,6 +36,8 @@ export interface KeyPageInput {
   side: CompositeSide;
   slideAspect: SlideAspect;
   slideScale: number;
+  /** -1 left edge, 0 centred, 1 right edge. Missing means the edge named by `side`. */
+  offsetX?: number;
   /** -1 top edge, 0 centred, 1 bottom edge. Missing means centred. */
   offsetY?: number;
   keyColor: string;
@@ -59,7 +61,13 @@ export function keyPageGeometry(input: KeyPageInput): KeyPageGeometry {
   // Both heights are even, so the free space is even and the centred offset is whole.
   const free = input.height - slideHeight;
   const y = Math.round(free / 2 + (input.offsetY ?? 0) * (free / 2));
-  const x = input.side === "left" ? 0 : input.width - slideWidth;
+  const freeX = input.width - slideWidth;
+  const x =
+    input.offsetX === undefined
+      ? input.side === "left"
+        ? 0
+        : freeX
+      : Math.round(freeX / 2 + input.offsetX * (freeX / 2));
 
   const transparent = input.kind === "atem-media";
   const background = input.keyMode === "luma" ? "#000000" : input.keyColor;
