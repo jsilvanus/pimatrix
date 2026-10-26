@@ -8,6 +8,7 @@ import {
   buildPanTiltDrive,
   nearLimitPositionForMetres,
   buildPanTiltInquiry,
+  buildPower,
   buildPowerInquiry,
   buildPresetRecall,
   buildPresetReset,
@@ -65,6 +66,8 @@ export interface CameraAdapter {
   savePresetThumbnail(presetId: number, thumbnail: string): Promise<void>;
   resetPreset(presetId: number): Promise<void>;
   setSmartFrame(mode: SmartFrameMode): Promise<void>;
+  /** VISCA CAM_Power: true wakes the camera, false puts it in standby. */
+  setPower(on: boolean): Promise<void>;
   /** On: AF to MF, near limit to the closest distance, focus driven near. Off: back to AF. */
   setPrivacyBlur(enabled: boolean): Promise<void>;
   /** Plain VISCA CAM_Focus auto (AF) or manual (MF). */
@@ -207,6 +210,10 @@ export class SimulatedCameraAdapter implements CameraAdapter {
     }
   }
 
+  async setPower(_on: boolean): Promise<void> {
+    // Simulated: nothing to switch.
+  }
+
   async setPrivacyBlur(enabled: boolean): Promise<void> {
     this.privacyBlur = enabled;
     this.focusMode = enabled ? "manual" : "auto";
@@ -265,6 +272,8 @@ export interface UdpViscaCameraConfig {
   rtmpServer?: string | undefined;
   /** Stream key (the MediaMTX path name), e.g. cam1. */
   rtmpKey?: string | undefined;
+  /** UDP source port for power commands, default 52381 (the camera needs it). 0 picks any port. */
+  viscaSourcePort?: number | undefined;
   /** How long the near drive runs before the stop, default 2500 ms. */
   focusDriveMs?: number | undefined;
   /** Near focus limit in metres restored when privacy blur goes off, default 1.5. */
@@ -283,6 +292,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   private readonly rtspUrl: string | null;
   private readonly rtmpServer: string | null;
   private readonly rtmpKey: string | null;
+  private readonly viscaSourcePort: number;
   private readonly focusDriveMs: number;
   private readonly nearLimitM: number;
   private readonly logger?: FastifyBaseLogger | undefined;
@@ -309,6 +319,7 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     this.rtspUrl = config.rtspUrl ?? `rtsp://${config.host}:554/live_st1`;
     this.rtmpServer = config.rtmpServer ?? null;
     this.rtmpKey = config.rtmpKey ?? null;
+    this.viscaSourcePort = config.viscaSourcePort ?? 52381;
     this.focusDriveMs = config.focusDriveMs ?? 2500;
     this.nearLimitM = config.nearLimitM ?? 1.5;
     this.logger = config.logger;
@@ -411,6 +422,29 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
     const payload = buildSmartFrame(mode);
     await this.sendCommand(payload);
     this.smartFrame = mode === "enable" ? "enabled" : mode === "disable" ? "disabled" : "triggered";
+  }
+
+  /**
+   * Power commands go out from a short-lived socket bound to the VISCA source port,
+   * because the camera answers only that port. The shared socket is left alone.
+   */
+  async setPower(on: boolean): Promise<void> {
+    const packet = createViscaPacket(buildPower(on), this.sequenceNumber++);
+    const socket = dgram.createSocket("udp4");
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.once("error", reject);
+        socket.bind(this.viscaSourcePort, () => {
+          socket.off("error", reject);
+          resolve();
+        });
+      });
+      await new Promise<void>((resolve, reject) => {
+        socket.send(packet, this.viscaPort, this.host, (err) => (err ? reject(err) : resolve()));
+      });
+    } finally {
+      socket.close();
+    }
   }
 
   async setPrivacyBlur(enabled: boolean): Promise<void> {
