@@ -23,13 +23,7 @@ import {
   type MoveDirection,
   type RotationDegrees
 } from "./effects/effects-model.js";
-import {
-  renderOperatorFrontendHtml,
-  resolveWebAssetFile,
-  type FrontendTabId,
-  type MatrixRouteState,
-  type RtspOutState
-} from "./frontend-html.js";
+import type { MatrixRouteState, RtspOutState } from "./app-state.js";
 import { inspectMediaMtx } from "./media-mtx.js";
 import {
   createOutputStore,
@@ -305,28 +299,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     });
   };
 
-  const renderFrontendPage = async (activeTab: FrontendTabId, request?: { ip?: string }) => {
-    const sources = await listSources(true);
-    const outputs = outputStore.list();
-    const effects = effectsStore.list();
-    const cameras = cameraService.list();
-    const multiview = await buildCurrentMultiview();
-    return renderOperatorFrontendHtml({
-      activeTab,
-      mode: config.mode,
-      sources,
-      outputs,
-      effects,
-      cameras,
-      multiview,
-      matrix: matrixState,
-      rtspOut: rtspOutState,
-      authRequired: Boolean(config.apiKey),
-      mediaMtxPassword: config.mediaMtxPassword ?? null,
-      isWhitelisted: isIpWhitelisted(request?.ip, config.authAllowedHosts),
-      clientIp: request?.ip
-    });
-  };
 
   const amxListener = config.amxTcpEnabled
     ? new AmxTcpListener({
@@ -504,45 +476,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   (app as unknown as { cameraService: CameraService }).cameraService = cameraService;
   (app as unknown as { effectsStore: EffectsStore }).effectsStore = effectsStore;
   (app as unknown as { captureSupervisor: StreamSupervisor }).captureSupervisor = captureSupervisor;
-
-  // =========================================================================
-  // Operator Frontend UI Routes (Built with Vite in @pimatrix/web)
-  // =========================================================================
-
-  app.get<{ Params: { "*": string } }>("/assets/*", async (request, reply) => {
-    const asset = resolveWebAssetFile(request.params["*"]);
-    if (!asset) {
-      return reply.code(404).send({
-        error: { code: "ASSET_NOT_FOUND", message: `Unknown frontend asset: ${request.url}` }
-      });
-    }
-    return reply.type(asset.contentType).send(fs.readFileSync(asset.filePath));
-  });
-
-  app.get("/", async (request, reply) => {
-    const html = await renderFrontendPage("outputs", request);
-    return reply.type("text/html; charset=utf-8").send(html);
-  });
-
-  app.get("/outputs", async (request, reply) => {
-    const html = await renderFrontendPage("outputs", request);
-    return reply.type("text/html; charset=utf-8").send(html);
-  });
-
-  app.get("/inputs", async (request, reply) => {
-    const html = await renderFrontendPage("inputs", request);
-    return reply.type("text/html; charset=utf-8").send(html);
-  });
-
-  app.get("/cameras", async (request, reply) => {
-    const html = await renderFrontendPage("cameras", request);
-    return reply.type("text/html; charset=utf-8").send(html);
-  });
-
-  app.get("/renderer", async (request, reply) => {
-    const html = await renderFrontendPage("renderer", request);
-    return reply.type("text/html; charset=utf-8").send(html);
-  });
 
   app.get("/health", async () => ({ status: "ok", service: "pimatrix" }));
 

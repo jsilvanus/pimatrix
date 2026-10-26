@@ -3,7 +3,7 @@ import test from "node:test";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 
-test("Vite-built Operator frontend routes render all updated Stitch screens", async () => {
+test("source and camera labels come from the API configuration", async () => {
   const app = buildApp(
     loadConfig({
       PIMATRIX_MODE: "simulation",
@@ -27,59 +27,18 @@ test("Vite-built Operator frontend routes render all updated Stitch screens", as
     assert.equal(srcs.find((s) => s.id === "cam1")?.label, "Alttari PTZ");
     assert.equal(srcs.find((s) => s.id === "cam2")?.label, "Saarnastuoli PTZ");
     assert.equal(srcs.find((s) => s.id === "cam3")?.label, "Urut / Parvi");
+  } finally {
+    await app.close();
+  }
+});
 
-    const rootRes = await app.inject({ method: "GET", url: "/" });
-    assert.equal(rootRes.statusCode, 200);
-    assert.ok(rootRes.headers["content-type"]?.includes("text/html"));
-    assert.match(rootRes.payload, /PiMatrix \| Broadcast Routing & Camera Control/);
-    // Top bar has fast Multiview link
-    assert.match(rootRes.payload, /id="top-multiview-btn"/);
-    // Outputs screen elements: Pi 1 / Pi 2 main heading and hdmi 0 / hdmi 1 subtitle
-    assert.match(rootRes.payload, />Pi 1</);
-    assert.match(rootRes.payload, /hdmi 0/);
-    assert.match(rootRes.payload, />Pi 2</);
-    assert.match(rootRes.payload, /hdmi 1/);
-    assert.doesNotMatch(rootRes.payload, /\(hdmi0\)/);
-    assert.doesNotMatch(rootRes.payload, /\(hdmi1\)/);
-    assert.match(rootRes.payload, /id="hdmi1-inputs-list"/);
-    assert.match(rootRes.payload, /id="hdmi2-inputs-list"/);
-
-    // Network Stream Out has dedicated button under heading + Start Stream button, with all info in dialog
-    assert.match(rootRes.payload, /id="rtsp-open-dialog-btn"/);
-    assert.match(rootRes.payload, /id="rtsp-stream-btn"/);
-    assert.match(rootRes.payload, /Start Stream/);
-    assert.match(rootRes.payload, /<dialog[^>]*id="rtsp-modal-overlay"[^>]*closedby="any"/);
-    assert.match(rootRes.payload, /Preview Stream/);
-    assert.match(rootRes.payload, /Full Resolution/);
-    // Native dialog with closedby="any" for Auxiliary modal and Cropper modal
-    assert.match(rootRes.payload, /<dialog[^>]*id="aux-modal-overlay"[^>]*closedby="any"/);
-    assert.match(rootRes.payload, /Tap a camera, pipgm 3, or multiview to route/);
-    assert.match(rootRes.payload, /<dialog[^>]*id="crop-modal-overlay"[^>]*closedby="any"/);
-    assert.match(rootRes.payload, /id="crop-zoomed-viewport"/);
-    assert.match(rootRes.payload, /id="crop-interactive-box"/);
-
-    // Multiview has back button to go back to home
-    const mvRes = await app.inject({ method: "GET", url: "/multiview" });
-    assert.equal(mvRes.statusCode, 200);
-    assert.match(mvRes.payload, /id="multiview-back-btn"/);
-    assert.match(mvRes.payload, /href="\/"/);
-
-    // Inputs (Matrix Routing) route: FTB/Mute removed from Inputs
-    const inputsRes = await app.inject({ method: "GET", url: "/inputs" });
-    assert.equal(inputsRes.statusCode, 200);
-    assert.match(inputsRes.payload, /EI VIELÄ HANKITTU/);
-    assert.match(inputsRes.payload, /Videomikseri/);
-    assert.doesNotMatch(inputsRes.payload, /Per-Input FTB/);
-
-    // Cameras route: no LIVE/PVW badges, no ACTIVE DRIVER note, no VISCA over IP text, Start Receiving button
-    const camerasRes = await app.inject({ method: "GET", url: "/cameras" });
-    assert.equal(camerasRes.statusCode, 200);
-    assert.match(camerasRes.payload, /Start Receiving/);
-    assert.doesNotMatch(camerasRes.payload, /ACTIVE DRIVER/);
-    assert.doesNotMatch(camerasRes.payload, /VISCA over IP/);
-    assert.doesNotMatch(camerasRes.payload, /id="cam-live-chip-1"/);
-    assert.doesNotMatch(camerasRes.payload, /animate-ping/);
-
+test("the operator pages are no longer served by the API", async () => {
+  const app = buildApp(loadConfig({ PIMATRIX_MODE: "simulation", PIMATRIX_DISPLAY_MODE: "simulated" }));
+  try {
+    for (const url of ["/", "/outputs", "/inputs", "/cameras", "/renderer", "/assets/index.js"]) {
+      const res = await app.inject({ method: "GET", url });
+      assert.equal(res.statusCode, 404, url);
+    }
   } finally {
     await app.close();
   }
