@@ -1285,6 +1285,26 @@ paths:
           description: Deleted
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/v1/quick-options/number/{number}/apply:
+    post:
+      operationId: applyQuickOptionByNumber
+      tags: [QuickOptions]
+      summary: Apply a quick option by its number (the way AMX runs it)
+      parameters:
+        - name: number
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Applied
+        "404":
+          description: No quick option has this number
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/v1/quick-options/{id}/apply:
     parameters:
       - $ref: "#/components/parameters/QuickOptionIdPath"
@@ -2488,6 +2508,11 @@ components:
           minLength: 1
           maxLength: 40
           description: Trimmed before it is checked
+        number:
+          type: integer
+          minimum: 1
+          maximum: 99
+          description: Number the AMX touch panel uses (QUICK:RUN:n). On save the lowest free number is used when omitted; 409 if taken. PUT can change it.
     QuickOptionEffects:
       type: object
       required: [crop, rotation, fadeToBlack, muted]
@@ -2539,11 +2564,15 @@ components:
             $ref: "#/components/schemas/QuickOptionComposite"
     QuickOption:
       type: object
-      required: [id, name, createdAt, snapshot]
+      required: [id, number, name, createdAt, snapshot]
       properties:
         id:
           type: string
           example: qo-1a2b3c4d
+        number:
+          type: integer
+          minimum: 1
+          maximum: 99
         name:
           type: string
         createdAt:

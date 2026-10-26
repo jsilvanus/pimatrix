@@ -95,12 +95,23 @@ export class PiprogramFeed {
   private readonly sent = new Map<CompositeId, string>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  private paused = false;
 
   constructor(
     private readonly client: PiprogramClient,
     private readonly targets: PiprogramFeedTargets,
     private readonly intervalMs = 1000
   ) {}
+
+  get isPaused(): boolean {
+    return this.paused;
+  }
+
+  /** While paused the composites that follow piprogram show no slide. */
+  async setPaused(paused: boolean): Promise<void> {
+    this.paused = paused;
+    await this.tick();
+  }
 
   start(): void {
     if (this.timer) return;
@@ -132,6 +143,13 @@ export class PiprogramFeed {
 
   private async follow(settings: CompositeSettings): Promise<void> {
     const id = settings.id;
+    if (this.paused) {
+      if (this.sent.get(id) !== BLANK) {
+        await this.targets.clearSlide(id);
+        this.sent.set(id, BLANK);
+      }
+      return;
+    }
     let snapshot: PiprogramPipelineSnapshot;
     try {
       snapshot = await this.client.snapshot(settings.pipelineId);

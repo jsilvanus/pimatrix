@@ -16,6 +16,7 @@ import { sourceDefinitions } from "../model.js";
 
 export const MAX_QUICK_OPTION_NAME = 40;
 export const MAX_QUICK_OPTIONS = 50;
+export const MAX_QUICK_OPTION_NUMBER = 99;
 /** Outputs a snapshot routes. The multiview output has no route of its own. */
 export const SNAPSHOT_OUTPUT_IDS = ["hdmi0", "hdmi1"] as const;
 export type SnapshotOutputId = (typeof SNAPSHOT_OUTPUT_IDS)[number];
@@ -44,6 +45,8 @@ export interface QuickOptionSnapshot {
 
 export interface QuickOption {
   id: string;
+  /** Short number (1-99) the AMX touch panel uses to run this option; unique. */
+  number: number;
   name: string;
   createdAt: string;
   snapshot: QuickOptionSnapshot;
@@ -59,6 +62,12 @@ export class QuickOptionDuplicateError extends Error {
   constructor(name: string) {
     super(`A quick option named "${name}" already exists`);
     this.name = "QuickOptionDuplicateError";
+  }
+}
+export class QuickOptionNumberError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "QuickOptionNumberError";
   }
 }
 export class QuickOptionNotFoundError extends Error {
@@ -83,6 +92,14 @@ export function normaliseQuickOptionName(value: unknown): string {
     throw new QuickOptionNameError(`name must be at most ${MAX_QUICK_OPTION_NAME} characters`);
   }
   return name;
+}
+
+/** Checks a quick option number; throws QuickOptionNumberError. */
+export function checkQuickOptionNumber(value: unknown): number {
+  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > MAX_QUICK_OPTION_NUMBER) {
+    throw new QuickOptionNumberError(`number must be an integer from 1 to ${MAX_QUICK_OPTION_NUMBER}`);
+  }
+  return value as number;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -163,12 +180,30 @@ export class QuickOptionStore {
     return clone(item);
   }
 
-  create(name: unknown, snapshot: QuickOptionSnapshot): QuickOption {
+  getByNumber(number: number): QuickOption {
+    const item = this.items.find((entry) => entry.number === number);
+    if (!item) throw new QuickOptionNotFoundError(`number ${number}`);
+    return clone(item);
+  }
+
+  /** The lowest number from 1 that no option uses. */
+  private freeNumber(): number {
+    let n = 1;
+    while (this.items.some((entry) => entry.number === n)) n += 1;
+    return n;
+  }
+
+  create(name: unknown, snapshot: QuickOptionSnapshot, number?: unknown): QuickOption {
     const clean = normaliseQuickOptionName(name);
+    const wanted = number === undefined || number === null ? this.freeNumber() : checkQuickOptionNumber(number);
+    if (this.items.some((entry) => entry.number === wanted)) {
+      throw new QuickOptionNumberError(`Quick option number ${wanted} is already in use`);
+    }
     if (this.items.some((entry) => sameName(entry.name, clean))) throw new QuickOptionDuplicateError(clean);
     if (this.items.length >= MAX_QUICK_OPTIONS) throw new QuickOptionLimitError();
     const item: QuickOption = {
       id: `qo-${crypto.randomUUID().slice(0, 8)}`,
+      number: wanted,
       name: clean,
       createdAt: new Date().toISOString(),
       snapshot: clone(snapshot)
@@ -186,6 +221,18 @@ export class QuickOptionStore {
       throw new QuickOptionDuplicateError(clean);
     }
     item.name = clean;
+    this.persist();
+    return clone(item);
+  }
+
+  setNumber(id: string, number: unknown): QuickOption {
+    const wanted = checkQuickOptionNumber(number);
+    const item = this.items.find((entry) => entry.id === id);
+    if (!item) throw new QuickOptionNotFoundError(id);
+    if (this.items.some((entry) => entry.id !== id && entry.number === wanted)) {
+      throw new QuickOptionNumberError(`Quick option number ${wanted} is already in use`);
+    }
+    item.number = wanted;
     this.persist();
     return clone(item);
   }
@@ -225,8 +272,13 @@ export class QuickOptionStore {
         continue;
       }
       if (!snapshot || this.items.some((entry) => entry.id === raw.id || sameName(entry.name, name))) continue;
-      this.items.push({ id: raw.id, name, createdAt: raw.createdAt, snapshot });
+      // Options saved before numbers existed get the lowest free number, in saved order.
+      const savedNumber = typeof raw.number === "number" && Number.isInteger(raw.number) &&
+        raw.number >= 1 && raw.number <= MAX_QUICK_OPTION_NUMBER &&
+        !this.items.some((entry) => entry.number === raw.number) ? raw.number : null;
+      this.items.push({ id: raw.id, number: savedNumber ?? 0, name, createdAt: raw.createdAt, snapshot });
     }
+    for (const item of this.items) if (item.number === 0) item.number = this.freeNumber();
   }
 }
 
