@@ -140,8 +140,9 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     routes: {
       1: 1, // Projector 1 -> Lectern
       2: 2, // Projector 2 -> Rack PC
-      3: null, // Screen -> Ei vielä hankittu
-      4: 3 // Videomikseri -> Pi 1
+      3: null, // Screen3
+      4: null, // Screen4
+      5: 3 // Videomikseri -> Pi 1
     }
   };
 
@@ -960,9 +961,9 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
           error: { code: "INVALID_INPUT", message: "Matrix input must be an integer between 1 and 4" }
         });
       }
-      if (!Number.isInteger(output) || output < 1 || output > 4) {
+      if (!Number.isInteger(output) || output < 1 || output > 5) {
         return reply.code(422).send({
-          error: { code: "INVALID_OUTPUT", message: "Matrix output must be an integer between 1 and 4" }
+          error: { code: "INVALID_OUTPUT", message: "Matrix output must be an integer between 1 and 5" }
         });
       }
 

@@ -368,7 +368,7 @@ async function run(options: CliOptions): Promise<void> {
     const input = Number(arg1);
     const output = Number(arg2);
     if (!Number.isInteger(input) || input < 1 || input > 4) throw new Error("Matrix input must be 1-4");
-    if (!Number.isInteger(output) || output < 1 || output > 4) throw new Error("Matrix output must be 1-4");
+    if (!Number.isInteger(output) || output < 1 || output > 5) throw new Error("Matrix output must be 1-5");
     const data = await SystemService.requestMatrixRoute({ input, output });
     if (options.json) console.log(JSON.stringify(data, null, 2));
     else {
