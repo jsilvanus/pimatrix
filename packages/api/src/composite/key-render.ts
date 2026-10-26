@@ -6,6 +6,7 @@
 
 import { spawn as nodeSpawn } from "node:child_process";
 import { keyPageFilterGraph, type KeyPageGeometry } from "./key-page.js";
+import { liveFilterGraph, type LiveKeyLayout } from "./key-publisher.js";
 
 export type KeyPageFormat = "png" | "rgba";
 
@@ -52,13 +53,8 @@ export function isPng(bytes: Buffer): boolean {
 const defaultSpawn: SpawnFfmpeg = (command, args) =>
   nodeSpawn(command, [...args], { stdio: ["pipe", "pipe", "pipe"] }) as unknown as FfmpegProcess;
 
-export async function renderKeyPage(options: RenderKeyPageOptions): Promise<Buffer> {
-  if (!isPng(options.slidePng)) throw new Error("The slide must be a PNG image");
-  const command = options.ffmpeg ?? "ffmpeg";
-  const timeoutMs = options.timeoutMs ?? 30_000;
-  const args = keyPageArgs(options.geometry, options.format);
-  const spawnProcess = options.spawn ?? defaultSpawn;
-
+/** Runs ffmpeg once and returns what it wrote to stdout. `stdin` is written and closed. */
+async function runCapture(command: string, args: string[], stdin: Buffer, timeoutMs: number, spawnProcess: SpawnFfmpeg): Promise<Buffer> {
   return await new Promise<Buffer>((resolve, reject) => {
     const child = spawnProcess(command, args);
     const out: Buffer[] = [];
@@ -88,6 +84,38 @@ export async function renderKeyPage(options: RenderKeyPageOptions): Promise<Buff
         }
       });
     });
-    child.stdin.end(options.slidePng);
+    child.stdin.end(stdin);
   });
+}
+
+export async function renderKeyPage(options: RenderKeyPageOptions): Promise<Buffer> {
+  if (!isPng(options.slidePng)) throw new Error("The slide must be a PNG image");
+  return await runCapture(
+    options.ffmpeg ?? "ffmpeg",
+    keyPageArgs(options.geometry, options.format),
+    options.slidePng,
+    options.timeoutMs ?? 30_000,
+    options.spawn ?? defaultSpawn
+  );
+}
+
+export interface RenderLiveFrameOptions {
+  sourceUrl: string;
+  layout: LiveKeyLayout;
+  ffmpeg?: string;
+  timeoutMs?: number;
+  spawn?: SpawnFfmpeg;
+}
+
+/** One PNG of what a live composite shows: a frame of the source in the slide box, from the source itself. */
+export async function renderLiveFrame(options: RenderLiveFrameOptions): Promise<Buffer> {
+  const args = [
+    "-hide_banner", "-loglevel", "error", "-nostdin",
+    ...(options.sourceUrl.startsWith("rtsp:") ? ["-rtsp_transport", "tcp"] : []),
+    "-i", options.sourceUrl,
+    "-filter_complex", liveFilterGraph(options.layout),
+    "-map", "[out]", "-frames:v", "1",
+    "-f", "image2pipe", "-c:v", "png", "pipe:1"
+  ];
+  return await runCapture(options.ffmpeg ?? "ffmpeg", args, Buffer.alloc(0), options.timeoutMs ?? 10_000, options.spawn ?? defaultSpawn);
 }

@@ -24,6 +24,7 @@ import {
   type RotationDegrees
 } from "./effects/effects-model.js";
 import type { MatrixRouteState, RtspOutState } from "./app-state.js";
+import { EffectsLayer } from "./effects/effects-layer.js";
 import { inspectMediaMtx } from "./media-mtx.js";
 import {
   createOutputStore,
@@ -69,7 +70,12 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
 
   const outputStore = createOutputStore();
   const effectsStore = new EffectsStore(sourceDefinitions.map((s) => s.id));
-  const displayAdapter: DisplayAdapter = createDisplayAdapter(config.displayMode, config);
+  // Effects decide which MediaMTX path a consumer reads (see effects-layer.ts); set once the layer exists.
+  let sourcePath: (sourceId: string) => string = (sourceId) => sourceId;
+  const displayAdapter: DisplayAdapter = createDisplayAdapter(config.displayMode, {
+    ...config,
+    resolvePath: (sourceId) => sourcePath(sourceId)
+  });
   const atem = new AtemAdapter({ logger: app.log });
   registerAtemRoutes(app, atem);
   const eventBroker = new PiMatrixEventBroker();
@@ -77,11 +83,23 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   const piprogramClient = config.piprogramUrl
     ? new PiprogramClient({ baseUrl: config.piprogramUrl, apiKey: config.piprogramApiKey, fetch: fetchImpl })
     : null;
+  const effectsLayer = new EffectsLayer({
+    rtspBase: config.mediaMtxRtspUrl,
+    ffmpeg: config.compositeFfmpeg,
+    encoder: config.compositeVideoCodec,
+    getEffects: (sourceId) => effectsStore.get(sourceId as SourceId),
+    // compose1 fades to its key colour, everything else to black.
+    fadeColour: (sourceId): string | null => (sourceId === "compose1" ? compositeService.get("compose1").keyColor : null),
+    selfApplied: new Set(["hama"]),
+    logger: app.log
+  });
+  sourcePath = (sourceId) => effectsLayer.pathFor(sourceId);
   const compositeService = new CompositeService({
     dataDir: config.compositeDataDir,
     stateFile: path.join(config.compositeDataDir, "composites.json"),
     ffmpeg: config.compositeFfmpeg,
-    liveSourceUrl: (sourceId) => (config.mediaMtxRtspUrl ? `${config.mediaMtxRtspUrl.replace(/\/$/, "")}/${sourceId}` : undefined),
+    // A live composite reads the effects-processed path, so a source's crop applies inside the box.
+    liveSourceUrl: (sourceId): string | undefined => (config.mediaMtxRtspUrl ? `${config.mediaMtxRtspUrl.replace(/\/$/, "")}/${effectsLayer.pathFor(sourceId)}` : undefined),
     // compose1 is published to MediaMTX, so the route can send it to any Pi HDMI output.
     player: new KeyPagePublisher({
       rtspUrl: config.mediaMtxRtspUrl ? `${config.mediaMtxRtspUrl.replace(/\/$/, "")}/compose1` : undefined,
@@ -336,6 +354,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
 
   app.addHook("onClose", async () => {
     hamaOnDemand.dispose();
+    await effectsLayer.close();
     piprogramFeed?.stop();
     pipgmSources?.stop();
     await Promise.all([
@@ -546,6 +565,26 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       preview: source.preview
     };
   });
+
+  /**
+   * After a source's effects changed: restart Hama's capture (its filter is applied there),
+   * bring the effects layer's processes in line, and re-apply every route and live composite
+   * that reads the source when its MediaMTX path changed.
+   */
+  async function afterEffectsChange(sourceId: SourceId): Promise<void> {
+    if (sourceId === "hama" && captureSupervisor.snapshot().state === "running") {
+      void captureSupervisor.restart().catch(() => undefined);
+    }
+    try {
+      if (!(await effectsLayer.sync(sourceId))) return;
+      for (const output of outputStore.list()) {
+        if (output.desiredSource === sourceId) await routeOutput(output.id, sourceId);
+      }
+      compositeService.refreshLive(sourceId);
+    } catch (error) {
+      app.log.warn({ sourceId, err: error instanceof Error ? error.message : String(error) }, "effects layer sync failed");
+    }
+  }
 
   /** Sets an output's route: store, display adapter, event stream and Hama on demand. */
   async function routeOutput(outputId: OutputId, sourceId: SourceId | null): Promise<OutputSnapshot | undefined> {
@@ -1391,9 +1430,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       data: { sourceId, effects: updated }
     });
 
-    if (sourceId === "hama" && captureSupervisor.snapshot().state === "running") {
-      void captureSupervisor.restart().catch(() => undefined);
-    }
+    void afterEffectsChange(sourceId);
 
     return reply.code(200).send(updated);
   });
@@ -1491,9 +1528,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       data: { sourceId, effects: updated }
     });
 
-    if (sourceId === "hama" && captureSupervisor.snapshot().state === "running") {
-      void captureSupervisor.restart().catch(() => undefined);
-    }
+    void afterEffectsChange(sourceId);
 
     return reply.code(200).send(updated);
   });
@@ -1540,9 +1575,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       data: { sourceId, effects: updated }
     });
 
-    if (sourceId === "hama" && captureSupervisor.snapshot().state === "running") {
-      void captureSupervisor.restart().catch(() => undefined);
-    }
+    void afterEffectsChange(sourceId);
 
     return reply.code(200).send(updated);
   });
@@ -1586,9 +1619,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       data: { sourceId, effects: updated }
     });
 
-    if (sourceId === "hama" && captureSupervisor.snapshot().state === "running") {
-      void captureSupervisor.restart().catch(() => undefined);
-    }
+    void afterEffectsChange(sourceId);
 
     return reply.code(200).send(updated);
   });
@@ -1625,9 +1656,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       data: { sourceId, effects: updated }
     });
 
-    if (sourceId === "hama" && captureSupervisor.snapshot().state === "running") {
-      void captureSupervisor.restart().catch(() => undefined);
-    }
+    void afterEffectsChange(sourceId);
 
     return reply.code(200).send(updated);
   });
@@ -1676,9 +1705,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       data: { sourceId, effects: updated }
     });
 
-    if (sourceId === "hama" && captureSupervisor.snapshot().state === "running") {
-      void captureSupervisor.restart().catch(() => undefined);
-    }
+    void afterEffectsChange(sourceId);
 
     return reply.code(200).send(updated);
   });
@@ -1799,9 +1826,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     routeOutput: (outputId, sourceId) => routeOutput(outputId, sourceId as SourceId | null),
     effectsChanged: (sourceId, effects) => {
       eventBroker.emit({ type: "effects", data: { sourceId, effects } });
-      if (sourceId === "hama" && captureSupervisor.snapshot().state === "running") {
-        void captureSupervisor.restart().catch(() => undefined);
-      }
+      void afterEffectsChange(sourceId);
     }
   });
 

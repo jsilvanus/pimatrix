@@ -81,6 +81,7 @@ function setup(options: { connected?: boolean; stateFile?: boolean; dataDir?: st
       player: fakePlayer(recorder),
       liveSourceUrl: (id) => `rtsp://127.0.0.1:8554/${id}`,
       atem: await atemPromise,
+      renderLive: async (live) => Buffer.from(`live:${live.sourceUrl}`),
       renderFrame: async (renderOptions) => {
         recorder.renders.push(renderOptions);
         const size = renderOptions.format === "rgba" ? renderOptions.geometry.width * renderOptions.geometry.height * 4 : 8;
@@ -235,7 +236,7 @@ test("HDMI key with a live source: publishes the source in the slide box without
   assert.equal(recorder.lives[0]?.url, "rtsp://127.0.0.1:8554/cam1");
   assert.equal(recorder.shows.length, 0);
   assert.equal(service.get("compose1").state, "running");
-  assert.equal(await service.previewPng("compose1"), null);
+  assert.equal((await service.previewPng("compose1"))?.toString(), "live:rtsp://127.0.0.1:8554/cam1");
   // switching source restarts the live render
   await service.update("compose1", { sourceId: "rtmp1" });
   await service.idle();
@@ -247,4 +248,18 @@ test("an ATEM media composite refuses a live source", async () => {
   const { make } = setup();
   const service = await make();
   await assert.rejects(service.update("compose2", { slideSource: "source" }), InvalidCompositeError);
+});
+
+test("refreshLive re-publishes only enabled composites that show that source", async () => {
+  const { make, recorder } = setup();
+  const service = await make();
+  await service.update("compose1", { slideSource: "source", sourceId: "cam1", enabled: true });
+  await service.idle();
+  assert.equal(recorder.lives.length, 1);
+  service.refreshLive("cam2");
+  await service.idle();
+  assert.equal(recorder.lives.length, 1);
+  service.refreshLive("cam1");
+  await service.idle();
+  assert.equal(recorder.lives.length, 2);
 });
