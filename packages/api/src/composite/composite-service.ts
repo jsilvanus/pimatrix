@@ -15,7 +15,7 @@ import {
 } from "./composite-model.js";
 import { keyPageGeometry } from "./key-page.js";
 import type { LiveKeyLayout } from "./key-publisher.js";
-import { isPng, renderKeyPage, type RenderKeyPageOptions } from "./key-render.js";
+import { isPng, renderKeyPage, renderLiveFrame, type RenderKeyPageOptions, type RenderLiveFrameOptions } from "./key-render.js";
 import type { KeyPagePlayer } from "./key-player.js";
 
 /** The part of the HDMI key player the service uses (tests pass a fake). */
@@ -67,6 +67,8 @@ export interface CompositeServiceOptions {
   atemFillInputBase?: number;
   /** Renders one frame. Tests replace it so no ffmpeg runs. */
   renderFrame?: (options: RenderKeyPageOptions) => Promise<Buffer>;
+  /** Grabs one frame of a live source in the slide box. Tests replace it. */
+  renderLive?: (options: RenderLiveFrameOptions) => Promise<Buffer>;
   /** Called on every state change, for the event stream. */
   onChange?: (status: CompositeStatus) => void;
 }
@@ -145,6 +147,16 @@ export class CompositeService {
     return this.get(id);
   }
 
+  /** Re-render the live composites that show this source (its MediaMTX path changed). */
+  refreshLive(sourceId: string): void {
+    for (const id of COMPOSITE_IDS) {
+      const settings = this.requireSettings(id);
+      if (settings.enabled && settings.slideSource === "source" && settings.sourceId === sourceId) {
+        this.schedule(id, () => this.apply(id));
+      }
+    }
+  }
+
   /** Store a new manual slide and refresh every enabled composite that uses uploads. The slide must be PNG. */
   async setSlide(png: Buffer): Promise<CompositeStatus[]> {
     validatePng(png);
@@ -194,7 +206,20 @@ export class CompositeService {
   /** A PNG of what the composite would show now (its key page). Null without a slide. */
   async previewPng(id: string): Promise<Buffer | null> {
     const settings = this.requireSettings(id);
-    if (settings.slideSource === "source") return null;
+    if (settings.slideSource === "source") {
+      const url = this.options.liveSourceUrl?.(settings.sourceId);
+      if (!url) return null;
+      const geometry = keyPageGeometry(settings);
+      try {
+        return await (this.options.renderLive ?? renderLiveFrame)({
+          sourceUrl: url,
+          layout: { width: geometry.width, height: geometry.height, background: geometry.background, slide: geometry.slide },
+          ...(this.options.ffmpeg ? { ffmpeg: this.options.ffmpeg } : {})
+        });
+      } catch {
+        return null; // the source has no picture right now
+      }
+    }
     const slide = this.slideFor(settings);
     if (!slide) return null;
     return await this.renderFrame({

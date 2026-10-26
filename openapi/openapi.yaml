@@ -1539,7 +1539,7 @@ paths:
     get:
       operationId: getCompositePreview
       tags: [Composites]
-      summary: The key page the composite would show now, as a PNG
+      summary: The key page the composite would show now, as a PNG (a fresh live frame in source mode)
       responses:
         "200":
           description: PNG of the key page at the composite's frame size

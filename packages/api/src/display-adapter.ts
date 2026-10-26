@@ -80,6 +80,8 @@ export interface HardwareDisplayConfig {
   hdmiDecoder?: string;
   mediaMtxApiUrl?: string;
   mediaMtxRtspUrl?: string;
+  /** The MediaMTX path to read for a source (effects may point it at a processed or slate path). Default: the source id. */
+  resolvePath?: (sourceId: string) => string;
 }
 
 export function createDisplayAdapter(
@@ -90,17 +92,18 @@ export function createDisplayAdapter(
   if (mode === "hardware") {
     // Both HDMI outputs are known; an output without a device is "not configured".
     const rtspBase = hardware.mediaMtxRtspUrl?.replace(/\/$/, "");
+    const resolvePath = hardware.resolvePath ?? ((sourceId: string) => sourceId);
     return new HdmiPlayerAdapter({
       outputs: new Map<OutputId, { device?: string | undefined }>([
         ["hdmi0", { device: hardware.hdmi0Device }],
         ["hdmi1", { device: hardware.hdmi1Device }]
       ]),
-      sourceUrl: (sourceId) => (rtspBase ? `${rtspBase}/${sourceId}` : undefined),
+      sourceUrl: (sourceId) => (rtspBase ? `${rtspBase}/${resolvePath(sourceId)}` : undefined),
       // The player waits until MediaMTX reports the source path ready (no wait without the API URL).
       ...(hardware.mediaMtxApiUrl
         ? {
             sourceReady: async (sourceId: SourceId) =>
-              (await inspectMediaMtx(hardware.mediaMtxApiUrl)).readyPaths.has(sourceId)
+              (await inspectMediaMtx(hardware.mediaMtxApiUrl)).readyPaths.has(resolvePath(sourceId))
           }
         : {}),
       ...(hardware.hdmiPlayer ? { player: hardware.hdmiPlayer } : {}),

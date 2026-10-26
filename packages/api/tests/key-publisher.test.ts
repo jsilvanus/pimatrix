@@ -106,3 +106,48 @@ test("showLive replaces the running process", async () => {
   assert.equal(spawned[0]?.proc.killed, "SIGTERM");
   assert.ok(spawned[1]?.args.includes("-filter_complex"));
 });
+
+test("a live process that dies after the start window is restarted with a doubling delay, then given up", async () => {
+  const spawned: FakeProcess[] = [];
+  const publisher = new KeyPagePublisher({
+    rtspUrl: "rtsp://127.0.0.1:8554/compose1",
+    startupWindowMs: 5,
+    restartBaseMs: 5,
+    maxRestarts: 2,
+    spawn: () => {
+      const proc = new FakeProcess();
+      spawned.push(proc);
+      return proc;
+    }
+  });
+  await publisher.showLive("rtsp://127.0.0.1:8554/cam1", layout);
+  assert.equal(spawned.length, 1);
+  spawned[0]?.crash(1);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(spawned.length, 2);
+  spawned[1]?.crash(1);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(spawned.length, 3);
+  spawned[2]?.crash(1);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(spawned.length, 3, "gave up after maxRestarts");
+});
+
+test("stop cancels a pending restart", async () => {
+  const spawned: FakeProcess[] = [];
+  const publisher = new KeyPagePublisher({
+    rtspUrl: "rtsp://127.0.0.1:8554/compose1",
+    startupWindowMs: 5,
+    restartBaseMs: 30,
+    spawn: () => {
+      const proc = new FakeProcess();
+      spawned.push(proc);
+      return proc;
+    }
+  });
+  await publisher.showLive("rtsp://127.0.0.1:8554/cam1", layout);
+  spawned[0]?.crash(1);
+  await publisher.stop();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(spawned.length, 1);
+});
