@@ -55,6 +55,20 @@ export interface CameraSnapshot {
   presets: CameraPreset[];
 }
 
+/** The camera's own FreeD output (AVer web UI, /storks CGI). */
+export interface FreedState {
+  enabled: boolean;
+  camId: number | null;
+  addr: string | null;
+  port: number | null;
+}
+
+export interface FreedTarget {
+  camId: number;
+  addr: string;
+  port: number;
+}
+
 export interface CameraAdapter {
   readonly id: string;
   readonly label: string;
@@ -68,6 +82,10 @@ export interface CameraAdapter {
   setSmartFrame(mode: SmartFrameMode): Promise<void>;
   /** VISCA CAM_Power: true wakes the camera, false puts it in standby. */
   setPower(on: boolean): Promise<void>;
+  /** Reads the camera's FreeD output settings. */
+  getFreed(): Promise<FreedState>;
+  /** Sets the FreeD target (when given) and turns FreeD output on or off. Returns the state read back. */
+  setFreed(enabled: boolean, target?: FreedTarget): Promise<FreedState>;
   /** On: AF to MF, near limit to the closest distance, focus driven near. Off: back to AF. */
   setPrivacyBlur(enabled: boolean): Promise<void>;
   /** Plain VISCA CAM_Focus auto (AF) or manual (MF). */
@@ -94,6 +112,8 @@ export class SimulatedCameraAdapter implements CameraAdapter {
     [5, { position: { pan: -150, tilt: 0, zoom: 8 }, name: "Lectern" }],
     [6, { position: { pan: 0, tilt: 0, zoom: 0 }, name: "Wide Hall" }]
   ]);
+
+  private freed: FreedState = { enabled: false, camId: null, addr: null, port: null };
 
   constructor(id: string, label: string) {
     this.id = id;
@@ -214,6 +234,17 @@ export class SimulatedCameraAdapter implements CameraAdapter {
     // Simulated: nothing to switch.
   }
 
+  async getFreed(): Promise<FreedState> {
+    return { ...this.freed };
+  }
+
+  async setFreed(enabled: boolean, target?: FreedTarget): Promise<FreedState> {
+    this.freed = target
+      ? { enabled, camId: target.camId, addr: target.addr, port: target.port }
+      : { ...this.freed, enabled };
+    return { ...this.freed };
+  }
+
   async setPrivacyBlur(enabled: boolean): Promise<void> {
     this.privacyBlur = enabled;
     this.focusMode = enabled ? "manual" : "auto";
@@ -252,6 +283,30 @@ export class CameraCgiError extends Error {
     super(message);
     this.name = "CameraCgiError";
   }
+}
+
+/**
+ * Reads the FreeD fields out of a get_net_cfg answer (";"-separated key=value pairs).
+ * Returns null when freed_enable is missing or not 0/1/on/off.
+ */
+export function parseFreedState(body: string): FreedState | null {
+  const fields = new Map<string, string>();
+  for (const part of body.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq > 0) fields.set(part.slice(0, eq).trim(), part.slice(eq + 1).trim());
+  }
+  const raw = fields.get("freed_enable")?.toLowerCase();
+  if (raw === undefined || !["0", "1", "on", "off"].includes(raw)) return null;
+  const num = (key: string): number | null => {
+    const v = fields.get(key);
+    return v !== undefined && /^\d+$/.test(v) ? Number(v) : null;
+  };
+  return {
+    enabled: raw === "1" || raw === "on",
+    camId: num("freed_cam_id"),
+    addr: fields.get("freed_addr") || null,
+    port: num("freed_port_num")
+  };
 }
 
 export interface CameraLogin {
@@ -510,8 +565,8 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
   }
 
   /** One CGI call on /storks. The login goes only in the Authorization header. Returns the answer body. */
-  private async cgiCommand(cmd: string, method: "GET" | "POST"): Promise<string> {
-    const url = `http://${this.host}:${this.cgiPort}/storks?cmd=${cmd}`;
+  private async cgiCommand(cmd: string, method: "GET" | "POST", base = "/storks"): Promise<string> {
+    const url = `http://${this.host}:${this.cgiPort}${base}?cmd=${cmd}`;
     const headers: Record<string, string> = this.authHeader ? { Authorization: this.authHeader } : {};
     let res: Response;
     try {
@@ -533,6 +588,30 @@ export class UdpViscaCameraAdapter implements CameraAdapter {
       throw new CameraCgiError(`Camera ${this.id} answered HTTP ${res.status} to the CGI request`, "rejected", res.status);
     }
     return body;
+  }
+
+  /** FreeD output state, read with get_net_cfg. Throws CameraCgiError when the camera cannot answer. */
+  async getFreed(): Promise<FreedState> {
+    const body = await this.cgiCommand(`get_net_cfg(${Date.now()})`, "GET", "/storks/");
+    const state = parseFreedState(body);
+    if (!state) {
+      this.logger?.warn({ camera: this.id }, "Camera network answer had no recognised freed_enable");
+      throw new CameraCgiError(`Camera ${this.id} answered without a FreeD state`, "rejected");
+    }
+    return state;
+  }
+
+  /** Sets the FreeD target (when given), switches FreeD on or off, then reads the state back. */
+  async setFreed(enabled: boolean, target?: FreedTarget): Promise<FreedState> {
+    if (target) {
+      await this.cgiCommand(
+        `set_freed_config{freed_cam_id:${target.camId},freed_addr:${target.addr},freed_port_num:${target.port}}`,
+        "POST",
+        "/storks/"
+      );
+    }
+    await this.cgiCommand(`set_freed_enable:${enabled ? 1 : 0}`, "POST", "/storks/");
+    return this.getFreed();
   }
 
   async close(): Promise<void> {

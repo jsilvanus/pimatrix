@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import dgram from "node:dgram";
 import test from "node:test";
 import { buildApp } from "../src/app.js";
+import http from "node:http";
 import {
+  parseFreedState,
   SimulatedCameraAdapter,
   UdpViscaCameraAdapter
 } from "../src/camera/camera-adapter.js";
@@ -381,6 +383,90 @@ test("Camera power REST endpoint validates and answers", async () => {
     payload: { on: true }
   });
   assert.equal(missingRes.statusCode, 404);
+
+  await app.close();
+});
+
+test("parseFreedState reads get_net_cfg key=value pairs and rejects answers without freed_enable", () => {
+  const state = parseFreedState("freed_enable=1;freed_cam_id=101;freed_addr=192.168.1.77;freed_port_num=40000;");
+  assert.deepEqual(state, { enabled: true, camId: 101, addr: "192.168.1.77", port: 40000 });
+  assert.equal(parseFreedState("freed_enable=0;freed_cam_id=102")?.enabled, false);
+  assert.equal(parseFreedState("ip=1.2.3.4;"), null);
+  assert.equal(parseFreedState("freed_enable=maybe"), null);
+});
+
+test("UdpViscaCameraAdapter FreeD: target, enable and read-back go to the /storks/ CGI with login", async () => {
+  const calls: { method: string | undefined; url: string | undefined; auth: string | undefined }[] = [];
+  let netCfg = "freed_enable=0;freed_cam_id=101;freed_addr=192.168.1.77;freed_port_num=40000;";
+  const cgi = http.createServer((req, res) => {
+    calls.push({ method: req.method, url: req.url, auth: req.headers.authorization });
+    if (req.url?.includes("set_freed_enable:1")) netCfg = netCfg.replace("freed_enable=0", "freed_enable=1");
+    if (req.url?.includes("set_freed_enable:0")) netCfg = netCfg.replace("freed_enable=1", "freed_enable=0");
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end(req.url?.includes("get_net_cfg") ? netCfg : "");
+  });
+  await new Promise<void>((resolve) => cgi.listen(0, "127.0.0.1", () => resolve()));
+
+  const adapter = new UdpViscaCameraAdapter({
+    id: "cam1",
+    label: "Camera 1",
+    host: "127.0.0.1",
+    cgiPort: (cgi.address() as { port: number }).port,
+    auth: { user: "admin", password: "secret" },
+    viscaSourcePort: 0
+  });
+
+  const before = await adapter.getFreed();
+  assert.equal(before.enabled, false);
+
+  const after = await adapter.setFreed(true, { camId: 101, addr: "192.168.1.77", port: 40000 });
+  assert.equal(after.enabled, true);
+  assert.equal(after.addr, "192.168.1.77");
+
+  const off = await adapter.setFreed(false);
+  assert.equal(off.enabled, false);
+
+  assert.ok(calls.every((c) => c.url?.startsWith("/storks/?cmd=")));
+  assert.ok(calls.every((c) => c.auth === `Basic ${Buffer.from("admin:secret").toString("base64")}`));
+  assert.equal(calls[1]?.url, "/storks/?cmd=set_freed_config{freed_cam_id:101,freed_addr:192.168.1.77,freed_port_num:40000}");
+  assert.equal(calls[2]?.url, "/storks/?cmd=set_freed_enable:1");
+
+  await adapter.close();
+  await new Promise<void>((resolve) => cgi.close(() => resolve()));
+});
+
+test("Camera FreeD REST endpoints: read, toggle with target, validate", async () => {
+  const app = buildApp(loadConfig({ PIMATRIX_MODE: "simulation" }));
+
+  const getRes = await app.inject({ method: "GET", url: "/api/v1/cameras/cam1/freed" });
+  assert.equal(getRes.statusCode, 200);
+  assert.equal(getRes.json().freed.enabled, false);
+
+  const onRes = await app.inject({
+    method: "POST",
+    url: "/api/v1/cameras/cam1/freed",
+    payload: { enabled: true, target: { camId: 101, addr: "192.168.1.77", port: 40000 } }
+  });
+  assert.equal(onRes.statusCode, 200);
+  assert.equal(onRes.json().action, "freed:on");
+  assert.equal(onRes.json().freed.port, 40000);
+
+  const offRes = await app.inject({ method: "POST", url: "/api/v1/cameras/cam1/freed", payload: { enabled: false } });
+  assert.equal(offRes.statusCode, 200);
+  assert.equal(offRes.json().freed.enabled, false);
+
+  const badEnabled = await app.inject({ method: "POST", url: "/api/v1/cameras/cam1/freed", payload: { enabled: "yes" } });
+  assert.equal(badEnabled.statusCode, 422);
+
+  const badTarget = await app.inject({
+    method: "POST",
+    url: "/api/v1/cameras/cam1/freed",
+    payload: { enabled: true, target: { camId: 101, addr: "not-an-ip", port: 40000 } }
+  });
+  assert.equal(badTarget.statusCode, 422);
+
+  const missing = await app.inject({ method: "GET", url: "/api/v1/cameras/unknown-cam/freed" });
+  assert.equal(missing.statusCode, 404);
 
   await app.close();
 });

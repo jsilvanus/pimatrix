@@ -4,6 +4,8 @@ import {
   type CameraAdapter,
   type CameraSnapshot,
   type FocusMode,
+  type FreedState,
+  type FreedTarget,
   SimulatedCameraAdapter,
   UdpViscaCameraAdapter
 } from "./camera-adapter.js";
@@ -250,6 +252,33 @@ export class CameraService {
     });
 
     return snapshot;
+  }
+
+  async getFreed(id: string): Promise<FreedState> {
+    const cam = this.cameras.get(id);
+    if (!cam) {
+      throw new Error(`Camera '${id}' not found`);
+    }
+    return cam.getFreed();
+  }
+
+  async setFreed(id: string, enabled: boolean, target?: FreedTarget): Promise<FreedState> {
+    const cam = this.cameras.get(id);
+    if (!cam) {
+      throw new Error(`Camera '${id}' not found`);
+    }
+
+    const freed = await cam.setFreed(enabled, target);
+
+    this.eventBroker?.emit({
+      type: "camera",
+      data: {
+        id,
+        action: `freed:${enabled ? "on" : "off"}`
+      }
+    });
+
+    return freed;
   }
 
   async setPrivacyBlur(id: string, enabled: boolean): Promise<CameraSnapshot> {

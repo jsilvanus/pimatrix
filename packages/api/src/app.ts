@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createFleet } from "fffleet";
 import Fastify, { type FastifyInstance } from "fastify";
+import { isIPv4 } from "node:net";
 import { createAmxClient, type AmxClient } from "./amx/amx-client.js";
 import { AmxTcpListener } from "./amx/amx-listener.js";
 import { AtemAdapter } from "./atem/atem-adapter.js";
@@ -1200,6 +1201,74 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       success: true,
       action: `power:${on ? "on" : "standby"}`
     });
+  });
+
+  app.get<{ Params: { cameraId: string } }>("/api/v1/cameras/:cameraId/freed", async (request, reply) => {
+    if (!cameraService.get(request.params.cameraId)) {
+      return reply.code(404).send({
+        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
+      });
+    }
+
+    try {
+      const freed = await cameraService.getFreed(request.params.cameraId);
+      return reply.code(200).send({ cameraId: request.params.cameraId, freed });
+    } catch (err) {
+      return sendCameraCgiError(reply, err);
+    }
+  });
+
+  app.post<{
+    Params: { cameraId: string };
+    Body: { enabled?: unknown; target?: unknown };
+  }>("/api/v1/cameras/:cameraId/freed", async (request, reply) => {
+    const cameraId = request.params.cameraId;
+    if (!cameraService.get(cameraId)) {
+      return reply.code(404).send({
+        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${cameraId}` }
+      });
+    }
+
+    const enabled = request.body?.enabled;
+    if (typeof enabled !== "boolean") {
+      return reply.code(422).send({
+        error: { code: "INVALID_FREED", message: "enabled must be true or false" }
+      });
+    }
+
+    let target: { camId: number; addr: string; port: number } | undefined;
+    if (request.body?.target !== undefined) {
+      const t = request.body.target as { camId?: unknown; addr?: unknown; port?: unknown } | null;
+      const validPort = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 65535;
+      if (
+        !t ||
+        typeof t !== "object" ||
+        !validPort(t.camId) ||
+        typeof t.addr !== "string" ||
+        !isIPv4(t.addr) ||
+        !validPort(t.port)
+      ) {
+        return reply.code(422).send({
+          error: {
+            code: "INVALID_FREED_TARGET",
+            message: "target needs camId (1-65535), addr (IPv4) and port (1-65535)"
+          }
+        });
+      }
+      target = { camId: t.camId as number, addr: t.addr, port: t.port as number };
+    }
+
+    try {
+      const freed = await cameraService.setFreed(cameraId, enabled, target);
+      return reply.code(200).send({
+        cameraId,
+        success: true,
+        action: `freed:${enabled ? "on" : "off"}`,
+        freed
+      });
+    } catch (err) {
+      return sendCameraCgiError(reply, err);
+    }
   });
 
   app.post<{
