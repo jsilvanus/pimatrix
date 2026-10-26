@@ -20,6 +20,8 @@ export type AmxClientStatus = "connected" | "unavailable" | "not-configured" | "
 export interface AmxClient {
   routeMatrix(input: number, output: number, timeoutMs?: number): Promise<AmxRouteResponse>;
   getStatus(): Promise<AmxClientStatus>;
+  /** Atlona output (1-4) -> input (null = unknown), read from AMX; null when AMX cannot answer. */
+  atlonaRoutes(timeoutMs?: number): Promise<Record<number, number | null> | null>;
   close(): Promise<void>;
 }
 
@@ -49,6 +51,10 @@ export class SimulatedAmxClient implements AmxClient {
     return "simulated";
   }
 
+  async atlonaRoutes(): Promise<null> {
+    return null;
+  }
+
   async close(): Promise<void> {
     // No-op
   }
@@ -70,6 +76,10 @@ export class DisabledAmxClient implements AmxClient {
     return "not-configured";
   }
 
+  async atlonaRoutes(): Promise<null> {
+    return null;
+  }
+
   async close(): Promise<void> {
     // No-op
   }
@@ -82,6 +92,10 @@ export class TcpAmxClient implements AmxClient {
   private socket: Socket | null = null;
   private reqCount = 0;
   private buffer = "";
+  private statusRequests = new Map<
+    string,
+    { resolve: (routes: Record<number, number | null>) => void; timer: NodeJS.Timeout }
+  >();
   private pendingRequests = new Map<
     string,
     {
@@ -156,6 +170,19 @@ export class TcpAmxClient implements AmxClient {
         status = parts[2] ?? "";
       }
 
+      if (status === "STATUS" && reqId && this.statusRequests.has(reqId)) {
+        const req = this.statusRequests.get(reqId)!;
+        clearTimeout(req.timer);
+        this.statusRequests.delete(reqId);
+        const routes: Record<number, number | null> = {};
+        (parts[3] ?? "").split(",").forEach((value, index) => {
+          const input = Number(value);
+          routes[index + 1] = Number.isInteger(input) && input >= 1 && input <= 4 ? input : null;
+        });
+        req.resolve(routes);
+        continue;
+      }
+
       if (reqId && this.pendingRequests.has(reqId)) {
         const req = this.pendingRequests.get(reqId)!;
         clearTimeout(req.timer);
@@ -208,6 +235,25 @@ export class TcpAmxClient implements AmxClient {
     });
   }
 
+  /** ATLONA:STATUS:<reqId>; -> ATLONA:STATUS:<reqId>:<o1>,<o2>,<o3>,<o4>; (0 = unknown). */
+  async atlonaRoutes(timeoutMs = 1500): Promise<Record<number, number | null> | null> {
+    try {
+      const socket = await this.getConnectedSocket();
+      this.reqCount += 1;
+      const requestId = `st-${Date.now()}-${this.reqCount}`;
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          this.statusRequests.delete(requestId);
+          resolve(null);
+        }, timeoutMs);
+        this.statusRequests.set(requestId, { resolve, timer });
+        socket.write(`ATLONA:STATUS:${requestId};\r\n`);
+      });
+    } catch {
+      return null;
+    }
+  }
+
   async getStatus(): Promise<AmxClientStatus> {
     if (this.socket && !this.socket.destroyed) {
       return "connected";
@@ -224,6 +270,11 @@ export class TcpAmxClient implements AmxClient {
     if (this.socket) {
       this.socket.destroy();
       this.socket = null;
+    }
+    for (const [id, req] of this.statusRequests.entries()) {
+      clearTimeout(req.timer);
+      req.resolve({});
+      this.statusRequests.delete(id);
     }
     for (const [id, req] of this.pendingRequests.entries()) {
       clearTimeout(req.timer);

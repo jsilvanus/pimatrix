@@ -14,6 +14,7 @@ import {
   QuickOptionLimitError,
   QuickOptionNameError,
   QuickOptionNotFoundError,
+  QuickOptionNumberError,
   SNAPSHOT_OUTPUT_IDS,
   type QuickOption,
   type QuickOptionSnapshot,
@@ -99,15 +100,18 @@ export function registerQuickOptionRoutes(app: FastifyInstance, deps: QuickOptio
     if (error instanceof QuickOptionNotFoundError) return fail(reply, 404, "QUICK_OPTION_NOT_FOUND", error.message);
     if (error instanceof QuickOptionNameError) return fail(reply, 422, "INVALID_NAME", error.message);
     if (error instanceof QuickOptionDuplicateError) return fail(reply, 409, "DUPLICATE_NAME", error.message);
+    if (error instanceof QuickOptionNumberError) {
+      return fail(reply, error.message.includes("in use") ? 409 : 422, "INVALID_NUMBER", error.message);
+    }
     if (error instanceof QuickOptionLimitError) return fail(reply, 422, "TOO_MANY_QUICK_OPTIONS", error.message);
     throw error;
   };
 
   app.get("/api/v1/quick-options", async (): Promise<{ items: QuickOption[] }> => ({ items: deps.store.list() }));
 
-  app.post<{ Body: { name?: unknown } }>("/api/v1/quick-options", async (request, reply) => {
+  app.post<{ Body: { name?: unknown; number?: unknown } }>("/api/v1/quick-options", async (request, reply) => {
     try {
-      const created = deps.store.create(request.body?.name, captureSnapshot(deps));
+      const created = deps.store.create(request.body?.name, captureSnapshot(deps), request.body?.number);
       return reply.code(201).send(created);
     } catch (error) {
       return handle(reply, error);
@@ -123,9 +127,25 @@ export function registerQuickOptionRoutes(app: FastifyInstance, deps: QuickOptio
     }
   });
 
-  app.put<{ Params: { id: string }; Body: { name?: unknown } }>("/api/v1/quick-options/:id", async (request, reply) => {
+  app.post<{ Params: { number: string } }>("/api/v1/quick-options/number/:number/apply", async (request, reply) => {
     try {
-      return reply.code(200).send(deps.store.rename(request.params.id, request.body?.name));
+      const option = deps.store.getByNumber(Number(request.params.number));
+      return reply.code(200).send(await applySnapshot(deps, option.snapshot));
+    } catch (error) {
+      return handle(reply, error);
+    }
+  });
+
+  app.put<{ Params: { id: string }; Body: { name?: unknown; number?: unknown } }>("/api/v1/quick-options/:id", async (request, reply) => {
+    try {
+      const body = request.body ?? {};
+      if (body.name === undefined && body.number === undefined) {
+        throw new QuickOptionNameError("name or number is required");
+      }
+      let updated: QuickOption | undefined;
+      if (body.name !== undefined) updated = deps.store.rename(request.params.id, body.name);
+      if (body.number !== undefined) updated = deps.store.setNumber(request.params.id, body.number);
+      return reply.code(200).send(updated);
     } catch (error) {
       return handle(reply, error);
     }

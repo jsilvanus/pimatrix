@@ -4,7 +4,7 @@ import { createFleet } from "fffleet";
 import Fastify, { type FastifyInstance } from "fastify";
 import { isIPv4 } from "node:net";
 import { createAmxClient, type AmxClient } from "./amx/amx-client.js";
-import { AmxTcpListener } from "./amx/amx-listener.js";
+import { AmxTcpListener, type AmxControl } from "./amx/amx-listener.js";
 import { AtemAdapter } from "./atem/atem-adapter.js";
 import { registerAtemRoutes } from "./atem/atem-routes.js";
 import { CameraService } from "./camera/camera-service.js";
@@ -47,7 +47,7 @@ import { PiprogramClient, PiprogramFeed } from "./composite/piprogram-feed.js";
 import { PIPROGRAM_PIPELINE_IDS, type PiprogramPipelineId } from "./composite/composite-model.js";
 import { isIpWhitelisted } from "./ip-whitelist.js";
 import { QuickOptionStore } from "./quick-options/quick-options-store.js";
-import { registerQuickOptionRoutes } from "./quick-options/quick-options-routes.js";
+import { applySnapshot, registerQuickOptionRoutes, type QuickOptionDeps } from "./quick-options/quick-options-routes.js";
 
 /** Maps a failed camera CGI call to a 502 with a reason, so a bad login is visible in the API. */
 function sendCameraCgiError(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, err: unknown): unknown {
@@ -319,8 +319,48 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   };
 
 
+  // Last power command per camera: VISCA power is not read back, so "unknown" until AMX or the API sets it.
+  const cameraPower = new Map<string, "on" | "standby">();
+  const quickOptionStore = new QuickOptionStore(config.quickOptionsFile);
+  let quickDeps: QuickOptionDeps;
+  const amxControl: AmxControl = {
+    cameras: () =>
+      cameraService.list().map((cam) => ({
+        id: cam.id,
+        connection: cam.connection,
+        power: cameraPower.get(cam.id) ?? "unknown"
+      })),
+    cameraPower: async (id, on) => {
+      await cameraService.setPower(id, on);
+      cameraPower.set(id, on ? "on" : "standby");
+    },
+    cameraPreset: async (id, presetId, save) => {
+      await (save ? cameraService.savePreset(id, presetId) : cameraService.recallPreset(id, presetId));
+    },
+    cameraMove: async (id, direction) => {
+      await cameraService.move(id, direction as PanTiltDirection);
+    },
+    cameraZoom: async (id, action) => {
+      await cameraService.zoom(id, action as ZoomAction);
+    },
+    quickOptions: () => quickOptionStore.list().map((q) => ({ number: q.number, name: q.name })),
+    runQuickOption: async (number) => {
+      await applySnapshot(quickDeps, quickOptionStore.getByNumber(number).snapshot);
+    },
+    program: () => {
+      if (!piprogramFeed && !pipgmSources) return "unavailable";
+      return piprogramFeed?.isPaused || pipgmSources?.isPaused ? "off" : "on";
+    },
+    setProgram: async (on) => {
+      await Promise.all([piprogramFeed?.setPaused(!on), pipgmSources?.setPaused(!on)]);
+      eventBroker.emit({ type: "program", data: { on } });
+    },
+    atlonaRoutes: () => ({ ...matrixState.routes })
+  };
+
   const amxListener = config.amxTcpEnabled
     ? new AmxTcpListener({
+        control: amxControl,
         host: config.amxTcpHost,
         port: config.amxTcpPort,
         outputStore,
@@ -347,13 +387,39 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     if (amxListener) {
       await amxListener.start();
     }
+    if (config.amxMasterHost) {
+      // Reads the Atlona routes from AMX every 2 s so the UI follows touch-panel changes.
+      amxPoll = setInterval(() => void pollAtlona(), 2000);
+      amxPoll.unref();
+    }
     // Restores saved composites in the background; the ATEM may still be connecting.
     compositeService.restore().catch((error: unknown) => {
       app.log.error({ err: error }, "Composite restore failed");
     });
   });
 
+  let amxPoll: ReturnType<typeof setInterval> | null = null;
+  let amxPolling = false;
+  async function pollAtlona(): Promise<void> {
+    if (amxPolling) return;
+    amxPolling = true;
+    try {
+      const routes = await amxClient.atlonaRoutes();
+      if (!routes) return;
+      const changed = Object.entries(routes).some(([out, input]) => matrixState.routes[Number(out)] !== input);
+      if (!changed) return;
+      Object.assign(matrixState.routes, routes);
+      eventBroker.emit({
+        type: "matrix",
+        data: { locked: matrixState.locked, routes: { ...matrixState.routes } }
+      });
+    } finally {
+      amxPolling = false;
+    }
+  }
+
   app.addHook("onClose", async () => {
+    if (amxPoll) clearInterval(amxPoll);
     hamaOnDemand.dispose();
     await effectsLayer.close();
     piprogramFeed?.stop();
@@ -1195,6 +1261,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     }
 
     await cameraService.setPower(request.params.cameraId, on);
+    cameraPower.set(request.params.cameraId, on ? "on" : "standby");
 
     return reply.code(200).send({
       cameraId: request.params.cameraId,
@@ -1914,8 +1981,8 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     }).then((res) => reply.code(res.statusCode).send(JSON.parse(res.payload)));
   });
 
-  registerQuickOptionRoutes(app, {
-    store: new QuickOptionStore(config.quickOptionsFile),
+  quickDeps = {
+    store: quickOptionStore,
     outputStore,
     effectsStore,
     compositeService,
@@ -1924,7 +1991,8 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       eventBroker.emit({ type: "effects", data: { sourceId, effects } });
       void afterEffectsChange(sourceId);
     }
-  });
+  };
+  registerQuickOptionRoutes(app, quickDeps);
 
   app.setNotFoundHandler(async (request, reply) =>
     reply.code(404).send({

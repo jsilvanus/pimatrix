@@ -37,8 +37,19 @@ export class PipgmSourceFeed {
   private readonly sent = new Map<PiprogramPipelineId, string>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  private paused = false;
 
   constructor(private readonly options: PipgmSourceFeedOptions) {}
+
+  get isPaused(): boolean {
+    return this.paused;
+  }
+
+  /** While paused every PiPGM picture is blanked instead of following piprogram. */
+  async setPaused(paused: boolean): Promise<void> {
+    this.paused = paused;
+    await this.tick();
+  }
 
   /** The last snapshot of a pipeline, or null when piprogram has not answered. */
   snapshot(pipelineId: PiprogramPipelineId): PiprogramPipelineSnapshot | null {
@@ -68,6 +79,13 @@ export class PipgmSourceFeed {
   }
 
   private async follow(id: PiprogramPipelineId): Promise<void> {
+    if (this.paused) {
+      if (this.sent.get(id) !== BLANK) {
+        await this.options.publishers[id].stop();
+        this.sent.set(id, BLANK);
+      }
+      return;
+    }
     let snapshot: PiprogramPipelineSnapshot;
     try {
       snapshot = await this.options.client.snapshot(id);

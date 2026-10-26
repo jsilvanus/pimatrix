@@ -150,14 +150,20 @@ Exposes a line-framed, `;`-terminated ASCII protocol matching NetLinx convention
 - `SOURCE:GET:<sourceId>;` &rarr; `SOURCE:<sourceId>:<state>:<previewAvailable>;`
 - `OUTPUT:LIST;` &rarr; `OUTPUT:LIST:hdmi0=<desired>:<observed>:<state>,...;`
 - `OUTPUT:SET:<outputId>:<sourceId|none>;` &rarr; `OUTPUT:OK:<outputId>:<sourceId|none>;`
+- `STATUS:ALL;` &rarr; `STATUS:ALL:mode=..,hdmi0=<src>,hdmi0state=..,hdmi1=..,cam1pwr=on|standby|unknown,cam1link=..,atlona=1/2/0/3,program=on|off|unavailable;`
+- `CAM:LIST;`, `CAM:<cam1|cam2|1|2|ALL>:POWER:ON|OFF;` (VISCA standby/wake), `CAM:<id>:PRESET:<0-254>;`, `CAM:<id>:SAVE:<n>;`, `CAM:<id>:MOVE:<UP|DOWN|LEFT|RIGHT|STOP|...>;`, `CAM:<id>:ZOOM:<IN|OUT|STOP>;`
+- `QUICK:LIST;` &rarr; `QUICK:LIST:1=Messu,2=Saarna;`, `QUICK:RUN:<number>;`
+- `PROGRAM:ON|OFF|STATUS;` pauses or resumes the piprogram feeds (composite slides and PiPGM sources; OFF blanks them).
 - `HELP;` &rarr; list of available commands.
+
+Camera power is not read back from the camera; `cam1pwr` shows the last command (`unknown` before the first). The full AMX protocol, both directions, is in [docs/amx-protocol.md](docs/amx-protocol.md).
 
 Supports optional message IDs (e.g. `REQ01:PING;` &rarr; `REQ01:PONG;`).
 
 ### Outbound AMX Client Adapter
 
 When an Atlona route change is requested (`POST /api/v1/matrix/route` or `pimatrix matrix route <in> <out>`), PiMatrix sends:
-`ATLONA:ROUTE:<requestId>:<input>:<output>;` to the AMX NetLinx master on port 6501. AMX remains the sole controller of the Atlona matrix.
+`ATLONA:ROUTE:<requestId>:<input>:<output>;` to the AMX NetLinx master on port 6501. AMX remains the sole controller of the Atlona matrix. With `PIMATRIX_AMX_MASTER_HOST` set, PiMatrix also sends `ATLONA:STATUS:<requestId>;` every 2 seconds and follows the routes AMX reports.
 
 ## Camera Control (VISCA over IP & CGI)
 
