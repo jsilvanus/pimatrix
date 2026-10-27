@@ -36,20 +36,10 @@ async function withAmx(run: (send: (cmd: string) => Promise<string>, http: Retur
   }
 }
 
-test("AMX TCP: camera power, preset, move and errors", async () => {
+test("AMX TCP: camera commands are answered by pigateway, not here", async () => {
   await withAmx(async (send) => {
-    assert.equal(await send("CAM:cam1:POWER:OFF"), "CAM:OK:cam1:POWER:OFF;");
-    assert.equal(await send("r7:CAM:2:POWER:ON"), "r7:CAM:OK:cam2:POWER:ON;");
-    assert.equal(await send("CAM:ALL:POWER:OFF"), "CAM:OK:all:POWER:OFF;");
-    assert.equal(await send("CAM:cam1:PRESET:3"), "CAM:OK:cam1:PRESET:3;");
-    assert.equal(await send("CAM:cam1:SAVE:4"), "CAM:OK:cam1:SAVE:4;");
-    assert.equal(await send("CAM:cam1:MOVE:LEFT"), "CAM:OK:cam1:MOVE:LEFT;");
-    assert.equal(await send("CAM:cam1:ZOOM:IN"), "CAM:OK:cam1:ZOOM:IN;");
-    assert.equal(await send("CAM:camX:POWER:ON"), "ERR:CAMERA_NOT_FOUND:camX;");
-    assert.equal(await send("CAM:cam1:POWER:MAYBE"), "ERR:INVALID_POWER;");
-    assert.equal(await send("CAM:cam1:PRESET:999"), "ERR:INVALID_PRESET;");
-    assert.equal(await send("CAM:ALL:MOVE:UP"), "ERR:CAMERA_REQUIRED;");
-    assert.equal(await send("CAM:LIST"), "CAM:LIST:cam1=standby/simulated,cam2=standby/simulated;");
+    assert.equal(await send("CAM:cam1:POWER:OFF"), "ERR:CAM_UNAVAILABLE;");
+    assert.equal(await send("r7:CAM:LIST"), "r7:ERR:CAM_UNAVAILABLE;");
   });
 });
 
@@ -76,7 +66,7 @@ test("AMX TCP: quick options by number, program and STATUS:ALL", async () => {
 
     const all = await send("STATUS:ALL");
     assert.match(all, /^STATUS:ALL:mode=simulation,hdmi0=none,hdmi0state=unavailable,hdmi1=none,/);
-    assert.match(all, /cam1pwr=unknown,cam1link=simulated/);
-    assert.match(all, /atlona=1\/2\/0\/0\/3,program=unavailable;$/);
+    assert.doesNotMatch(all, /cam1pwr|atlona/, "camera and Atlona fields are added by pigateway");
+    assert.match(all, /program=unavailable;$/);
   });
 });

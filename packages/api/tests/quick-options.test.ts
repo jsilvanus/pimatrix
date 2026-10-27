@@ -4,8 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { buildApp } from "../src/app.js";
-import { AtemAdapter } from "../src/atem/atem-adapter.js";
-import { CameraService } from "../src/camera/camera-service.js";
+import { RemoteAtem } from "../src/gateway/remote-atem.js";
 import { loadConfig } from "../src/config.js";
 import { QuickOptionStore, parseSnapshot } from "../src/quick-options/quick-options-store.js";
 
@@ -125,7 +124,7 @@ test("applying never calls the ATEM or a camera", async () => {
   // Count every call that could send something to the ATEM or a camera.
   const calls: string[] = [];
   const restore: Array<() => void> = [];
-  for (const [label, proto] of [["atem", AtemAdapter.prototype], ["camera", CameraService.prototype]] as const) {
+  for (const [label, proto] of [["atem", RemoteAtem.prototype]] as const) {
     for (const name of Object.getOwnPropertyNames(proto)) {
       const original = (proto as unknown as Record<string, unknown>)[name];
       if (name === "constructor" || typeof original !== "function" || /^(get|list|snapshot|on|off|emit)/.test(name)) continue;

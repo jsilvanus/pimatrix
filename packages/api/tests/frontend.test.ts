@@ -3,7 +3,7 @@ import test from "node:test";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 
-test("source and camera labels come from the API configuration", async () => {
+test("source labels come from the API configuration", async () => {
   const app = buildApp(
     loadConfig({
       PIMATRIX_MODE: "simulation",
@@ -15,12 +15,6 @@ test("source and camera labels come from the API configuration", async () => {
   );
 
   try {
-    const camsRes = await app.inject({ method: "GET", url: "/api/v1/cameras" });
-    assert.equal(camsRes.statusCode, 200);
-    const cams = camsRes.json().items as Array<{ id: string; label: string }>;
-    assert.equal(cams.find((c) => c.id === "cam1")?.label, "Alttari PTZ");
-    assert.equal(cams.find((c) => c.id === "cam2")?.label, "Saarnastuoli PTZ");
-
     const srcsRes = await app.inject({ method: "GET", url: "/api/v1/sources" });
     assert.equal(srcsRes.statusCode, 200);
     const srcs = srcsRes.json().items as Array<{ id: string; label: string }>;
@@ -96,7 +90,7 @@ test("Input-specific Fade to Black (FTB) and Mute work independently per input s
   }
 });
 
-test("Network Stream Out (RTSP) start/stop & preview/full quality, camera preset thumbnails, and Atlona Matrix", async () => {
+test("Network Stream Out (RTSP) start/stop & preview/full quality", async () => {
   const app = buildApp(
     loadConfig({
       PIMATRIX_MODE: "simulation",
@@ -142,38 +136,6 @@ test("Network Stream Out (RTSP) start/stop & preview/full quality, camera preset
     assert.equal(rtspStart.statusCode, 200);
     assert.equal(rtspStart.json().streaming, true);
 
-    // 4. Save camera preset thumbnail for preset 3
-    const thumbRes = await app.inject({
-      method: "POST",
-      url: "/api/v1/cameras/cam1/presets/3/thumbnail",
-      payload: { thumbnail: "data:image/svg+xml;utf8,<svg></svg>" }
-    });
-    assert.equal(thumbRes.statusCode, 200);
-    assert.equal(thumbRes.json().success, true);
-    const preset3 = thumbRes
-      .json()
-      .camera.presets.find((p: { id: number; thumbnail?: string }) => p.id === 3);
-    assert.equal(preset3?.thumbnail, "data:image/svg+xml;utf8,<svg></svg>");
-
-    // 5. Atlona Matrix lock and crosspoint route in simulation mode
-    const lockRes = await app.inject({
-      method: "PUT",
-      url: "/api/v1/matrix/lock",
-      payload: { locked: true }
-    });
-    assert.equal(lockRes.statusCode, 200);
-    assert.equal(lockRes.json().locked, true);
-
-    const routeRes = await app.inject({
-      method: "POST",
-      url: "/api/v1/matrix/route",
-      payload: { input: 4, output: 1 }
-    });
-    assert.equal(routeRes.statusCode, 200);
-    assert.equal(routeRes.json().success, true);
-
-    const matrixSnap = (await app.inject({ method: "GET", url: "/api/v1/matrix" })).json();
-    assert.equal(matrixSnap.routes["1"], 4);
   } finally {
     await app.close();
   }

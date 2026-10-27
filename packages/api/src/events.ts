@@ -71,6 +71,7 @@ export type PiMatrixEvent =
   | { type: "matrix"; data: MatrixEventPayload }
   | { type: "rtsp"; data: RtspOutEventPayload }
   | { type: "composite"; data: CompositeEventPayload }
+  | { type: "atem"; data: unknown }
   | { type: "program"; data: { on: boolean } }
   | { type: "ready"; data: { status: string; time: string } };
 

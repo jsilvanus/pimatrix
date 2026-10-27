@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import Fastify from "fastify";
-import { AtemAdapter } from "../src/atem/atem-adapter.js";
 import { registerCompositeRoutes } from "../src/composite/composite-routes.js";
 import { CompositeService } from "../src/composite/composite-service.js";
 
@@ -16,7 +15,7 @@ async function build() {
     dataDir,
     stateFile: path.join(dataDir, "composites.json"),
     player: { async show() {}, async stop() {} },
-    atem: new AtemAdapter(),
+    atem: { getState: () => ({ connected: false }), uploadStill: async () => {}, setupDownstreamKey: async () => {}, setDownstreamKeyOnAir: async () => {} },
     renderFrame: async (options) => Buffer.from(options.format === "png" ? "\x89PNG-preview" : "rgba")
   });
   const app = Fastify();
