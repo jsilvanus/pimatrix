@@ -12,7 +12,7 @@ test("health, readiness and status respond in simulation mode", async () => {
     assert.equal(ready.json().ready, true);
     const status = (await app.inject("/api/v1/status")).json();
     assert.equal(status.mode, "simulation");
-    assert.equal(status.integrations.amx, "not-configured");
+    assert.equal(status.integrations.gateway, "not-configured");
     assert.equal(status.integrations.mediaMtx, "not-configured");
     assert.equal(status.integrations.fffleet, "not-configured");
   } finally {

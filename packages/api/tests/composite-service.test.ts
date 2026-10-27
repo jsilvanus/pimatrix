@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { AtemAdapter, type AtemClient } from "../src/atem/atem-adapter.js";
+import type { CompositeAtem } from "../src/composite/composite-service.js";
 import {
   CompositeNotFoundError,
   CompositeService,
@@ -34,43 +34,29 @@ function fakePlayer(recorder: Recorder): CompositePlayer {
 }
 
 /** A fake ATEM client that records every media-pool and keyer call. */
-class FakeAtem extends EventEmitter implements AtemClient {
-  state: unknown = { video: { mixEffects: [{ programInput: 1, previewInput: 2, transitionPosition: { inTransition: false, remainingFrames: 0 } }] } };
-  constructor(private readonly calls: unknown[][]) { super(); }
-  async connect(): Promise<void> { this.emit("connected"); }
-  async disconnect(): Promise<void> {}
-  async changeProgramInput(): Promise<void> {}
-  async changePreviewInput(): Promise<void> {}
-  async cut(): Promise<void> {}
-  async uploadStill(index: number, data: Buffer, name: string): Promise<unknown> {
-    this.calls.push(["uploadStill", index, data.length, name]);
-    return {};
-  }
-  async setMediaPlayerSource(props: { sourceType: number; stillIndex: number }, player?: number): Promise<void> {
-    this.calls.push(["setMediaPlayerSource", props, player]);
-  }
-  async setDownstreamKeyFillSource(input: number, key?: number): Promise<void> {
-    this.calls.push(["fill", input, key]);
-  }
-  async setDownstreamKeyCutSource(input: number, key?: number): Promise<void> {
-    this.calls.push(["cut", input, key]);
-  }
-  async setDownstreamKeyOnAir(onAir: boolean, key?: number): Promise<void> {
-    this.calls.push(["onAir", onAir, key]);
-  }
-}
-
-async function makeAtem(connected: boolean, calls: unknown[][]): Promise<AtemAdapter> {
-  const atem = new AtemAdapter({ createClient: () => new FakeAtem(calls) });
-  if (connected) await atem.connect("192.0.2.20");
-  return atem;
+/** Records what the composite sends to the ATEM, in the shape the gateway turns into ATEM calls. */
+function makeAtem(connected: boolean, calls: unknown[][]): CompositeAtem {
+  return {
+    getState: () => ({ connected }),
+    async uploadStill(index, data, name) {
+      calls.push(["uploadStill", index, data.length, name]);
+    },
+    async setupDownstreamKey(setup) {
+      calls.push(["setMediaPlayerSource", { sourceType: 1, stillIndex: setup.stillIndex }, setup.mediaPlayer]);
+      calls.push(["fill", setup.fillInput, setup.dsk]);
+      calls.push(["cut", setup.cutInput, setup.dsk]);
+    },
+    async setDownstreamKeyOnAir(dsk, onAir) {
+      calls.push(["onAir", onAir, dsk]);
+    }
+  };
 }
 
 function setup(options: { connected?: boolean; stateFile?: boolean; dataDir?: string } = {}) {
   const dataDir = options.dataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "pimatrix-composite-"));
   const recorder: Recorder = { renders: [], shows: [], stops: 0, atemCalls: [], lives: [] };
   const events: CompositeStatus[] = [];
-  const atemPromise = makeAtem(options.connected ?? false, recorder.atemCalls);
+  const atem = makeAtem(options.connected ?? false, recorder.atemCalls);
   return {
     dataDir,
     recorder,
@@ -80,7 +66,7 @@ function setup(options: { connected?: boolean; stateFile?: boolean; dataDir?: st
       stateFile: options.stateFile === false ? undefined : path.join(dataDir, "composites.json"),
       player: fakePlayer(recorder),
       liveSourceUrl: (id) => `rtsp://127.0.0.1:8554/${id}`,
-      atem: await atemPromise,
+      atem,
       renderLive: async (live) => Buffer.from(`live:${live.sourceUrl}`),
       renderFrame: async (renderOptions) => {
         recorder.renders.push(renderOptions);

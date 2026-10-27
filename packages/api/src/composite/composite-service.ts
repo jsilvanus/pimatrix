@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { AtemAdapter } from "../atem/atem-adapter.js";
 import {
   applyCompositePatch,
   COMPOSITE_IDS,
@@ -50,6 +49,23 @@ export class InvalidSlideError extends Error {
   }
 }
 
+/** Zero-based keyer setup: a media player showing a still, routed to a downstream keyer. */
+export interface AtemDskSetup {
+  dsk: number;
+  mediaPlayer: number;
+  stillIndex: number;
+  fillInput: number;
+  cutInput: number;
+}
+
+/** The slice of the ATEM that composites use. pigateway owns the real one (see gateway/remote-atem.ts). */
+export interface CompositeAtem {
+  getState(): { connected: boolean };
+  uploadStill(stillIndex: number, rgba: Buffer, name: string): Promise<void>;
+  setupDownstreamKey(setup: AtemDskSetup): Promise<void>;
+  setDownstreamKeyOnAir(dsk: number, onAir: boolean): Promise<void>;
+}
+
 export interface CompositeServiceOptions {
   /** Directory for the slide, the key page files and the state file. */
   dataDir: string;
@@ -62,7 +78,7 @@ export interface CompositeServiceOptions {
   /** RTSP URL of a source, for slideSource "source". Undefined = live sources are unavailable. */
   liveSourceUrl?: (sourceId: string) => string | undefined;
   /** ATEM adapter; the ATEM output stays idle when it is not connected. */
-  atem: AtemAdapter;
+  atem: CompositeAtem;
   /** ATEM input number of media player 1's fill. */
   atemFillInputBase?: number;
   /** Renders one frame. Tests replace it so no ffmpeg runs. */

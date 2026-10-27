@@ -111,7 +111,6 @@ Environment:
 - `PIMATRIX_MEDIAMTX_RTMP_URL`: RTMP ingest base of MediaMTX that the cameras push to, e.g. `rtmp://<pi-lan-ip>:1935`. Use an IP the cameras can reach; `.local` names and the WebRTC port (8889) do not work. Each camera gets this as the RTMP server, with stream key `cam1` or `cam2`, in one call (`set_rtmp_start`, AVer web UI API). Stop uses `set_rtmp_stop`. After starting, pimatrix reads `get_rtmp_status`: a `failed` status is an error (502 `CAMERA_REJECTED`). Unset means no RTMP call is made.
 - Preview stream quality is set on each AVer camera, not by pimatrix. The AVer PTZ310/330 manual documents no CGI command for stream resolution, frame rate or bitrate, so pimatrix does not send one (unverified). On the camera web page, set Video & Audio: Bitrate to 521 kbps (closest to 500 kbps, and the lowest option), with CBR rate control if offered. Stream resolution is in the IP Streaming options: 960x540 or 640x480 (640x360 is not offered). Frame rate is set in the stream video settings on the camera; the manual does not list a 10 fps option. Video mode must not be NDI, because NDI turns these stream settings into read-only values.
 - `PIMATRIX_MEDIAMTX_RTSP_URL`: RTSP base URL of MediaMTX (for example `rtsp://127.0.0.1:8554`); a route's source is played from `<base>/<sourceId>`. Camera 1 and 2 pull their RTSP paths from `<base>/cam1` and `<base>/cam2`. It is no longer derived from `PIMATRIX_PREVIEW_BASE_URL`; unset means no camera RTSP URL.
-- `PIMATRIX_ATEM_HOST`: ATEM switcher address; unset keeps the ATEM adapter a stub. Control uses the `atem-connection` library (same as LCYT). Unverified on hardware. After the ATEM drops, the adapter reconnects to the same address with backoff (1 s doubling to 30 s) until the process stops; each drop and reconnect is logged.
 - `PIMATRIX_COMPOSITE_HDMI_DEVICE`: no longer used. `compose1` is published to MediaMTX as the source `compose1` (see below) and the route sends it to a Pi HDMI output, so the HDMI output is chosen by routing, not by the composite.
 - `PIMATRIX_COMPOSITE_VIDEO_CODEC`: encoder for the `compose1` publisher, `libx264` (default, software) or `h264_v4l2m2m` (Pi 4 hardware). Unverified on hardware.
 - `PIMATRIX_PIPROGRAM_URL`: piprogram API base URL (for example `http://127.0.0.1:3100`). Set it to let a composite follow a piprogram pipeline: with `slideSource: piprogram` and `pipelineId` (default `PiPGM1`), the composite takes the stage frame of that pipeline and refreshes it only when the active item or step changes. It blanks while the pipeline fades to black or has no steps. Frames are fetched every second when they change; `GET .../composites/{id}` shows `feedError`. `PIMATRIX_PIPROGRAM_API_KEY` is sent as `x-api-key` if set (reads are open today). Unverified against a running piprogram on the Pi.
@@ -119,18 +118,10 @@ Environment:
 - `PIMATRIX_COMPOSITE_DATA_DIR`: directory for the slide PNG, the key page files and `composites.json` (saved settings, restored at start); defaults to `./data/composite`.
 - `PIMATRIX_COMPOSITE_FFMPEG`: ffmpeg used to render the key page; defaults to `ffmpeg`. Renders are pipe-only, no temporary files.
 - `PIMATRIX_ATEM_MEDIA_FILL_INPUT`: ATEM input number of media player 1's fill for the DSK (the key is the next number); defaults to `8010`. Some ATEM models use `10010`. Unverified on hardware.
-- `PIMATRIX_ATEM_PORT`: ATEM control port (UDP); defaults to `9910`, the port atem-connection uses. A failed connection, or one not confirmed within 5 s, is logged as a warning with the host and port.
 - `PIMATRIX_AMX_TCP_ENABLED`: set to `true` to start the inbound AMX TCP listener.
 - `PIMATRIX_AMX_TCP_HOST`: inbound listener host; defaults to `127.0.0.1`.
-- `PIMATRIX_AMX_TCP_PORT`: inbound listener port; defaults to `6600`.
-- `PIMATRIX_AMX_SIMULATED`: set to `true` to simulate outbound AMX NetLinx master interactions.
-- `PIMATRIX_AMX_MASTER_HOST`: target AMX NetLinx master IP/hostname for outbound matrix requests.
-- `PIMATRIX_AMX_MASTER_PORT`: target AMX NetLinx master port; defaults to `6501`.
-- `PIMATRIX_CAMERA_MODE`: `simulated` (default) or `hardware`.
-- `PIMATRIX_CAMERA_NEAR_LIMIT_M` (default 1.5): near focus limit in metres that privacy blur Off restores before returning to AF. The metre-to-VISCA mapping is an unverified approximation; the near limit could not be read from the cameras.
-- `PIMATRIX_CAM1_HOST`, `PIMATRIX_CAM1_VISCA_PORT` (default 52381), `PIMATRIX_CAM1_CGI_PORT` (default 80): Cam1 AVer PTZ330 network target.
-- `PIMATRIX_CAM1_USER`, `PIMATRIX_CAM1_PASSWORD` (same for `CAM2`): HTTP Basic login for the camera CGI, used for RTMP on/off. Sent only in the Authorization header, never in URLs or logs. Set both or neither. A rejected login answers 502 `CAMERA_LOGIN_REJECTED` on the stream start and stop routes.
-- `PIMATRIX_CAM2_HOST`, `PIMATRIX_CAM2_VISCA_PORT` (default 52381), `PIMATRIX_CAM2_CGI_PORT` (default 80): Cam2 AVer PTZ330 network target.
+- `PIMATRIX_GATEWAY_URL`, `PIMATRIX_GATEWAY_API_KEY`: [pigateway](https://github.com/jsilvanus/pigateway), which now owns the ATEM, the cameras (VISCA, CGI, FreeD, privacy blur, RTMP) and the Atlona matrix (AMX master). `/api/v1/atem*`, `/api/v1/cameras*` and `/api/v1/matrix*` are passed on to it, so clients keep their base URL; without a URL they answer 503 `GATEWAY_NOT_CONFIGURED`. Composites use it for the ATEM media pool and keyer. Camera, ATEM and AMX master settings (`PIGATEWAY_*`) are documented in the pigateway README.
+- `PIMATRIX_AMX_TCP_PORT`: inbound listener port; defaults to `6601`. This is pimatrix's own line listener for the video commands (`SOURCE`, `OUTPUT`, `QUICK`, `PROGRAM`, `STATUS`); the AMX connects to pigateway on 6600, which forwards those commands here.
 - `LOG_LEVEL`: Fastify log level; defaults to `info`.
 
 When MediaMTX is configured, PiMatrix checks `/v3/paths/list`. Ready paths whose names match the logical source IDs are reported as live. A preview URL is returned only when the matching path is ready and `PIMATRIX_PREVIEW_BASE_URL` is set. The base URL must be reachable from the operator's browser; it must not be a container-only hostname.
@@ -163,7 +154,7 @@ Supports optional message IDs (e.g. `REQ01:PING;` &rarr; `REQ01:PONG;`).
 ### Outbound AMX Client Adapter
 
 When an Atlona route change is requested (`POST /api/v1/matrix/route` or `pimatrix matrix route <in> <out>`), PiMatrix sends:
-`ATLONA:ROUTE:<requestId>:<input>:<output>;` to the AMX NetLinx master on port 6501. AMX remains the sole controller of the Atlona matrix. With `PIMATRIX_AMX_MASTER_HOST` set, PiMatrix also sends `ATLONA:STATUS:<requestId>;` every 2 seconds and follows the routes AMX reports.
+`ATLONA:ROUTE:<requestId>:<input>:<output>;` to the AMX NetLinx master on port 6501. AMX remains the sole controller of the Atlona matrix. pigateway now sends these requests (and polls `ATLONA:STATUS` every 2 seconds); `/api/v1/matrix*` is passed on to it.
 
 ## Camera Control (VISCA over IP & CGI)
 
@@ -173,7 +164,7 @@ PiMatrix controls the two installed AVer PTZ330 cameras (`cam1` and `cam2`) over
 - **Presets:** 255 addressable preset memory slots (`0`–`254`) supporting recall and save (replacing the 6-preset cap of the legacy AMX IR remote).
 - **SmartFrame AI Auto-Framing:** Trigger or toggle AVer SmartFrame via VISCA memory codes (`enable` = 0x5A, `disable` = 0x5B, `trigger` = 0x5C).
 - **Streaming Feed Control:** Command the camera to start/stop RTMP push streaming to MediaMTX via CGI (`vdo_rtmp_enable`), or coordinate RTSP pull (`rtsp://<ip>:554/live_st1`).
-- **Simulated Mode:** When `PIMATRIX_CAMERA_MODE=simulated`, camera positions, presets, and streaming states are fully simulated in memory for offline testing.
+- **Simulated Mode:** In pigateway with `PIGATEWAY_MODE=simulation`, camera positions, presets, and streaming states are fully simulated in memory for offline testing.
 
 ## 8-Way Multiview Output (`multiview`)
 

@@ -28,27 +28,13 @@ export interface AppConfig {
   amxTcpEnabled: boolean;
   amxTcpHost: string;
   amxTcpPort: number;
-  amxSimulated: boolean;
-  amxMasterHost?: string;
-  amxMasterPort: number;
-  cameraMode: "simulated" | "hardware";
-  /** Near focus limit in metres restored when privacy blur goes off (PIMATRIX_CAMERA_NEAR_LIMIT_M, default 1.5). */
-  cameraNearLimitM: number;
   cam1Name: string;
-  cam1Host?: string;
-  cam1ViscaPort: number;
-  cam1CgiPort: number;
-  /** HTTP Basic login for the camera CGI (PIMATRIX_CAM1_USER/PASSWORD). Never logged. */
-  cam1CgiUser?: string;
-  cam1CgiPassword?: string;
   cam2Name: string;
-  cam2Host?: string;
-  cam2ViscaPort: number;
-  cam2CgiPort: number;
-  cam2CgiUser?: string;
-  cam2CgiPassword?: string;
   cam3Name: string;
   apiKey?: string;
+  /** pigateway, which owns the ATEM, cameras and the Atlona matrix (PIMATRIX_GATEWAY_URL, PIMATRIX_GATEWAY_API_KEY). */
+  gatewayUrl?: string;
+  gatewayApiKey?: string;
   amxAllowedHosts?: string[];
   mediaMtxPassword?: string;
   authAllowedHosts?: string[];
@@ -57,8 +43,6 @@ export interface AppConfig {
   domain?: string;
   tlsPort?: number;
   letsencryptEmail?: string;
-  atemHost?: string;
-  atemPort: number;
   hdmiPlayer: string;
   hdmi0Device?: string;
   hdmi1Device?: string;
@@ -81,8 +65,6 @@ export interface AppConfig {
   compositeFfmpeg: string;
   /** ATEM input number of media player 1's fill (PIMATRIX_ATEM_MEDIA_FILL_INPUT); key is the next number. */
   atemMediaFillInput: number;
-  /** RTMP ingest base for the camera targets (e.g. rtmp://<pi-lan-ip>:1935); cam1/cam2 are appended. */
-  mediaMtxRtmpUrl?: string;
 }
 
 function optionalHttpUrl(value: string | undefined, name: string): string | undefined {
@@ -95,20 +77,6 @@ function optionalHttpUrl(value: string | undefined, name: string): string | unde
   }
   if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
     throw new Error(`${name} must be an HTTP or HTTPS URL without embedded credentials`);
-  }
-  return parsed.toString().replace(/\/$/, "");
-}
-
-function optionalRtmpUrl(value: string | undefined, name: string): string | undefined {
-  if (!value?.trim()) return undefined;
-  let parsed: URL;
-  try {
-    parsed = new URL(value.trim());
-  } catch {
-    throw new Error(`${name} must be a valid RTMP URL`);
-  }
-  if (parsed.protocol !== "rtmp:" || parsed.username || parsed.password || parsed.hash || parsed.search) {
-    throw new Error(`${name} must be an RTMP URL without embedded credentials, a query or a fragment`);
   }
   return parsed.toString().replace(/\/$/, "");
 }
@@ -185,30 +153,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   const amxTcpEnabled = env.PIMATRIX_AMX_TCP_ENABLED === "true" || env.PIMATRIX_AMX_TCP_PORT !== undefined;
   const amxTcpHost = env.PIMATRIX_AMX_TCP_HOST?.trim() || "127.0.0.1";
-  const amxTcpPort = validPort(env.PIMATRIX_AMX_TCP_PORT, 6600, "PIMATRIX_AMX_TCP_PORT", true);
-  const amxSimulated = env.PIMATRIX_AMX_SIMULATED === "true";
-  const amxMasterHost = env.PIMATRIX_AMX_MASTER_HOST?.trim() || undefined;
-  const amxMasterPort = validPort(env.PIMATRIX_AMX_MASTER_PORT, 6501, "PIMATRIX_AMX_MASTER_PORT");
+  const amxTcpPort = validPort(env.PIMATRIX_AMX_TCP_PORT, 6601, "PIMATRIX_AMX_TCP_PORT", true);
 
-  const rawCameraMode = env.PIMATRIX_CAMERA_MODE?.trim() || "simulated";
-  if (!["simulated", "hardware"].includes(rawCameraMode)) {
-    throw new Error('PIMATRIX_CAMERA_MODE must be "simulated" or "hardware"');
-  }
-  const cameraMode = rawCameraMode as "simulated" | "hardware";
-  const cameraNearLimitM = Number(env.PIMATRIX_CAMERA_NEAR_LIMIT_M ?? 1.5);
-  if (!Number.isFinite(cameraNearLimitM) || cameraNearLimitM < 0.1 || cameraNearLimitM > 50) {
-    throw new Error("PIMATRIX_CAMERA_NEAR_LIMIT_M must be a number of metres between 0.1 and 50");
-  }
   const cam1Name = env.PIMATRIX_CAM1_NAME?.trim() || "Camera 1";
-  const cam1Host = env.PIMATRIX_CAM1_HOST?.trim() || undefined;
-  const cam1ViscaPort = validPort(env.PIMATRIX_CAM1_VISCA_PORT, 52381, "PIMATRIX_CAM1_VISCA_PORT");
-  const cam1CgiPort = validPort(env.PIMATRIX_CAM1_CGI_PORT, 80, "PIMATRIX_CAM1_CGI_PORT");
-  const cam1Login = cameraLogin(env, "PIMATRIX_CAM1");
   const cam2Name = env.PIMATRIX_CAM2_NAME?.trim() || "Camera 2";
-  const cam2Host = env.PIMATRIX_CAM2_HOST?.trim() || undefined;
-  const cam2ViscaPort = validPort(env.PIMATRIX_CAM2_VISCA_PORT, 52381, "PIMATRIX_CAM2_VISCA_PORT");
-  const cam2CgiPort = validPort(env.PIMATRIX_CAM2_CGI_PORT, 80, "PIMATRIX_CAM2_CGI_PORT");
-  const cam2Login = cameraLogin(env, "PIMATRIX_CAM2");
   const cam3Name = env.PIMATRIX_CAM3_NAME?.trim() || "Camera 3";
 
   const apiKey = env.PIMATRIX_API_KEY?.trim() || undefined;
@@ -226,8 +174,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const domain = env.PIMATRIX_DOMAIN?.trim() || undefined;
   const tlsPort = env.PIMATRIX_TLS_PORT ? validPort(env.PIMATRIX_TLS_PORT, 8443, "PIMATRIX_TLS_PORT") : undefined;
   const letsencryptEmail = env.LETSENCRYPT_EMAIL?.trim() || undefined;
-  const atemHost = env.PIMATRIX_ATEM_HOST?.trim() || undefined;
-  const atemPort = validPort(env.PIMATRIX_ATEM_PORT, 9910, "PIMATRIX_ATEM_PORT");
   const hdmiPlayer = env.PIMATRIX_HDMI_PLAYER?.trim() || "ffplay";
   const hdmi0Device = env.PIMATRIX_HDMI0_DEVICE?.trim() || undefined;
   const hdmi1Device = env.PIMATRIX_HDMI1_DEVICE?.trim() || undefined;
@@ -262,7 +208,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error("PIMATRIX_COMPOSITE_FFMPEG must be a single executable name or path without spaces");
   }
   const atemMediaFillInput = validPort(env.PIMATRIX_ATEM_MEDIA_FILL_INPUT, 8010, "PIMATRIX_ATEM_MEDIA_FILL_INPUT");
-  const mediaMtxRtmpUrl = optionalRtmpUrl(env.PIMATRIX_MEDIAMTX_RTMP_URL, "PIMATRIX_MEDIAMTX_RTMP_URL");
+  const gatewayUrl = optionalHttpUrl(env.PIMATRIX_GATEWAY_URL, "PIMATRIX_GATEWAY_URL");
+  const gatewayApiKey = env.PIMATRIX_GATEWAY_API_KEY?.trim() || undefined;
   if (/\s/.test(hdmiPlayer)) {
     throw new Error("PIMATRIX_HDMI_PLAYER must be a single executable name or path without spaces");
   }
@@ -300,22 +247,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     streamRestartMinMs, streamRestartMaxMs,
     displayMode,
     amxTcpEnabled, amxTcpHost, amxTcpPort,
-    amxSimulated,
-    ...(amxMasterHost ? { amxMasterHost } : {}),
-    amxMasterPort,
-    cameraMode,
-    cameraNearLimitM,
     cam1Name,
-    cam1ViscaPort,
-    cam1CgiPort,
-    ...(cam1Login ? { cam1CgiUser: cam1Login.user, cam1CgiPassword: cam1Login.password } : {}),
     cam2Name,
-    cam2ViscaPort,
-    cam2CgiPort,
-    ...(cam2Login ? { cam2CgiUser: cam2Login.user, cam2CgiPassword: cam2Login.password } : {}),
     cam3Name,
-    ...(cam1Host ? { cam1Host } : {}),
-    ...(cam2Host ? { cam2Host } : {}),
     ...(hamaInputFormat ? { hamaInputFormat } : {}),
     ...(hamaWidth !== undefined ? { hamaWidth } : {}),
     ...(hamaHeight !== undefined ? { hamaHeight } : {}),
@@ -337,8 +271,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(domain ? { domain } : {}),
     ...(tlsPort !== undefined ? { tlsPort } : {}),
     ...(letsencryptEmail ? { letsencryptEmail } : {}),
-    ...(atemHost ? { atemHost } : {}),
-    atemPort,
     hdmiPlayer,
     ...(hdmi0Device ? { hdmi0Device } : {}),
     ...(hdmi1Device ? { hdmi1Device } : {}),
@@ -353,17 +285,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     compositeVideoCodec,
     compositeFfmpeg,
     atemMediaFillInput,
-    ...(mediaMtxRtmpUrl ? { mediaMtxRtmpUrl } : {})
+    ...(gatewayUrl ? { gatewayUrl: gatewayUrl.replace(/\/$/, "") } : {}),
+    ...(gatewayApiKey ? { gatewayApiKey } : {})
   };
-}
-
-/** Camera CGI login from PREFIX_USER and PREFIX_PASSWORD. Both or neither: one alone is a config error. */
-function cameraLogin(env: NodeJS.ProcessEnv, prefix: string): { user: string; password: string } | undefined {
-  const user = env[`${prefix}_USER`]?.trim() || undefined;
-  const password = env[`${prefix}_PASSWORD`]?.trim() || undefined;
-  if (!user && !password) return undefined;
-  if (!user || !password) {
-    throw new Error(`${prefix}_USER and ${prefix}_PASSWORD must be set together`);
-  }
-  return { user, password };
 }

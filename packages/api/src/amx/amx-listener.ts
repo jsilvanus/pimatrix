@@ -12,18 +12,11 @@ import {
 
 /** What the AMX commands CAM, QUICK, PROGRAM and STATUS:ALL act on (wired in app.ts). */
 export interface AmxControl {
-  cameras(): Array<{ id: string; connection: string; power: "on" | "standby" | "unknown" }>;
-  cameraPower(id: string, on: boolean): Promise<void>;
-  cameraPreset(id: string, presetId: number, save: boolean): Promise<void>;
-  cameraMove(id: string, direction: string): Promise<void>;
-  cameraZoom(id: string, action: string): Promise<void>;
   quickOptions(): Array<{ number: number; name: string }>;
   runQuickOption(number: number): Promise<void>;
   /** "unavailable" when piprogram is not configured. */
   program(): "on" | "off" | "unavailable";
   setProgram(on: boolean): Promise<void>;
-  /** Atlona output 1..5 -> input, as pimatrix last knew it. */
-  atlonaRoutes(): Record<number, number | null>;
 }
 
 export interface AmxListenerOptions {
@@ -40,8 +33,6 @@ export interface AmxListenerOptions {
 }
 
 const KNOWN_COMMANDS = new Set(["DEV", "PING", "STATUS", "SOURCE", "OUTPUT", "CAM", "QUICK", "PROGRAM", "HELP"]);
-const MOVE_DIRECTIONS = new Set(["up", "down", "left", "right", "upleft", "upright", "downleft", "downright", "stop", "home"]);
-const ZOOM_ACTIONS = new Set(["in", "out", "stop"]);
 
 /** Keeps a name inside one key=value field of a reply. */
 function wireText(value: string): string {
@@ -269,10 +260,12 @@ export class AmxTcpListener {
     }
 
 
-    if (cmd === "CAM" || cmd === "QUICK" || cmd === "PROGRAM") {
+    // Cameras and the Atlona matrix are answered by pigateway, which is what the AMX talks to.
+    if (cmd === "CAM") return wrap("ERR:CAM_UNAVAILABLE");
+
+    if (cmd === "QUICK" || cmd === "PROGRAM") {
       const control = this.options.control;
       if (!control) return wrap(`ERR:${cmd}_UNAVAILABLE`);
-      if (cmd === "CAM") return wrap(await this.dispatchCamera(control, args));
       if (cmd === "QUICK") return wrap(await this.dispatchQuick(control, args));
       return wrap(await this.dispatchProgram(control, args));
     }
@@ -295,53 +288,9 @@ export class AmxTcpListener {
     }
     const control = this.options.control;
     if (control) {
-      for (const cam of control.cameras()) {
-        fields.push(`${cam.id}pwr=${cam.power}`, `${cam.id}link=${cam.connection}`);
-      }
-      const routes = control.atlonaRoutes();
-      fields.push(`atlona=${[1, 2, 3, 4, 5].map((out) => routes[out] ?? 0).join("/")}`);
       fields.push(`program=${control.program()}`);
     }
     return fields.join(",");
-  }
-
-  private async dispatchCamera(control: AmxControl, args: string[]): Promise<string> {
-    const first = args[0] ?? "";
-    if (first.toUpperCase() === "LIST") {
-      return `CAM:LIST:${control.cameras().map((c) => `${c.id}=${c.power}/${c.connection}`).join(",")}`;
-    }
-    const known = control.cameras().map((c) => c.id);
-    const lower = first.toLowerCase();
-    const wanted = lower === "all" ? "all" : /^\d+$/.test(lower) ? `cam${lower}` : lower;
-    if (wanted !== "all" && !known.includes(wanted)) return `ERR:CAMERA_NOT_FOUND:${first || "missing"}`;
-    const targets = wanted === "all" ? known : [wanted];
-    const action = args[1]?.toUpperCase();
-    const value = args[2]?.toLowerCase() ?? "";
-
-    if (action === "POWER") {
-      if (value !== "on" && value !== "off") return "ERR:INVALID_POWER";
-      for (const id of targets) await control.cameraPower(id, value === "on");
-      return `CAM:OK:${wanted}:POWER:${value.toUpperCase()}`;
-    }
-    if (wanted === "all") return "ERR:CAMERA_REQUIRED";
-    const id = targets[0] as string;
-    if (action === "PRESET" || action === "SAVE") {
-      const preset = Number(value);
-      if (!/^\d+$/.test(value) || preset > 254) return "ERR:INVALID_PRESET";
-      await control.cameraPreset(id, preset, action === "SAVE");
-      return `CAM:OK:${id}:${action}:${preset}`;
-    }
-    if (action === "MOVE") {
-      if (!MOVE_DIRECTIONS.has(value)) return "ERR:INVALID_DIRECTION";
-      await control.cameraMove(id, value);
-      return `CAM:OK:${id}:MOVE:${value.toUpperCase()}`;
-    }
-    if (action === "ZOOM") {
-      if (!ZOOM_ACTIONS.has(value)) return "ERR:INVALID_ZOOM";
-      await control.cameraZoom(id, value);
-      return `CAM:OK:${id}:ZOOM:${value.toUpperCase()}`;
-    }
-    return "ERR:UNKNOWN_CAMERA_ACTION";
   }
 
   private async dispatchQuick(control: AmxControl, args: string[]): Promise<string> {

@@ -2,6 +2,8 @@
 
 ASCII, each message ends with `;` (CR/LF after it is ignored), fields are separated by `:`. A request may start with a message id (`r7:CAM:cam1:POWER:ON;`), which the reply repeats (`r7:CAM:OK:cam1:POWER:ON;`). The same text is kept in `keskuskirkko` (docs/pimatrix-protocol.md).
 
+**Since pigateway:** the AMX connects to pigateway on 6600. pigateway answers `DEV`, `PING`, `CAM` and the camera and Atlona fields of `STATUS:ALL` itself, and forwards `SOURCE`, `OUTPUT`, `QUICK`, `PROGRAM` and the rest of `STATUS:ALL` to pimatrix on 6601 (`PIMATRIX_AMX_TCP_PORT`), so the protocol the AMX sees is unchanged. pimatrix no longer answers `CAM` (`ERR:CAM_UNAVAILABLE`) and no longer talks to the AMX master; pigateway polls it.
+
 Both sides poll the other every 2 seconds. Ports: PiMatrix listens on 6600 (`PIMATRIX_AMX_TCP_PORT`), AMX listens on 6501 (`PIMATRIX_AMX_MASTER_PORT`). AMX at 192.168.1.10 is the client of PiMatrix and PiMatrix is the client of AMX.
 
 ## AMX asks PiMatrix (PiMatrix listens)

@@ -2,17 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { createFleet } from "fffleet";
 import Fastify, { type FastifyInstance } from "fastify";
-import { isIPv4 } from "node:net";
-import { createAmxClient, type AmxClient } from "./amx/amx-client.js";
 import { AmxTcpListener, type AmxControl } from "./amx/amx-listener.js";
-import { AtemAdapter } from "./atem/atem-adapter.js";
-import { registerAtemRoutes } from "./atem/atem-routes.js";
-import { CameraService } from "./camera/camera-service.js";
+import { GatewayClient } from "./gateway/gateway-client.js";
+import { GatewayEventRelay } from "./gateway/gateway-events.js";
+import { registerGatewayProxy } from "./gateway/gateway-proxy.js";
+import { RemoteAtem } from "./gateway/remote-atem.js";
 import { CompositeService } from "./composite/composite-service.js";
 import { registerCompositeRoutes } from "./composite/composite-routes.js";
 import { KeyPagePublisher } from "./composite/key-publisher.js";
-import { CameraCgiError } from "./camera/camera-adapter.js";
-import type { PanTiltDirection, SmartFrameMode, ZoomAction } from "./camera/visca-protocol.js";
 import type { AppConfig } from "./config.js";
 import { createDisplayAdapter, type DisplayAdapter } from "./display-adapter.js";
 import { PiMatrixEventBroker } from "./events.js";
@@ -24,7 +21,7 @@ import {
   type MoveDirection,
   type RotationDegrees
 } from "./effects/effects-model.js";
-import type { MatrixRouteState, RtspOutState } from "./app-state.js";
+import type { RtspOutState } from "./app-state.js";
 import { EffectsLayer } from "./effects/effects-layer.js";
 import { inspectMediaMtx } from "./media-mtx.js";
 import {
@@ -50,15 +47,6 @@ import { QuickOptionStore } from "./quick-options/quick-options-store.js";
 import { applySnapshot, registerQuickOptionRoutes, type QuickOptionDeps } from "./quick-options/quick-options-routes.js";
 
 /** Maps a failed camera CGI call to a 502 with a reason, so a bad login is visible in the API. */
-function sendCameraCgiError(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, err: unknown): unknown {
-  if (err instanceof CameraCgiError) {
-    const code =
-      err.reason === "auth" ? "CAMERA_LOGIN_REJECTED" : err.reason === "unreachable" ? "CAMERA_UNREACHABLE" : "CAMERA_REJECTED";
-    return reply.code(502).send({ error: { code, message: err.message } });
-  }
-  throw err;
-}
-
 export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): FastifyInstance {
   const app = Fastify({
     trustProxy: true,
@@ -77,9 +65,11 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     ...config,
     resolvePath: (sourceId) => sourcePath(sourceId)
   });
-  const atem = new AtemAdapter({ logger: app.log });
-  registerAtemRoutes(app, atem);
+  // ATEM, cameras and the Atlona matrix live in pigateway; this process passes those API calls on.
+  const gateway = config.gatewayUrl ? new GatewayClient(config.gatewayUrl, config.gatewayApiKey, fetchImpl) : null;
+  const atem = new RemoteAtem(gateway ?? new GatewayClient("http://127.0.0.1:1", undefined, fetchImpl));
   const eventBroker = new PiMatrixEventBroker();
+  const gatewayEvents = gateway ? new GatewayEventRelay(gateway, eventBroker, app.log) : null;
   // One piprogram client for the composite slides and the PiPGM sources.
   const piprogramClient = config.piprogramUrl
     ? new PiprogramClient({ baseUrl: config.piprogramUrl, apiKey: config.piprogramApiKey, fetch: fetchImpl })
@@ -135,17 +125,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   let multiviewLayout: MultiviewLayoutMode = "auto";
   const multiviewSlotOverrides = new Map<number, SourceId>();
 
-  const matrixState: MatrixRouteState = {
-    locked: false,
-    routes: {
-      1: 1, // Projector 1 -> Lectern
-      2: 2, // Projector 2 -> Rack PC
-      3: null, // Screen3
-      4: null, // Screen4
-      5: 3 // Videomikseri -> Pi 1
-    }
-  };
-
   let rtspOutState: RtspOutState = {
     sourceId: "rtmp1",
     layout: "landscape",
@@ -155,34 +134,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     resolution: "1920x1080",
     bitrateKbps: 6200
   };
-
-  const cameraService = new CameraService({
-    mode: config.mode,
-    eventBroker,
-    logger: app.log,
-    nearLimitM: config.cameraNearLimitM,
-    cam1Name: config.cam1Name,
-    cam1Host: config.cam1Host,
-    cam1ViscaPort: config.cam1ViscaPort,
-    cam1CgiPort: config.cam1CgiPort,
-    cam1CgiUser: config.cam1CgiUser,
-    cam1CgiPassword: config.cam1CgiPassword,
-    cam2Name: config.cam2Name,
-    cam2Host: config.cam2Host,
-    cam2ViscaPort: config.cam2ViscaPort,
-    cam2CgiPort: config.cam2CgiPort,
-    cam2CgiUser: config.cam2CgiUser,
-    cam2CgiPassword: config.cam2CgiPassword,
-    mediaMtxRtspBaseUrl: config.mediaMtxRtspUrl,
-    mediaMtxRtmpBaseUrl: config.mediaMtxRtmpUrl
-  });
-
-  const amxClient: AmxClient = createAmxClient(
-    config.amxSimulated,
-    config.amxMasterHost,
-    config.amxMasterPort,
-    app.log
-  );
 
   const fleet = config.fffleetUrl ? createFleet({
     url: config.fffleetUrl,
@@ -320,30 +271,9 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   };
 
 
-  // Last power command per camera: VISCA power is not read back, so "unknown" until AMX or the API sets it.
-  const cameraPower = new Map<string, "on" | "standby">();
   const quickOptionStore = new QuickOptionStore(config.quickOptionsFile);
   let quickDeps: QuickOptionDeps;
   const amxControl: AmxControl = {
-    cameras: () =>
-      cameraService.list().map((cam) => ({
-        id: cam.id,
-        connection: cam.connection,
-        power: cameraPower.get(cam.id) ?? "unknown"
-      })),
-    cameraPower: async (id, on) => {
-      await cameraService.setPower(id, on);
-      cameraPower.set(id, on ? "on" : "standby");
-    },
-    cameraPreset: async (id, presetId, save) => {
-      await (save ? cameraService.savePreset(id, presetId) : cameraService.recallPreset(id, presetId));
-    },
-    cameraMove: async (id, direction) => {
-      await cameraService.move(id, direction as PanTiltDirection);
-    },
-    cameraZoom: async (id, action) => {
-      await cameraService.zoom(id, action as ZoomAction);
-    },
     quickOptions: () => quickOptionStore.list().map((q) => ({ number: q.number, name: q.name })),
     runQuickOption: async (number) => {
       await applySnapshot(quickDeps, quickOptionStore.getByNumber(number).snapshot);
@@ -355,8 +285,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     setProgram: async (on) => {
       await Promise.all([piprogramFeed?.setPaused(!on), pipgmSources?.setPaused(!on)]);
       eventBroker.emit({ type: "program", data: { on } });
-    },
-    atlonaRoutes: () => ({ ...matrixState.routes })
+    }
   };
 
   const amxListener = config.amxTcpEnabled
@@ -380,18 +309,10 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     hamaOnDemand.sync();
     piprogramFeed?.start();
     pipgmSources?.start();
-    if (config.atemHost) {
-      await atem.connect(config.atemHost, config.atemPort).catch((error: unknown) => {
-        app.log.error({ err: error }, "ATEM connection failed; the adapter keeps retrying in the background");
-      });
-    }
+    atem.start();
+    gatewayEvents?.start();
     if (amxListener) {
       await amxListener.start();
-    }
-    if (config.amxMasterHost) {
-      // Reads the Atlona routes from AMX every 2 s so the UI follows touch-panel changes.
-      amxPoll = setInterval(() => void pollAtlona(), 2000);
-      amxPoll.unref();
     }
     // Restores saved composites in the background; the ATEM may still be connecting.
     compositeService.restore().catch((error: unknown) => {
@@ -399,39 +320,17 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     });
   });
 
-  let amxPoll: ReturnType<typeof setInterval> | null = null;
-  let amxPolling = false;
-  async function pollAtlona(): Promise<void> {
-    if (amxPolling) return;
-    amxPolling = true;
-    try {
-      const routes = await amxClient.atlonaRoutes();
-      if (!routes) return;
-      const changed = Object.entries(routes).some(([out, input]) => matrixState.routes[Number(out)] !== input);
-      if (!changed) return;
-      Object.assign(matrixState.routes, routes);
-      eventBroker.emit({
-        type: "matrix",
-        data: { locked: matrixState.locked, routes: { ...matrixState.routes } }
-      });
-    } finally {
-      amxPolling = false;
-    }
-  }
-
   app.addHook("onClose", async () => {
-    if (amxPoll) clearInterval(amxPoll);
+    gatewayEvents?.stop();
+    atem.stop();
     hamaOnDemand.dispose();
     await effectsLayer.close();
     piprogramFeed?.stop();
     pipgmSources?.stop();
     await Promise.all([
-      atem.disconnect(),
       compositeService.close(),
       captureSupervisor.stop(),
-      cameraService.close(),
       amxListener ? amxListener.stop() : Promise.resolve(),
-      amxClient.close(),
       displayAdapter.close(),
       fleet?.close() ?? Promise.resolve()
     ]);
@@ -560,7 +459,6 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   // Expose services on Fastify instance for test inspections if needed
   (app as unknown as { amxListener?: AmxTcpListener | null }).amxListener = amxListener;
   (app as unknown as { eventBroker: PiMatrixEventBroker }).eventBroker = eventBroker;
-  (app as unknown as { cameraService: CameraService }).cameraService = cameraService;
   (app as unknown as { effectsStore: EffectsStore }).effectsStore = effectsStore;
   (app as unknown as { captureSupervisor: StreamSupervisor }).captureSupervisor = captureSupervisor;
 
@@ -592,13 +490,12 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         fffleet: await fleetStatus(),
         capture: captureStatus(),
         display: displayAdapter.getStatus(),
-        amx: await amxClient.getStatus()
+        gateway: gateway ? "configured" : "not-configured"
       },
       managedStreams: { hama: captureSupervisor.snapshot() },
       counts: {
         sources: visibleSources.length,
         outputs: outputStore.list().length,
-        cameras: cameraService.list().length,
         pipgmSources: PIPROGRAM_PIPELINE_IDS.filter((id) => pipgmSources?.snapshot(id)).length
       }
     };
@@ -929,518 +826,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
 
   // =========================================================================
   // Atlona Matrix State, Safety Lock, and Crosspoint Routing
-  // =========================================================================
-
-  app.get("/api/v1/matrix", async () => matrixState);
-
-  app.put<{ Body: { locked?: unknown } }>("/api/v1/matrix/lock", async (request, reply) => {
-    if (typeof request.body?.locked !== "boolean") {
-      return reply.code(422).send({
-        error: { code: "INVALID_LOCK_STATE", message: "locked must be a boolean" }
-      });
-    }
-    matrixState.locked = request.body.locked;
-    eventBroker.emit({
-      type: "matrix",
-      data: {
-        locked: matrixState.locked,
-        routes: { ...matrixState.routes }
-      }
-    });
-    return reply.code(200).send(matrixState);
-  });
-
-  app.post<{ Body: { input?: unknown; output?: unknown } }>(
-    "/api/v1/matrix/route",
-    async (request, reply) => {
-      const input = Number(request.body?.input);
-      const output = Number(request.body?.output);
-
-      if (!Number.isInteger(input) || input < 1 || input > 4) {
-        return reply.code(422).send({
-          error: { code: "INVALID_INPUT", message: "Matrix input must be an integer between 1 and 4" }
-        });
-      }
-      if (!Number.isInteger(output) || output < 1 || output > 5) {
-        return reply.code(422).send({
-          error: { code: "INVALID_OUTPUT", message: "Matrix output must be an integer between 1 and 5" }
-        });
-      }
-
-      try {
-        const amxStatus = await amxClient.getStatus();
-        let result;
-        if (config.mode === "simulation" && amxStatus === "not-configured") {
-          result = {
-            requestId: `sim-${Date.now()}`,
-            success: true,
-            input,
-            output,
-            confirmed: true,
-            message: "Simulated Atlona route confirmed"
-          };
-        } else {
-          result = await amxClient.routeMatrix(input, output);
-        }
-
-        if (!result.success) {
-          return reply.code(502).send({
-            error: { code: "AMX_ROUTE_FAILED", message: result.message ?? "AMX request was not accepted" }
-          });
-        }
-
-        matrixState.routes[output] = input;
-        eventBroker.emit({
-          type: "matrix",
-          data: {
-            locked: matrixState.locked,
-            routes: { ...matrixState.routes },
-            lastChange: { input, output }
-          }
-        });
-
-        return reply.code(200).send(result);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "AMX request failed";
-        return reply.code(502).send({
-          error: { code: "AMX_UNAVAILABLE", message }
-        });
-      }
-    }
-  );
-
-  // =========================================================================
-  // Cameras
-  app.get("/api/v1/cameras", async () => ({ items: cameraService.list() }));
-
-  app.get<{ Params: { cameraId: string } }>("/api/v1/cameras/:cameraId", async (request, reply) => {
-    const camera = cameraService.get(request.params.cameraId);
-    if (!camera) {
-      return reply.code(404).send({
-        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
-      });
-    }
-    return reply.code(200).send(camera);
-  });
-
-  const validDirections = new Set([
-    "up",
-    "down",
-    "left",
-    "right",
-    "upleft",
-    "upright",
-    "downleft",
-    "downright",
-    "stop",
-    "home",
-    "reset"
-  ]);
-
-  app.post<{
-    Params: { cameraId: string };
-    Body: { direction?: unknown; panSpeed?: unknown; tiltSpeed?: unknown };
-  }>("/api/v1/cameras/:cameraId/move", async (request, reply) => {
-    const camera = cameraService.get(request.params.cameraId);
-    if (!camera) {
-      return reply.code(404).send({
-        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
-      });
-    }
-
-    const direction = String(request.body?.direction ?? "");
-    if (!validDirections.has(direction)) {
-      return reply.code(422).send({
-        error: {
-          code: "INVALID_DIRECTION",
-          message: `direction must be one of: ${[...validDirections].join(", ")}`
-        }
-      });
-    }
-
-    const panSpeed = request.body?.panSpeed !== undefined ? Number(request.body.panSpeed) : undefined;
-    if (panSpeed !== undefined && (!Number.isInteger(panSpeed) || panSpeed < 1 || panSpeed > 24)) {
-      return reply.code(422).send({
-        error: { code: "INVALID_PAN_SPEED", message: "panSpeed must be an integer between 1 and 24" }
-      });
-    }
-
-    const tiltSpeed = request.body?.tiltSpeed !== undefined ? Number(request.body.tiltSpeed) : undefined;
-    if (tiltSpeed !== undefined && (!Number.isInteger(tiltSpeed) || tiltSpeed < 1 || tiltSpeed > 23)) {
-      return reply.code(422).send({
-        error: { code: "INVALID_TILT_SPEED", message: "tiltSpeed must be an integer between 1 and 23" }
-      });
-    }
-
-    await cameraService.move(
-      request.params.cameraId,
-      direction as PanTiltDirection,
-      panSpeed,
-      tiltSpeed
-    );
-
-    return reply.code(200).send({
-      cameraId: request.params.cameraId,
-      success: true,
-      action: `move:${direction}`
-    });
-  });
-
-  const validZoomActions = new Set(["in", "out", "stop"]);
-
-  app.post<{
-    Params: { cameraId: string };
-    Body: { action?: unknown; speed?: unknown };
-  }>("/api/v1/cameras/:cameraId/zoom", async (request, reply) => {
-    const camera = cameraService.get(request.params.cameraId);
-    if (!camera) {
-      return reply.code(404).send({
-        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
-      });
-    }
-
-    const action = String(request.body?.action ?? "");
-    if (!validZoomActions.has(action)) {
-      return reply.code(422).send({
-        error: { code: "INVALID_ZOOM_ACTION", message: "action must be 'in', 'out', or 'stop'" }
-      });
-    }
-
-    const speed = request.body?.speed !== undefined ? Number(request.body.speed) : undefined;
-    if (speed !== undefined && (!Number.isInteger(speed) || speed < 0 || speed > 7)) {
-      return reply.code(422).send({
-        error: { code: "INVALID_ZOOM_SPEED", message: "speed must be an integer between 0 and 7" }
-      });
-    }
-
-    await cameraService.zoom(request.params.cameraId, action as ZoomAction, speed);
-
-    return reply.code(200).send({
-      cameraId: request.params.cameraId,
-      success: true,
-      action: `zoom:${action}`
-    });
-  });
-
-  app.post<{ Params: { cameraId: string; presetId: string } }>(
-    "/api/v1/cameras/:cameraId/presets/:presetId/recall",
-    async (request, reply) => {
-      const camera = cameraService.get(request.params.cameraId);
-      if (!camera) {
-        return reply.code(404).send({
-          error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
-        });
-      }
-
-      const presetId = Number(request.params.presetId);
-      if (!Number.isInteger(presetId) || presetId < 0 || presetId > 254) {
-        return reply.code(422).send({
-          error: { code: "INVALID_PRESET_ID", message: "presetId must be an integer between 0 and 254" }
-        });
-      }
-
-      await cameraService.recallPreset(request.params.cameraId, presetId);
-
-      return reply.code(200).send({
-        cameraId: request.params.cameraId,
-        success: true,
-        action: `preset:recall:${presetId}`
-      });
-    }
-  );
-
-  app.post<{
-    Params: { cameraId: string; presetId: string };
-    Body: { name?: unknown };
-  }>("/api/v1/cameras/:cameraId/presets/:presetId/save", async (request, reply) => {
-    const camera = cameraService.get(request.params.cameraId);
-    if (!camera) {
-      return reply.code(404).send({
-        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
-      });
-    }
-
-    const presetId = Number(request.params.presetId);
-    if (!Number.isInteger(presetId) || presetId < 0 || presetId > 254) {
-      return reply.code(422).send({
-        error: { code: "INVALID_PRESET_ID", message: "presetId must be an integer between 0 and 254" }
-      });
-    }
-
-    const name = typeof request.body?.name === "string" ? request.body.name.trim() : undefined;
-
-    await cameraService.savePreset(request.params.cameraId, presetId, name);
-
-    return reply.code(200).send({
-      cameraId: request.params.cameraId,
-      success: true,
-      action: `preset:save:${presetId}`
-    });
-  });
-
-  app.post<{
-    Params: { cameraId: string; presetId: string };
-    Body: { thumbnail?: unknown };
-  }>("/api/v1/cameras/:cameraId/presets/:presetId/thumbnail", async (request, reply) => {
-    const camera = cameraService.get(request.params.cameraId);
-    if (!camera) {
-      return reply.code(404).send({
-        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
-      });
-    }
-
-    const presetId = Number(request.params.presetId);
-    if (!Number.isInteger(presetId) || presetId < 0 || presetId > 254) {
-      return reply.code(422).send({
-        error: { code: "INVALID_PRESET_ID", message: "presetId must be an integer between 0 and 254" }
-      });
-    }
-
-    const thumbnail = typeof request.body?.thumbnail === "string" ? request.body.thumbnail.trim() : "";
-    if (!thumbnail) {
-      return reply.code(422).send({
-        error: { code: "THUMBNAIL_REQUIRED", message: "thumbnail data URL or string is required" }
-      });
-    }
-
-    const updated = await cameraService.savePresetThumbnail(request.params.cameraId, presetId, thumbnail);
-
-    return reply.code(200).send({
-      cameraId: request.params.cameraId,
-      presetId,
-      success: true,
-      action: `preset:thumbnail:${presetId}`,
-      camera: updated
-    });
-  });
-
-  const validSmartFrameModes = new Set(["enable", "disable", "trigger"]);
-
-  app.post<{
-    Params: { cameraId: string };
-    Body: { mode?: unknown };
-  }>("/api/v1/cameras/:cameraId/smartframe", async (request, reply) => {
-    const camera = cameraService.get(request.params.cameraId);
-    if (!camera) {
-      return reply.code(404).send({
-        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
-      });
-    }
-
-    const mode = String(request.body?.mode ?? "");
-    if (!validSmartFrameModes.has(mode)) {
-      return reply.code(422).send({
-        error: { code: "INVALID_SMARTFRAME_MODE", message: "mode must be 'enable', 'disable', or 'trigger'" }
-      });
-    }
-
-    await cameraService.setSmartFrame(request.params.cameraId, mode as SmartFrameMode);
-
-    return reply.code(200).send({
-      cameraId: request.params.cameraId,
-      success: true,
-      action: `smartframe:${mode}`
-    });
-  });
-
-  app.post<{
-    Params: { cameraId: string };
-    Body: { on?: unknown };
-  }>("/api/v1/cameras/:cameraId/power", async (request, reply) => {
-    const camera = cameraService.get(request.params.cameraId);
-    if (!camera) {
-      return reply.code(404).send({
-        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
-      });
-    }
-
-    const on = request.body?.on;
-    if (typeof on !== "boolean") {
-      return reply.code(422).send({
-        error: { code: "INVALID_POWER", message: "on must be true (wake) or false (standby)" }
-      });
-    }
-
-    await cameraService.setPower(request.params.cameraId, on);
-    cameraPower.set(request.params.cameraId, on ? "on" : "standby");
-
-    return reply.code(200).send({
-      cameraId: request.params.cameraId,
-      success: true,
-      action: `power:${on ? "on" : "standby"}`
-    });
-  });
-
-  app.get<{ Params: { cameraId: string } }>("/api/v1/cameras/:cameraId/freed", async (request, reply) => {
-    if (!cameraService.get(request.params.cameraId)) {
-      return reply.code(404).send({
-        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
-      });
-    }
-
-    try {
-      const freed = await cameraService.getFreed(request.params.cameraId);
-      return reply.code(200).send({ cameraId: request.params.cameraId, freed });
-    } catch (err) {
-      return sendCameraCgiError(reply, err);
-    }
-  });
-
-  app.post<{
-    Params: { cameraId: string };
-    Body: { enabled?: unknown; target?: unknown };
-  }>("/api/v1/cameras/:cameraId/freed", async (request, reply) => {
-    const cameraId = request.params.cameraId;
-    if (!cameraService.get(cameraId)) {
-      return reply.code(404).send({
-        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${cameraId}` }
-      });
-    }
-
-    const enabled = request.body?.enabled;
-    if (typeof enabled !== "boolean") {
-      return reply.code(422).send({
-        error: { code: "INVALID_FREED", message: "enabled must be true or false" }
-      });
-    }
-
-    let target: { camId: number; addr: string; port: number } | undefined;
-    if (request.body?.target !== undefined) {
-      const t = request.body.target as { camId?: unknown; addr?: unknown; port?: unknown } | null;
-      const validPort = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 65535;
-      if (
-        !t ||
-        typeof t !== "object" ||
-        !validPort(t.camId) ||
-        typeof t.addr !== "string" ||
-        !isIPv4(t.addr) ||
-        !validPort(t.port)
-      ) {
-        return reply.code(422).send({
-          error: {
-            code: "INVALID_FREED_TARGET",
-            message: "target needs camId (1-65535), addr (IPv4) and port (1-65535)"
-          }
-        });
-      }
-      target = { camId: t.camId as number, addr: t.addr, port: t.port as number };
-    }
-
-    try {
-      const freed = await cameraService.setFreed(cameraId, enabled, target);
-      return reply.code(200).send({
-        cameraId,
-        success: true,
-        action: `freed:${enabled ? "on" : "off"}`,
-        freed
-      });
-    } catch (err) {
-      return sendCameraCgiError(reply, err);
-    }
-  });
-
-  app.post<{
-    Params: { cameraId: string };
-    Body: { enabled?: unknown };
-  }>("/api/v1/cameras/:cameraId/privacy-blur", async (request, reply) => {
-    const camera = cameraService.get(request.params.cameraId);
-    if (!camera) {
-      return reply.code(404).send({
-        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
-      });
-    }
-
-    const enabled = request.body?.enabled;
-    if (typeof enabled !== "boolean") {
-      return reply.code(422).send({
-        error: { code: "INVALID_PRIVACY_BLUR", message: "enabled must be true or false" }
-      });
-    }
-
-    await cameraService.setPrivacyBlur(request.params.cameraId, enabled);
-
-    return reply.code(200).send({
-      cameraId: request.params.cameraId,
-      success: true,
-      action: `privacyblur:${enabled ? "on" : "off"}`
-    });
-  });
-
-  app.post<{
-    Params: { cameraId: string };
-    Body: { mode?: unknown };
-  }>("/api/v1/cameras/:cameraId/focus", async (request, reply) => {
-    const camera = cameraService.get(request.params.cameraId);
-    if (!camera) {
-      return reply.code(404).send({
-        error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
-      });
-    }
-
-    const mode = request.body?.mode;
-    if (mode !== "auto" && mode !== "manual") {
-      return reply.code(422).send({
-        error: { code: "INVALID_FOCUS_MODE", message: "mode must be auto or manual" }
-      });
-    }
-
-    await cameraService.setFocusMode(request.params.cameraId, mode);
-
-    return reply.code(200).send({
-      cameraId: request.params.cameraId,
-      success: true,
-      action: `focus:${mode}`
-    });
-  });
-
-  app.post<{ Params: { cameraId: string } }>(
-    "/api/v1/cameras/:cameraId/stream/start",
-    async (request, reply) => {
-      const camera = cameraService.get(request.params.cameraId);
-      if (!camera) {
-        return reply.code(404).send({
-          error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
-        });
-      }
-
-      try {
-        const { streamUrl } = await cameraService.startStream(request.params.cameraId);
-        return reply.code(200).send({
-          cameraId: request.params.cameraId,
-          streaming: true,
-          streamUrl,
-          message: "Camera stream started"
-        });
-      } catch (err) {
-        return sendCameraCgiError(reply, err);
-      }
-    }
-  );
-
-  app.post<{ Params: { cameraId: string } }>(
-    "/api/v1/cameras/:cameraId/stream/stop",
-    async (request, reply) => {
-      const camera = cameraService.get(request.params.cameraId);
-      if (!camera) {
-        return reply.code(404).send({
-          error: { code: "CAMERA_NOT_FOUND", message: `Unknown camera ID: ${request.params.cameraId}` }
-        });
-      }
-
-      try {
-        await cameraService.stopStream(request.params.cameraId);
-      } catch (err) {
-        return sendCameraCgiError(reply, err);
-      }
-
-      return reply.code(200).send({
-        cameraId: request.params.cameraId,
-        streaming: false,
-        streamUrl: null,
-        message: "Camera stream stopped"
-      });
-    }
-  );
+  registerGatewayProxy(app, gateway);
 
   // Effects Pipelines
   app.get<{ Querystring: { includeHidden?: string } }>("/api/v1/effects", async (request) => {
