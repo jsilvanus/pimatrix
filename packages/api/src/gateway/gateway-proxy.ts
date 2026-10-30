@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { GatewayClient } from "./gateway-client.js";
 
-const PROXIED = ["/api/v1/atem", "/api/v1/cameras", "/api/v1/matrix"];
+const PROXIED = ["/api/v1/video-mixer", "/api/v1/atem", "/api/v1/cameras", "/api/v1/matrix"];
 
 /**
  * ATEM, camera and matrix endpoints moved to pigateway. pimatrix keeps answering them (after its own
