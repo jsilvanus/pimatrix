@@ -1,11 +1,13 @@
 /**
  * Slide composite settings: a slide-only overlay frame (no video input, no audio).
  *
- * Two composites exist. `compose1` is the HDMI key output (a full-frame page with the
+ * Two composites exist. `compose1` is the active HDMI key output (a full-frame page with the
  * slide at one edge and the rest in a key colour, sent to a Pi HDMI output for the ATEM
- * chroma or luma keyer). `compose2` is the ATEM media-pool output (the same slide as a
- * PNG-with-alpha still, uploaded to a media slot and driven on a DSK). The output kind is
- * fixed per id so that a composite's job never changes under the operator.
+ * chroma or luma keyer).
+ *
+ * @deprecated `compose2` (ATEM media-pool output) is deprecated in pimatrix. ATEM media pool
+ * and media player still management has migrated to `piswitch` (/api/v1/video-mixer/media-pool/*
+ * with 6-slot circular slide buffer and 18-slot graphics pool). Use `piswitch` directly or via `piprogram`.
  */
 
 export const COMPOSITE_IDS = ["compose1", "compose2"] as const;

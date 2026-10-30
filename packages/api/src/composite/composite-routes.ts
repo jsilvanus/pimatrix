@@ -23,6 +23,13 @@ export function registerCompositeRoutes(app: FastifyInstance, composites: Compos
     done(null, body);
   });
 
+  app.addHook("preHandler", async (request, reply) => {
+    const params = request.params as { id?: string } | undefined;
+    if (params?.id === "compose2") {
+      reply.header("Deprecation", "@deprecated: compose2 is deprecated in pimatrix; use piswitch media-pool API");
+    }
+  });
+
   app.get("/api/v1/composites", async (): Promise<{ items: CompositeStatus[] }> => ({ items: composites.list() }));
 
   app.get<{ Params: { id: string } }>("/api/v1/composites/:id", async (request, reply) => {
