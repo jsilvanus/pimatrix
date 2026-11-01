@@ -6,16 +6,12 @@
   "engines": {
     "node": ">=20"
   },
-  "workspaces": [
-    "packages/api-client",
-    "packages/api",
-    "packages/cli"
-  ],
+  "packageManager": "pnpm@11.23.0",
   "scripts": {
-    "generate:api": "npm run generate --workspace @pimatrix/api-client",
-    "build": "npm run generate:api && npm run build --workspace @pimatrix/api-client && npm run build --workspace @pimatrix/api && npm run build --workspace @pimatrix/cli",
-    "test": "npm run test --workspace @pimatrix/api && npm run test --workspace @pimatrix/cli",
-    "typecheck": "npm run build",
+    "generate:api": "pnpm --filter @pimatrix/api-client run generate",
+    "build": "pnpm run generate:api && pnpm --filter @pimatrix/api-client run build && pnpm --filter @pimatrix/api run build && pnpm --filter @pimatrix/cli run build",
+    "test": "pnpm --filter @pimatrix/api run test && pnpm --filter @pimatrix/cli run test",
+    "typecheck": "pnpm run build",
     "lab:up": "docker compose -f dev/streaming-lab/compose.yaml up -d --build",
     "lab:down": "docker compose -f dev/streaming-lab/compose.yaml down",
     "lab:logs": "docker compose -f dev/streaming-lab/compose.yaml logs -f mediamtx test-patterns",
@@ -23,5 +19,17 @@
   },
   "devDependencies": {
     "typescript": "^5.7.3"
+  },
+  "pi": {
+    "service": "pimatrix",
+    "displayName": "PiMatrix",
+    "layer": "Layer 1: Southbound hardware",
+    "port": 3101,
+    "ports": {
+      "amxTcp": 6601,
+      "tlsProxy": 8443
+    },
+    "healthEndpoint": "/health",
+    "envPortVar": "PIMATRIX_PORT"
   }
 }

@@ -15,10 +15,10 @@ pm run setup (or ./setup.sh / .\setup.ps1) to automatically configure your .env 
                           │                     LOCAL NETWORK                      │
                           │                                                        │
                           │   LAN Operator / Touchscreen (Whitelisted IP)          │
-                          │   ─── Direct HTTP (port 3000, No Password) ────┐       │
+                          │   ─── Direct HTTP (port 3101, No Password) ────┐       │
                           │                                                │       │
                           │   Other LAN Clients (Laptops, Phones)          │       │
-                          │   ─── Direct HTTP (port 3000, Auth Required) ──┤       │
+                          │   ─── Direct HTTP (port 3101, Auth Required) ──┤       │
                           │                                                │       │
                           │   AMX NetLinx Master Controller                │       │
                           │   ─── TCP (port 6600, IP Whitelisted) ─────────┤       │
@@ -26,12 +26,12 @@ pm run setup (or ./setup.sh / .\setup.ps1) to automatically configure your .env 
                           │                                     ┌──────────────────────┐
                           │                                     │  PiMatrix Core App   │
                           │                                     │  (Node.js / Fastify) │
-                          │                                     │  - Port 3000 (HTTP)  │
+                          │                                     │  - Port 3101 (HTTP)  │
                           │                                     │  - Port 6600 (AMX)   │
                           │                                     └──────────────────────┘
                           │                                                ▲
                           │                                                │ Upstream Proxy
-                          │                                                │ (http://127.0.0.1:3000)
+                          │                                                │ (http://127.0.0.1:3101)
                           │   ┌────────────────────────────────────────────┴───────┐
                           │   │  deploy/tls-proxy (Nginx + Certbot Alpine Image)   │
                           │   │  - Auto-provisions Let's Encrypt TLS Certificate   │
@@ -55,7 +55,7 @@ pm run setup (or ./setup.sh / .\setup.ps1) to automatically configure your .env 
 - **Zero Certificate Overhead:** Local touch panels, AMX controllers, hardware decoders, and wall displays on an isolated AV LAN do not manage CA root stores or handle renewal failures.
 - **Fail-Safe Operation:** If the church internet connection goes down or a certificate renewal fails, local Sunday service AV switching continues uninterrupted.
 - **Minimal Latency:** Eliminates TLS handshake latency on high-frequency SSE event streams and control commands.
-- **Port Separation:** Internal traffic remains on standard HTTP (port 3000), while external traffic is terminated via TLS on a dedicated port (e.g. 8443 or 443).
+- **Port Separation:** Internal traffic remains on standard HTTP (port 3101), while external traffic is terminated via TLS on a dedicated port (e.g. 8443 or 443).
 
 ---
 

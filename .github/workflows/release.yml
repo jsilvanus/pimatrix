@@ -61,24 +61,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
 
       - name: Install dependencies & compile API client
         run: |
-          npm install
-          npm run generate:api
-          npm run build --workspace @pimatrix/api-client
+          pnpm install --frozen-lockfile
+          pnpm run generate:api
+          pnpm --filter @pimatrix/api-client run build
 
       - name: Prepare Single Executable Application blob
-        run: npm run sea:prep --workspace @pimatrix/cli
+        run: pnpm --filter @pimatrix/cli run sea:prep
 
       - name: Package Linux Standalone Executable
         run: |
           cp $(command -v node) packages/cli/dist/pimatrix
-          npx postject packages/cli/dist/pimatrix NODE_SEA_BLOB packages/cli/dist/sea-prep.blob \
+          pnpm --filter @pimatrix/cli exec postject packages/cli/dist/pimatrix NODE_SEA_BLOB packages/cli/dist/sea-prep.blob \
             --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
           chmod +x packages/cli/dist/pimatrix
           mkdir -p release
@@ -102,10 +106,14 @@ jobs:
         with:
           dotnet-version: '9.0.x'
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
 
       - name: Publish Windows Companion App
         run: |
@@ -115,12 +123,12 @@ jobs:
 
       - name: Build Standalone Windows CLI
         run: |
-          npm install
-          npm run generate:api
-          npm run build --workspace @pimatrix/api-client
-          npm run sea:prep --workspace @pimatrix/cli
+          pnpm install --frozen-lockfile
+          pnpm run generate:api
+          pnpm --filter @pimatrix/api-client run build
+          pnpm --filter @pimatrix/cli run sea:prep
           Copy-Item (Get-Command node).Source -Destination packages/cli/dist/pimatrix.exe
-          npx postject packages/cli/dist/pimatrix.exe NODE_SEA_BLOB packages/cli/dist/sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
+          pnpm --filter @pimatrix/cli exec postject packages/cli/dist/pimatrix.exe NODE_SEA_BLOB packages/cli/dist/sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
           Compress-Archive -Path packages/cli/dist/pimatrix.exe -DestinationPath release/pimatrix-cli-windows-x64.zip
 
       - name: Upload Windows artifacts

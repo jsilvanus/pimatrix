@@ -13,7 +13,7 @@ services:
       - PIMATRIX_DOMAIN=${PIMATRIX_DOMAIN}
       - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
       - PIMATRIX_TLS_PORT=${PIMATRIX_TLS_PORT:-8443}
-      - UPSTREAM_HOST=${UPSTREAM_HOST:-host.docker.internal:3000}
+      - UPSTREAM_HOST=${UPSTREAM_HOST:-host.docker.internal:3101}
       - CERTBOT_STAGING=${CERTBOT_STAGING:-false}
       - RESTRICT_WAN=${RESTRICT_WAN:-true}
     volumes:

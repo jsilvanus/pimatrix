@@ -17,17 +17,17 @@ The implementation provides a simulation-first HTTP API and standalone CLI, Medi
 ## Requirements
 
 - Node.js 20 or newer
-- npm
+- pnpm 11 (Node 22.13+; `corepack enable` installs the version pinned in `package.json`)
 
 ## Install, generate, build, test
 
 Run from the repository root:
 
 ```sh
-npm install
-npm run generate:api
-npm run build
-npm test
+pnpm install
+pnpm run generate:api
+pnpm run build
+pnpm test
 ```
 
 Generated API client code is a build artifact and is not committed. It is regenerated from `openapi/openapi.yaml` before compilation.
@@ -37,7 +37,7 @@ Generated API client code is a build artifact and is not committed. It is regene
 PiMatrix provides an interactive setup script that walks through all environment variables, detects local network IPs, generates secure random tokens, and writes a configured .env:
 
 `sh
-npm run setup
+pnpm run setup
 # or on Linux / Raspberry Pi: ./setup.sh
 # or on Windows PowerShell:   .\setup.ps1
 `
@@ -45,10 +45,10 @@ npm run setup
 ## Run the API
 
 ```sh
-npm run dev --workspace @pimatrix/api
+pnpm --filter @pimatrix/api run dev
 ```
 
-Default URL: `http://127.0.0.1:3000`.
+Default URL: `http://127.0.0.1:3101`.
 
 - `GET /health`
 - `GET /ready`
@@ -85,7 +85,7 @@ Default URL: `http://127.0.0.1:3000`.
 Environment:
 
 - `PIMATRIX_HOST`: bind address; defaults to `127.0.0.1`.
-- `PIMATRIX_PORT`: HTTP port; defaults to `3000`.
+- `PIMATRIX_PORT`: HTTP port; defaults to `3101`.
 - `PIMATRIX_MODE`: `simulation` (default) or `production`.
 - `PIMATRIX_MEDIAMTX_API_URL`: optional MediaMTX HTTP API base URL, e.g. `http://127.0.0.1:9997`.
 - `PIMATRIX_PREVIEW_BASE_URL`: optional browser-reachable WebRTC base URL, e.g. `http://pi.local:8889`. It no longer sets the camera RTMP target; use `PIMATRIX_MEDIAMTX_RTMP_URL` for that.
@@ -114,7 +114,7 @@ Environment:
 - `PIMATRIX_MEDIAMTX_RTSP_URL`: RTSP base URL of MediaMTX (for example `rtsp://127.0.0.1:8554`); a route's source is played from `<base>/<sourceId>`. Camera 1 and 2 pull their RTSP paths from `<base>/cam1` and `<base>/cam2`. It is no longer derived from `PIMATRIX_PREVIEW_BASE_URL`; unset means no camera RTSP URL.
 - `PIMATRIX_COMPOSITE_HDMI_DEVICE`: no longer used. `compose1` is published to MediaMTX as the source `compose1` (see below) and the route sends it to a Pi HDMI output, so the HDMI output is chosen by routing, not by the composite.
 - `PIMATRIX_COMPOSITE_VIDEO_CODEC`: encoder for the `compose1` publisher, `libx264` (default, software) or `h264_v4l2m2m` (Pi 4 hardware). Unverified on hardware.
-- `PIMATRIX_PIPROGRAM_URL`: piprogram API base URL (for example `http://127.0.0.1:3100`). Set it to let a composite follow a piprogram pipeline: with `slideSource: piprogram` and `pipelineId` (default `PiPGM1`), the composite takes the stage frame of that pipeline and refreshes it only when the active item or step changes. It blanks while the pipeline fades to black or has no steps. Frames are fetched every second when they change; `GET .../composites/{id}` shows `feedError`. `PIMATRIX_PIPROGRAM_API_KEY` is sent as `x-api-key` if set (reads are open today). Unverified against a running piprogram on the Pi.
+- `PIMATRIX_PIPROGRAM_URL`: piprogram API base URL (for example `http://127.0.0.1:3200`). Set it to let a composite follow a piprogram pipeline: with `slideSource: piprogram` and `pipelineId` (default `PiPGM1`), the composite takes the stage frame of that pipeline and refreshes it only when the active item or step changes. It blanks while the pipeline fades to black or has no steps. Frames are fetched every second when they change; `GET .../composites/{id}` shows `feedError`. `PIMATRIX_PIPROGRAM_API_KEY` is sent as `x-api-key` if set (reads are open today). Unverified against a running piprogram on the Pi.
 - `PIMATRIX_QUICK_OPTIONS_FILE`: file that holds the saved quick options (JSON, written atomically, restored at start); defaults to `./data/quick-options.json`.
 - `PIMATRIX_COMPOSITE_DATA_DIR`: directory for the slide PNG, the key page files and `composites.json` (saved settings, restored at start); defaults to `./data/composite`.
 - `PIMATRIX_COMPOSITE_FFMPEG`: ffmpeg used to render the key page; defaults to `ffmpeg`. Renders are pipe-only, no temporary files.
@@ -179,7 +179,7 @@ PiMatrix provides an automatic 8-way multiview aggregating all logical sources i
 7. `PiPGM1` (Pi Programme 1)
 8. `PiPGM2` (Pi Programme 2)
 
-- **Automatic Orientation:** When accessed directly on a mobile phone or desktop browser (`http://<host>:3000/multiview`), CSS Grid automatically adjusts:
+- **Automatic Orientation:** When accessed directly on a mobile phone or desktop browser (`http://<host>:3101/multiview`), CSS Grid automatically adjusts:
   - **Horizontal / Landscape:** 4 columns × 2 rows (4x2).
   - **Vertical / Portrait (Phone):** 2 columns × 4 rows (2x4).
 - **WebRTC Streaming:** Live video tiles load via WebRTC and automatically update status via Server-Sent Events.
@@ -202,40 +202,40 @@ the Raspberry Pi or capture hardware. See [the lab guide](dev/streaming-lab/READ
 Quick start:
 
 ```sh
-npm run lab:up
-npm run lab:logs
-npm run lab:down
+pnpm run lab:up
+pnpm run lab:logs
+pnpm run lab:down
 ```
 
 ## Use the CLI
 
 ```sh
-npm run dev --workspace @pimatrix/cli -- --server http://127.0.0.1:3000 status
-npm run dev --workspace @pimatrix/cli -- --json sources list
-npm run dev --workspace @pimatrix/cli -- sources show hama
-npm run dev --workspace @pimatrix/cli -- --json outputs list
-npm run dev --workspace @pimatrix/cli -- outputs set hdmi0 hama
-npm run dev --workspace @pimatrix/cli -- outputs set hdmi0 none
-npm run dev --workspace @pimatrix/cli -- matrix route 2 4
-npm run dev --workspace @pimatrix/cli -- cameras list
-npm run dev --workspace @pimatrix/cli -- cameras show cam1
-npm run dev --workspace @pimatrix/cli -- cameras move cam1 up --speed 12
-npm run dev --workspace @pimatrix/cli -- cameras zoom cam1 in --speed 4
-npm run dev --workspace @pimatrix/cli -- cameras preset recall cam1 2
-npm run dev --workspace @pimatrix/cli -- cameras preset save cam1 7 --name "Choir Back"
-npm run dev --workspace @pimatrix/cli -- cameras smartframe cam1 trigger
-npm run dev --workspace @pimatrix/cli -- cameras privacy-blur cam1 on
-npm run dev --workspace @pimatrix/cli -- cameras stream start cam1
-npm run dev --workspace @pimatrix/cli -- cameras stream stop cam1
-npm run dev --workspace @pimatrix/cli -- multiview show
-npm run dev --workspace @pimatrix/cli -- composites list
-npm run dev --workspace @pimatrix/cli -- composites set compose1 side right
-npm run dev --workspace @pimatrix/cli -- composites set compose2 atem.dskIndex 2
-npm run dev --workspace @pimatrix/cli -- composites slide ./slide.png
-npm run dev --workspace @pimatrix/cli -- composites start compose1
-npm run dev --workspace @pimatrix/cli -- composites preview compose1 ./key-page.png
-npm run dev --workspace @pimatrix/cli -- composites stop compose1
-npm run dev --workspace @pimatrix/cli -- multiview layout portrait
+pnpm --filter @pimatrix/cli run dev -- --server http://127.0.0.1:3101 status
+pnpm --filter @pimatrix/cli run dev -- --json sources list
+pnpm --filter @pimatrix/cli run dev -- sources show hama
+pnpm --filter @pimatrix/cli run dev -- --json outputs list
+pnpm --filter @pimatrix/cli run dev -- outputs set hdmi0 hama
+pnpm --filter @pimatrix/cli run dev -- outputs set hdmi0 none
+pnpm --filter @pimatrix/cli run dev -- matrix route 2 4
+pnpm --filter @pimatrix/cli run dev -- cameras list
+pnpm --filter @pimatrix/cli run dev -- cameras show cam1
+pnpm --filter @pimatrix/cli run dev -- cameras move cam1 up --speed 12
+pnpm --filter @pimatrix/cli run dev -- cameras zoom cam1 in --speed 4
+pnpm --filter @pimatrix/cli run dev -- cameras preset recall cam1 2
+pnpm --filter @pimatrix/cli run dev -- cameras preset save cam1 7 --name "Choir Back"
+pnpm --filter @pimatrix/cli run dev -- cameras smartframe cam1 trigger
+pnpm --filter @pimatrix/cli run dev -- cameras privacy-blur cam1 on
+pnpm --filter @pimatrix/cli run dev -- cameras stream start cam1
+pnpm --filter @pimatrix/cli run dev -- cameras stream stop cam1
+pnpm --filter @pimatrix/cli run dev -- multiview show
+pnpm --filter @pimatrix/cli run dev -- composites list
+pnpm --filter @pimatrix/cli run dev -- composites set compose1 side right
+pnpm --filter @pimatrix/cli run dev -- composites set compose2 atem.dskIndex 2
+pnpm --filter @pimatrix/cli run dev -- composites slide ./slide.png
+pnpm --filter @pimatrix/cli run dev -- composites start compose1
+pnpm --filter @pimatrix/cli run dev -- composites preview compose1 ./key-page.png
+pnpm --filter @pimatrix/cli run dev -- composites stop compose1
+pnpm --filter @pimatrix/cli run dev -- multiview layout portrait
 ```
 
 Once built, the `pimatrix` executable is available from the CLI workspace package. It supports `--server`, `PIMATRIX_URL`, and `--json`.
@@ -265,5 +265,5 @@ podman build -t pimatrix -f deploy/Containerfile .
 Run container:
 
 ```sh
-podman run -d --name pimatrix -p 3000:3000 -p 6600:6600 pimatrix
+podman run -d --name pimatrix -p 3101:3101 -p 6600:6600 pimatrix
 ```
