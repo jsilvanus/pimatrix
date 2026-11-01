@@ -3,6 +3,9 @@ import { Socket } from "node:net";
 import test from "node:test";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
+import { AmxTcpListener } from "../src/amx/amx-listener.js";
+import { createOutputStore } from "../src/model.js";
+import { createDisplayAdapter } from "../src/display-adapter.js";
 
 test("simulated display adapter updates observed source and active state", async () => {
   const config = loadConfig({
@@ -132,5 +135,39 @@ test("AMX TCP listener accepts line-framed commands and controls routes", async 
   } finally {
     client.destroy();
     await app.close();
+  }
+});
+
+test("AMX OUTPUT:SET tells the app the route changed (wakes Hama on demand)", async () => {
+  const outputStore = createOutputStore();
+  const displayAdapter = createDisplayAdapter("simulation", loadConfig({ PIMATRIX_DISPLAY_SIMULATED: "true" }));
+  let changed = 0;
+  const listener = new AmxTcpListener({
+    host: "127.0.0.1",
+    port: 0,
+    outputStore,
+    displayAdapter,
+    listSources: async () => [],
+    mode: "simulation",
+    onRouteChanged: () => { changed += 1; }
+  });
+  const port = await listener.start();
+  const client = new Socket();
+  client.setEncoding("utf8");
+  await new Promise<void>((resolve, reject) => {
+    client.connect(port, "127.0.0.1", () => resolve());
+    client.on("error", reject);
+  });
+  try {
+    const reply = await new Promise<string>((resolve) => {
+      client.once("data", (chunk: string) => resolve(chunk.trim()));
+      client.write("OUTPUT:SET:hdmi0:hama;\r\n");
+    });
+    assert.equal(reply, "OUTPUT:OK:hdmi0:hama;");
+    assert.equal(changed, 1);
+    assert.equal(outputStore.get("hdmi0")?.desiredSource, "hama");
+  } finally {
+    client.destroy();
+    await listener.stop();
   }
 });
