@@ -30,6 +30,8 @@ export interface AmxListenerOptions {
   mode: string;
   logger?: FastifyBaseLogger | undefined;
   allowedIps?: string[] | undefined;
+  /** Called after OUTPUT:SET changed a route (app.ts uses it to wake Hama on demand). */
+  onRouteChanged?: (() => void) | undefined;
 }
 
 const KNOWN_COMMANDS = new Set(["DEV", "PING", "STATUS", "SOURCE", "OUTPUT", "CAM", "QUICK", "PROGRAM", "HELP"]);
@@ -253,6 +255,8 @@ export class AmxTcpListener {
             data: { output: currentOutput }
           });
         }
+
+        this.options.onRouteChanged?.();
 
         return wrap(`OUTPUT:OK:${outputId}:${sourceId ?? "none"}`);
       }

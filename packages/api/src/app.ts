@@ -301,6 +301,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         displayAdapter,
         eventBroker,
         listSources: () => listSources(false),
+        onRouteChanged: () => hamaOnDemand.sync(),
         mode: config.mode,
         logger: app.log,
         ...(config.amxAllowedHosts && config.amxAllowedHosts.length > 0
