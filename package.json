@@ -23,7 +23,7 @@
   "pi": {
     "service": "pimatrix",
     "displayName": "PiMatrix",
-    "layer": "southbound-hardware",
+    "layer": "Layer 1: Southbound hardware",
     "port": 3101,
     "ports": {
       "amxTcp": 6601,
