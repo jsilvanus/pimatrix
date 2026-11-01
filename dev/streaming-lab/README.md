@@ -52,7 +52,7 @@ PowerShell:
 
 ```powershell
 $env:PIMATRIX_HOST = "127.0.0.1"
-$env:PIMATRIX_PORT = "3000"
+$env:PIMATRIX_PORT = "3101"
 $env:PIMATRIX_MODE = "simulation"
 $env:PIMATRIX_MEDIAMTX_API_URL = "http://127.0.0.1:9997"
 $env:PIMATRIX_PREVIEW_BASE_URL = "http://127.0.0.1:8889"
@@ -65,7 +65,7 @@ WSL/Linux shell:
 
 ```sh
 export PIMATRIX_HOST=127.0.0.1
-export PIMATRIX_PORT=3000
+export PIMATRIX_PORT=3101
 export PIMATRIX_MODE=simulation
 export PIMATRIX_MEDIAMTX_API_URL=http://127.0.0.1:9997
 export PIMATRIX_PREVIEW_BASE_URL=http://127.0.0.1:8889
@@ -77,11 +77,11 @@ pnpm --filter @pimatrix/api run dev
 Then, in another terminal, try the API and generated CLI:
 
 ```sh
-curl http://127.0.0.1:3000/health
-curl http://127.0.0.1:3000/api/v1/status
-curl http://127.0.0.1:3000/api/v1/sources
-pnpm --filter @pimatrix/cli run dev -- --server http://127.0.0.1:3000 status
-pnpm --filter @pimatrix/cli run dev -- --server http://127.0.0.1:3000 sources list
+curl http://127.0.0.1:3101/health
+curl http://127.0.0.1:3101/api/v1/status
+curl http://127.0.0.1:3101/api/v1/sources
+pnpm --filter @pimatrix/cli run dev -- --server http://127.0.0.1:3101 status
+pnpm --filter @pimatrix/cli run dev -- --server http://127.0.0.1:3101 sources list
 ```
 
 The preview URL returned by PiMatrix is intended for a browser on the host.

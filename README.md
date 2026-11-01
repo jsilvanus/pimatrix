@@ -48,7 +48,7 @@ pnpm run setup
 pnpm --filter @pimatrix/api run dev
 ```
 
-Default URL: `http://127.0.0.1:3000`.
+Default URL: `http://127.0.0.1:3101`.
 
 - `GET /health`
 - `GET /ready`
@@ -85,7 +85,7 @@ Default URL: `http://127.0.0.1:3000`.
 Environment:
 
 - `PIMATRIX_HOST`: bind address; defaults to `127.0.0.1`.
-- `PIMATRIX_PORT`: HTTP port; defaults to `3000`.
+- `PIMATRIX_PORT`: HTTP port; defaults to `3101`.
 - `PIMATRIX_MODE`: `simulation` (default) or `production`.
 - `PIMATRIX_MEDIAMTX_API_URL`: optional MediaMTX HTTP API base URL, e.g. `http://127.0.0.1:9997`.
 - `PIMATRIX_PREVIEW_BASE_URL`: optional browser-reachable WebRTC base URL, e.g. `http://pi.local:8889`. It no longer sets the camera RTMP target; use `PIMATRIX_MEDIAMTX_RTMP_URL` for that.
@@ -114,7 +114,7 @@ Environment:
 - `PIMATRIX_MEDIAMTX_RTSP_URL`: RTSP base URL of MediaMTX (for example `rtsp://127.0.0.1:8554`); a route's source is played from `<base>/<sourceId>`. Camera 1 and 2 pull their RTSP paths from `<base>/cam1` and `<base>/cam2`. It is no longer derived from `PIMATRIX_PREVIEW_BASE_URL`; unset means no camera RTSP URL.
 - `PIMATRIX_COMPOSITE_HDMI_DEVICE`: no longer used. `compose1` is published to MediaMTX as the source `compose1` (see below) and the route sends it to a Pi HDMI output, so the HDMI output is chosen by routing, not by the composite.
 - `PIMATRIX_COMPOSITE_VIDEO_CODEC`: encoder for the `compose1` publisher, `libx264` (default, software) or `h264_v4l2m2m` (Pi 4 hardware). Unverified on hardware.
-- `PIMATRIX_PIPROGRAM_URL`: piprogram API base URL (for example `http://127.0.0.1:3100`). Set it to let a composite follow a piprogram pipeline: with `slideSource: piprogram` and `pipelineId` (default `PiPGM1`), the composite takes the stage frame of that pipeline and refreshes it only when the active item or step changes. It blanks while the pipeline fades to black or has no steps. Frames are fetched every second when they change; `GET .../composites/{id}` shows `feedError`. `PIMATRIX_PIPROGRAM_API_KEY` is sent as `x-api-key` if set (reads are open today). Unverified against a running piprogram on the Pi.
+- `PIMATRIX_PIPROGRAM_URL`: piprogram API base URL (for example `http://127.0.0.1:3200`). Set it to let a composite follow a piprogram pipeline: with `slideSource: piprogram` and `pipelineId` (default `PiPGM1`), the composite takes the stage frame of that pipeline and refreshes it only when the active item or step changes. It blanks while the pipeline fades to black or has no steps. Frames are fetched every second when they change; `GET .../composites/{id}` shows `feedError`. `PIMATRIX_PIPROGRAM_API_KEY` is sent as `x-api-key` if set (reads are open today). Unverified against a running piprogram on the Pi.
 - `PIMATRIX_QUICK_OPTIONS_FILE`: file that holds the saved quick options (JSON, written atomically, restored at start); defaults to `./data/quick-options.json`.
 - `PIMATRIX_COMPOSITE_DATA_DIR`: directory for the slide PNG, the key page files and `composites.json` (saved settings, restored at start); defaults to `./data/composite`.
 - `PIMATRIX_COMPOSITE_FFMPEG`: ffmpeg used to render the key page; defaults to `ffmpeg`. Renders are pipe-only, no temporary files.
@@ -179,7 +179,7 @@ PiMatrix provides an automatic 8-way multiview aggregating all logical sources i
 7. `PiPGM1` (Pi Programme 1)
 8. `PiPGM2` (Pi Programme 2)
 
-- **Automatic Orientation:** When accessed directly on a mobile phone or desktop browser (`http://<host>:3000/multiview`), CSS Grid automatically adjusts:
+- **Automatic Orientation:** When accessed directly on a mobile phone or desktop browser (`http://<host>:3101/multiview`), CSS Grid automatically adjusts:
   - **Horizontal / Landscape:** 4 columns × 2 rows (4x2).
   - **Vertical / Portrait (Phone):** 2 columns × 4 rows (2x4).
 - **WebRTC Streaming:** Live video tiles load via WebRTC and automatically update status via Server-Sent Events.
@@ -210,7 +210,7 @@ pnpm run lab:down
 ## Use the CLI
 
 ```sh
-pnpm --filter @pimatrix/cli run dev -- --server http://127.0.0.1:3000 status
+pnpm --filter @pimatrix/cli run dev -- --server http://127.0.0.1:3101 status
 pnpm --filter @pimatrix/cli run dev -- --json sources list
 pnpm --filter @pimatrix/cli run dev -- sources show hama
 pnpm --filter @pimatrix/cli run dev -- --json outputs list
@@ -265,5 +265,5 @@ podman build -t pimatrix -f deploy/Containerfile .
 Run container:
 
 ```sh
-podman run -d --name pimatrix -p 3000:3000 -p 6600:6600 pimatrix
+podman run -d --name pimatrix -p 3101:3101 -p 6600:6600 pimatrix
 ```

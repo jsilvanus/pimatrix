@@ -124,7 +124,7 @@ function validPort(value: string | undefined, fallback: number, name: string, al
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const host = env.PIMATRIX_HOST?.trim() || "127.0.0.1";
-  const port = Number(env.PIMATRIX_PORT ?? "3000");
+  const port = Number(env.PIMATRIX_PORT ?? "3101");
   const mode = env.PIMATRIX_MODE ?? "simulation";
   const mediaMtxApiUrl = optionalHttpUrl(env.PIMATRIX_MEDIAMTX_API_URL, "PIMATRIX_MEDIAMTX_API_URL");
   const previewBaseUrl = optionalHttpUrl(env.PIMATRIX_PREVIEW_BASE_URL, "PIMATRIX_PREVIEW_BASE_URL");

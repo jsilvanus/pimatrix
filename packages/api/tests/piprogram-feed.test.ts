@@ -117,9 +117,9 @@ test("the client sends the API key and asks for a transparent frame at the feed 
     calls.push({ url: String(url), key: headers.get("x-api-key") });
     return new Response(PNG, { status: 200 });
   }) as typeof fetch;
-  const client = new PiprogramClient({ baseUrl: "http://pi.local:3100/", apiKey: "k3y", fetch: fetchFake });
+  const client = new PiprogramClient({ baseUrl: "http://pi.local:3200/", apiKey: "k3y", fetch: fetchFake });
   await client.frame("PiPGM2", 1920, 1080);
-  assert.equal(calls[0]!.url, "http://pi.local:3100/api/v1/pipgm/pipelines/PiPGM2/frame.png?width=1920&height=1080&alpha=1");
+  assert.equal(calls[0]!.url, "http://pi.local:3200/api/v1/pipgm/pipelines/PiPGM2/frame.png?width=1920&height=1080&alpha=1");
   assert.equal(calls[0]!.key, "k3y");
 });
 

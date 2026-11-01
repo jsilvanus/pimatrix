@@ -4,7 +4,7 @@ import { parseArgs } from "../src/options.js";
 
 test("uses default server and supports JSON", () => {
   const options = parseArgs(["--json", "sources", "list"], {});
-  assert.equal(options.server, "http://127.0.0.1:3000");
+  assert.equal(options.server, "http://127.0.0.1:3101");
   assert.equal(options.json, true);
   assert.deepEqual(options.command, ["sources", "list"]);
 });

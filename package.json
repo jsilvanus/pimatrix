@@ -24,7 +24,7 @@
     "service": "pimatrix",
     "displayName": "PiMatrix",
     "layer": "southbound-hardware",
-    "port": 3000,
+    "port": 3101,
     "ports": {
       "amxTcp": 6601,
       "tlsProxy": 8443

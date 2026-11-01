@@ -25,7 +25,7 @@ export interface CliOptions {
 }
 
 export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env): CliOptions {
-  let server = env.PIMATRIX_URL ?? "http://127.0.0.1:3000";
+  let server = env.PIMATRIX_URL ?? "http://127.0.0.1:3101";
   let apiKey: string | undefined = env.PIMATRIX_API_KEY?.trim() || undefined;
   let json = false;
   let panSpeed: number | undefined;

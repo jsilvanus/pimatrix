@@ -8,7 +8,7 @@ namespace PiMatrixCompanion.Models
         public string Version { get; set; } = "Unknown";
         public string Mode { get; set; } = "unknown";
         public string Host { get; set; } = "127.0.0.1";
-        public int Port { get; set; } = 3000;
+        public int Port { get; set; } = 3101;
         public int MediaMtxPort { get; set; } = 8890;
         public List<string> ActiveSources { get; set; } = new();
         public string CurrentOutputSource { get; set; } = string.Empty;
@@ -18,7 +18,7 @@ namespace PiMatrixCompanion.Models
     public class AppSettings
     {
         public string PiMatrixHost { get; set; } = "127.0.0.1";
-        public int PiMatrixApiPort { get; set; } = 3000;
+        public int PiMatrixApiPort { get; set; } = 3101;
         public int PiMatrixSrtPort { get; set; } = 8890;
         public int PiMatrixRtmpPort { get; set; } = 1935;
         public string PiMatrixApiKey { get; set; } = string.Empty;

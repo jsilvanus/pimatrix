@@ -173,7 +173,7 @@ async function main() {
     cfg.PIMATRIX_PORT = await ask(
       reader,
       "Server HTTP port",
-      existing.PIMATRIX_PORT || "3000"
+      existing.PIMATRIX_PORT || "3101"
     );
     cfg.PIMATRIX_DISPLAY_MODE = await ask(
       reader,

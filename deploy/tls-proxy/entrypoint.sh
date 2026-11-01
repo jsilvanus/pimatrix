@@ -4,7 +4,7 @@ set -eo pipefail
 DOMAIN="${PIMATRIX_DOMAIN:-${DOMAIN:-localhost}}"
 EMAIL="${LETSENCRYPT_EMAIL:-${EMAIL:-admin@$DOMAIN}}"
 TLS_PORT="${PIMATRIX_TLS_PORT:-8443}"
-UPSTREAM="${UPSTREAM_HOST:-host.docker.internal:3000}"
+UPSTREAM="${UPSTREAM_HOST:-host.docker.internal:3101}"
 STAGING="${CERTBOT_STAGING:-false}"
 RESTRICT_WAN="${RESTRICT_WAN:-true}"
 
