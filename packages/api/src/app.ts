@@ -40,6 +40,7 @@ import { renderMultiviewHtml } from "./multiview-html.js";
 import { PipgmSourceFeed } from "./piprogram/pipgm-sources.js";
 import { buildHamaCaptureSpec, StreamSupervisor } from "./stream-supervisor.js";
 import { HamaOnDemand } from "./hama-on-demand.js";
+import { HamaSettingsStore, parseHamaPatch } from "./hama-settings.js";
 import { PiprogramClient, PiprogramFeed } from "./composite/piprogram-feed.js";
 import { PIPROGRAM_PIPELINE_IDS, type PiprogramPipelineId } from "./composite/composite-model.js";
 import { isIpWhitelisted } from "./ip-whitelist.js";
@@ -146,6 +147,9 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     requestTimeoutMs: 1500
   }) : null;
 
+  // Width, height, format, frame rate and codec can be changed at runtime; the env values are the defaults.
+  const hamaSettings = new HamaSettingsStore(config.hamaSettingsFile || undefined);
+  const hamaConfig = () => hamaSettings.effective(config);
   // Capture must stay on the Pi that owns the USB device; never send /dev/video0 to a remote fleet.
   const localCaptureFleet = config.hamaEnabled ? createFleet({
     fallback: "none",
@@ -160,7 +164,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         hamaEffects && (hamaEffects.crop.enabled || hamaEffects.fadeToBlack)
           ? hamaEffects.ffmpegFilter
           : undefined;
-      return buildHamaCaptureSpec(config, attempt, filter);
+      return buildHamaCaptureSpec(hamaConfig(), attempt, filter);
     },
     config.hamaEnabled,
     config.streamRestartMinMs,
@@ -995,16 +999,63 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       demand,
       idleGraceSeconds: config.hamaIdleGraceMs / 1000,
       device: config.hamaDevice,
-      width: config.hamaWidth ?? null,
-      height: config.hamaHeight ?? null,
-      videoCodec: config.hamaVideoCodec ?? null,
+      width: hamaConfig().hamaWidth ?? null,
+      height: hamaConfig().hamaHeight ?? null,
+      inputFormat: hamaConfig().hamaInputFormat ?? null,
+      frameRate: hamaConfig().hamaFrameRate ?? null,
+      videoCodec: hamaConfig().hamaVideoCodec ?? null,
       jobId: capture.jobId,
       attempt: capture.attempt,
       lastError: capture.lastError
     };
   };
 
+  const hamaSettingsView = () => {
+    const e = hamaConfig();
+    return {
+      overrides: hamaSettings.get(),
+      effective: {
+        inputFormat: e.hamaInputFormat ?? null,
+        width: e.hamaWidth ?? null,
+        height: e.hamaHeight ?? null,
+        frameRate: e.hamaFrameRate ?? null,
+        videoCodec: e.hamaVideoCodec ?? null
+      }
+    };
+  };
+
+  /** A running capture picks the new settings up at once; an idle one at its next start. */
+  const applyHamaSettings = async () => {
+    if (captureSupervisor.snapshot().state === "running") {
+      void captureSupervisor.restart().catch(() => undefined);
+    }
+  };
+
   app.get("/api/v1/sources/hama/capture", async () => hamaCaptureStatus());
+
+  app.get("/api/v1/sources/hama/capture/settings", async () => hamaSettingsView());
+
+  app.put("/api/v1/sources/hama/capture/settings", async (request, reply) => {
+    let patch;
+    try {
+      patch = parseHamaPatch(request.body);
+    } catch (error) {
+      return reply.code(422).send({ error: { code: "INVALID_SETTINGS", message: error instanceof Error ? error.message : String(error) } });
+    }
+    const candidate = hamaSettings.effective(config, patch);
+    if (Boolean(candidate.hamaWidth) !== Boolean(candidate.hamaHeight)) {
+      return reply.code(422).send({ error: { code: "INVALID_SETTINGS", message: "width and height must be set together" } });
+    }
+    const next = hamaSettings.update(patch);
+    await applyHamaSettings();
+    return reply.code(200).send({ ...hamaSettingsView(), saved: next });
+  });
+
+  app.delete("/api/v1/sources/hama/capture/settings", async (_request, reply) => {
+    hamaSettings.reset();
+    await applyHamaSettings();
+    return reply.code(200).send(hamaSettingsView());
+  });
 
   app.post("/api/v1/sources/hama/capture/start", async (_request, reply) => {
     if (!config.hamaEnabled) {
