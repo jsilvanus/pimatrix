@@ -11,7 +11,7 @@ The `hama` path in this lab is a generated test pattern, not a real Hama capture
 
 - Docker Desktop with the WSL2 backend, or Docker Engine inside WSL2
 - Docker Compose v2
-- Node.js 20+ and npm available in the environment where PiMatrix is run
+- Node.js 22.13+ and pnpm (via corepack) available in the environment where PiMatrix is run
 
 ## Start the media services
 
@@ -57,8 +57,8 @@ $env:PIMATRIX_MODE = "simulation"
 $env:PIMATRIX_MEDIAMTX_API_URL = "http://127.0.0.1:9997"
 $env:PIMATRIX_PREVIEW_BASE_URL = "http://127.0.0.1:8889"
 $env:PIMATRIX_HAMA_ENABLED = "false"
-npm install
-npm run dev --workspace @pimatrix/api
+pnpm install
+pnpm --filter @pimatrix/api run dev
 ```
 
 WSL/Linux shell:
@@ -70,8 +70,8 @@ export PIMATRIX_MODE=simulation
 export PIMATRIX_MEDIAMTX_API_URL=http://127.0.0.1:9997
 export PIMATRIX_PREVIEW_BASE_URL=http://127.0.0.1:8889
 export PIMATRIX_HAMA_ENABLED=false
-npm install
-npm run dev --workspace @pimatrix/api
+pnpm install
+pnpm --filter @pimatrix/api run dev
 ```
 
 Then, in another terminal, try the API and generated CLI:
@@ -80,8 +80,8 @@ Then, in another terminal, try the API and generated CLI:
 curl http://127.0.0.1:3000/health
 curl http://127.0.0.1:3000/api/v1/status
 curl http://127.0.0.1:3000/api/v1/sources
-npm run dev --workspace @pimatrix/cli -- --server http://127.0.0.1:3000 status
-npm run dev --workspace @pimatrix/cli -- --server http://127.0.0.1:3000 sources list
+pnpm --filter @pimatrix/cli run dev -- --server http://127.0.0.1:3000 status
+pnpm --filter @pimatrix/cli run dev -- --server http://127.0.0.1:3000 sources list
 ```
 
 The preview URL returned by PiMatrix is intended for a browser on the host.

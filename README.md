@@ -17,17 +17,17 @@ The implementation provides a simulation-first HTTP API and standalone CLI, Medi
 ## Requirements
 
 - Node.js 20 or newer
-- npm
+- pnpm 11 (Node 22.13+; `corepack enable` installs the version pinned in `package.json`)
 
 ## Install, generate, build, test
 
 Run from the repository root:
 
 ```sh
-npm install
-npm run generate:api
-npm run build
-npm test
+pnpm install
+pnpm run generate:api
+pnpm run build
+pnpm test
 ```
 
 Generated API client code is a build artifact and is not committed. It is regenerated from `openapi/openapi.yaml` before compilation.
@@ -37,7 +37,7 @@ Generated API client code is a build artifact and is not committed. It is regene
 PiMatrix provides an interactive setup script that walks through all environment variables, detects local network IPs, generates secure random tokens, and writes a configured .env:
 
 `sh
-npm run setup
+pnpm run setup
 # or on Linux / Raspberry Pi: ./setup.sh
 # or on Windows PowerShell:   .\setup.ps1
 `
@@ -45,7 +45,7 @@ npm run setup
 ## Run the API
 
 ```sh
-npm run dev --workspace @pimatrix/api
+pnpm --filter @pimatrix/api run dev
 ```
 
 Default URL: `http://127.0.0.1:3000`.
@@ -202,40 +202,40 @@ the Raspberry Pi or capture hardware. See [the lab guide](dev/streaming-lab/READ
 Quick start:
 
 ```sh
-npm run lab:up
-npm run lab:logs
-npm run lab:down
+pnpm run lab:up
+pnpm run lab:logs
+pnpm run lab:down
 ```
 
 ## Use the CLI
 
 ```sh
-npm run dev --workspace @pimatrix/cli -- --server http://127.0.0.1:3000 status
-npm run dev --workspace @pimatrix/cli -- --json sources list
-npm run dev --workspace @pimatrix/cli -- sources show hama
-npm run dev --workspace @pimatrix/cli -- --json outputs list
-npm run dev --workspace @pimatrix/cli -- outputs set hdmi0 hama
-npm run dev --workspace @pimatrix/cli -- outputs set hdmi0 none
-npm run dev --workspace @pimatrix/cli -- matrix route 2 4
-npm run dev --workspace @pimatrix/cli -- cameras list
-npm run dev --workspace @pimatrix/cli -- cameras show cam1
-npm run dev --workspace @pimatrix/cli -- cameras move cam1 up --speed 12
-npm run dev --workspace @pimatrix/cli -- cameras zoom cam1 in --speed 4
-npm run dev --workspace @pimatrix/cli -- cameras preset recall cam1 2
-npm run dev --workspace @pimatrix/cli -- cameras preset save cam1 7 --name "Choir Back"
-npm run dev --workspace @pimatrix/cli -- cameras smartframe cam1 trigger
-npm run dev --workspace @pimatrix/cli -- cameras privacy-blur cam1 on
-npm run dev --workspace @pimatrix/cli -- cameras stream start cam1
-npm run dev --workspace @pimatrix/cli -- cameras stream stop cam1
-npm run dev --workspace @pimatrix/cli -- multiview show
-npm run dev --workspace @pimatrix/cli -- composites list
-npm run dev --workspace @pimatrix/cli -- composites set compose1 side right
-npm run dev --workspace @pimatrix/cli -- composites set compose2 atem.dskIndex 2
-npm run dev --workspace @pimatrix/cli -- composites slide ./slide.png
-npm run dev --workspace @pimatrix/cli -- composites start compose1
-npm run dev --workspace @pimatrix/cli -- composites preview compose1 ./key-page.png
-npm run dev --workspace @pimatrix/cli -- composites stop compose1
-npm run dev --workspace @pimatrix/cli -- multiview layout portrait
+pnpm --filter @pimatrix/cli run dev -- --server http://127.0.0.1:3000 status
+pnpm --filter @pimatrix/cli run dev -- --json sources list
+pnpm --filter @pimatrix/cli run dev -- sources show hama
+pnpm --filter @pimatrix/cli run dev -- --json outputs list
+pnpm --filter @pimatrix/cli run dev -- outputs set hdmi0 hama
+pnpm --filter @pimatrix/cli run dev -- outputs set hdmi0 none
+pnpm --filter @pimatrix/cli run dev -- matrix route 2 4
+pnpm --filter @pimatrix/cli run dev -- cameras list
+pnpm --filter @pimatrix/cli run dev -- cameras show cam1
+pnpm --filter @pimatrix/cli run dev -- cameras move cam1 up --speed 12
+pnpm --filter @pimatrix/cli run dev -- cameras zoom cam1 in --speed 4
+pnpm --filter @pimatrix/cli run dev -- cameras preset recall cam1 2
+pnpm --filter @pimatrix/cli run dev -- cameras preset save cam1 7 --name "Choir Back"
+pnpm --filter @pimatrix/cli run dev -- cameras smartframe cam1 trigger
+pnpm --filter @pimatrix/cli run dev -- cameras privacy-blur cam1 on
+pnpm --filter @pimatrix/cli run dev -- cameras stream start cam1
+pnpm --filter @pimatrix/cli run dev -- cameras stream stop cam1
+pnpm --filter @pimatrix/cli run dev -- multiview show
+pnpm --filter @pimatrix/cli run dev -- composites list
+pnpm --filter @pimatrix/cli run dev -- composites set compose1 side right
+pnpm --filter @pimatrix/cli run dev -- composites set compose2 atem.dskIndex 2
+pnpm --filter @pimatrix/cli run dev -- composites slide ./slide.png
+pnpm --filter @pimatrix/cli run dev -- composites start compose1
+pnpm --filter @pimatrix/cli run dev -- composites preview compose1 ./key-page.png
+pnpm --filter @pimatrix/cli run dev -- composites stop compose1
+pnpm --filter @pimatrix/cli run dev -- multiview layout portrait
 ```
 
 Once built, the `pimatrix` executable is available from the CLI workspace package. It supports `--server`, `PIMATRIX_URL`, and `--json`.

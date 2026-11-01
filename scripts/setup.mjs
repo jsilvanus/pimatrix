@@ -473,7 +473,7 @@ async function main() {
     console.log(`\n${c.green}${c.bold}✔ .env file created successfully!${c.reset}\n`);
 
     console.log(`${c.cyan}${c.bold}Next steps:${c.reset}`);
-    console.log(`  ${c.bold}Start locally:${c.reset}           npm run dev`);
+    console.log(`  ${c.bold}Start locally:${c.reset}           pnpm run dev`);
     console.log(`  ${c.bold}Start full Docker stack:${c.reset} docker compose up -d`);
     console.log(`  ${c.bold}Start TLS reverse proxy:${c.reset} docker compose -f deploy/tls-proxy/compose.yaml up -d`);
     console.log();

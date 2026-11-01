@@ -12,13 +12,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
-      - run: npm run generate:api
-      - run: npm run build
-      - run: npm test
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run generate:api
+      - run: pnpm run build
+      - run: pnpm test
       - name: Validate local streaming lab
         run: |
           docker compose -f dev/streaming-lab/compose.yaml config --quiet
