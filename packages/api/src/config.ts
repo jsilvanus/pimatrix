@@ -22,6 +22,8 @@ export interface AppConfig {
   hamaRtspUrl?: string;
   /** How long Hama capture keeps running after nothing needs it (on demand). */
   hamaIdleGraceMs: number;
+  /** JSON file for Hama settings changed at runtime (API/CLI); empty string = not persisted. */
+  hamaSettingsFile: string;
   streamRestartMinMs: number;
   streamRestartMaxMs: number;
   displayMode: DisplayMode;
@@ -263,6 +265,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(fffleetClientSecret ? { fffleetClientSecret } : {}),
     ...(hamaRtspUrl ? { hamaRtspUrl } : {}),
     hamaIdleGraceMs: hamaIdleGraceSeconds * 1000,
+    hamaSettingsFile: env.PIMATRIX_HAMA_SETTINGS_FILE?.trim() ?? "./data/hama-settings.json",
     ...(apiKey ? { apiKey } : {}),
     ...(amxAllowedHosts && amxAllowedHosts.length > 0 ? { amxAllowedHosts } : {}),
     ...(mediaMtxPassword ? { mediaMtxPassword } : {}),

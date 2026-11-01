@@ -95,6 +95,9 @@ async function run(options: CliOptions): Promise<void> {
       "  hama status\n" +
       "  hama start\n" +
       "  hama stop [--force]\n" +
+      "  hama settings\n" +
+      "  hama set [--width N --height N] [--format mjpeg|yuyv422|default] [--fps N|default] [--codec copy|libx264|h264_v4l2m2m|default]\n" +
+      "  hama reset\n" +
       "  effects list\n" +
       "  effects show <sourceId>\n" +
       "  effects preset <sourceId> <force-vertical-9-16|force-vertical-10-16|force-landscape-16-9|force-landscape-16-10|center|reset>\n" +
@@ -538,6 +541,28 @@ async function run(options: CliOptions): Promise<void> {
     return;
   }
 
+  if (group === "hama" && action === "settings" && options.command.length === 2) {
+    printHamaSettings(await SourcesService.getHamaCaptureSettings(), options.json);
+    return;
+  }
+
+  if (group === "hama" && action === "set" && options.command.length === 2) {
+    const patch: Record<string, unknown> = {};
+    if (options.width !== undefined) patch.width = options.width;
+    if (options.height !== undefined) patch.height = options.height;
+    if (options.inputFormat !== undefined) patch.inputFormat = options.inputFormat === "default" ? null : options.inputFormat;
+    if (options.fps !== undefined) patch.frameRate = options.fps;
+    if (options.codec !== undefined) patch.videoCodec = options.codec === "default" ? null : options.codec;
+    if (Object.keys(patch).length === 0) throw new Error("hama set needs at least one of --width/--height, --format, --fps, --codec");
+    printHamaSettings(await SourcesService.updateHamaCaptureSettings(patch as never), options.json);
+    return;
+  }
+
+  if (group === "hama" && action === "reset" && options.command.length === 2) {
+    printHamaSettings(await SourcesService.resetHamaCaptureSettings(), options.json);
+    return;
+  }
+
   // Effects
   if (group === "effects" && action === "list" && options.command.length === 2) {
     const data = await EffectsService.listAllEffects();
@@ -641,3 +666,17 @@ run(parseArgs(process.argv.slice(2))).catch((error) => {
   console.error(`pimatrix: ${message}`);
   process.exitCode = 1;
 });
+
+function printHamaSettings(
+  data: { overrides: Record<string, unknown>; effective: { width?: number | null; height?: number | null; inputFormat?: string | null; frameRate?: number | null; videoCodec?: string | null } },
+  json: boolean
+): void {
+  if (json) {
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+  const e = data.effective;
+  console.log(`Hama capture: ${e.width ?? "?"}x${e.height ?? "?"}, format ${e.inputFormat ?? "auto"}, ${e.frameRate ?? "default"} fps, codec ${e.videoCodec ?? "default"}`);
+  const keys = Object.keys(data.overrides);
+  console.log(keys.length > 0 ? `Runtime overrides: ${keys.join(", ")}` : "Runtime overrides: none (env values)");
+}

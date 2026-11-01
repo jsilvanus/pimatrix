@@ -19,6 +19,9 @@ export interface CliOptions {
   factor?: number;
   rotation?: number;
   enabled?: boolean;
+  inputFormat?: string;
+  fps?: number | null;
+  codec?: string;
 }
 
 export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env): CliOptions {
@@ -41,6 +44,9 @@ export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env):
   let factor: number | undefined;
   let rotation: number | undefined;
   let enabled: boolean | undefined;
+  let inputFormat: string | undefined;
+  let fps: number | null | undefined;
+  let codec: string | undefined;
   const command: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
@@ -134,6 +140,21 @@ export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env):
       if (value !== "true" && value !== "false") throw new Error("--enabled requires 'true' or 'false'");
       enabled = value === "true";
       index += 1;
+    } else if (arg === "--format" || arg === "--input-format") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) throw new Error(`${arg} requires a format name or 'default'`);
+      inputFormat = value;
+      index += 1;
+    } else if (arg === "--fps") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) throw new Error("--fps requires a number or 'default'");
+      fps = value === "default" ? null : Number(value);
+      index += 1;
+    } else if (arg === "--codec") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) throw new Error("--codec requires copy, libx264, h264_v4l2m2m or 'default'");
+      codec = value;
+      index += 1;
     } else if (arg?.startsWith("--")) throw new Error(`Unknown option: ${arg}`);
     else if (arg) command.push(arg);
   }
@@ -169,6 +190,9 @@ export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env):
     ...(delta !== undefined ? { delta } : {}),
     ...(factor !== undefined ? { factor } : {}),
     ...(rotation !== undefined ? { rotation } : {}),
-    ...(enabled !== undefined ? { enabled } : {})
+    ...(enabled !== undefined ? { enabled } : {}),
+    ...(inputFormat !== undefined ? { inputFormat } : {}),
+    ...(fps !== undefined ? { fps } : {}),
+    ...(codec !== undefined ? { codec } : {})
   };
 }

@@ -1427,6 +1427,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HamaCaptureStatus"
+  /api/v1/sources/hama/capture/settings:
+    get:
+      operationId: getHamaCaptureSettings
+      tags: [Sources]
+      summary: Hama capture settings (env defaults plus runtime overrides)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HamaCaptureSettings"
+    put:
+      operationId: updateHamaCaptureSettings
+      tags: [Sources]
+      summary: Change Hama capture settings at runtime
+      description: >
+        Partial update, saved to PIMATRIX_HAMA_SETTINGS_FILE so it survives a restart.
+        A key set to null goes back to the env default. A running capture restarts at once.
+        Width and height must both be set. Example for a USB 2 stick that cannot do 1080p MJPEG:
+        {"width":1280,"height":720}.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HamaCaptureSettingsPatch"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HamaCaptureSettings"
+        "422":
+          description: Invalid settings
+    delete:
+      operationId: resetHamaCaptureSettings
+      tags: [Sources]
+      summary: Drop all runtime overrides and go back to the env values
+      responses:
+        "200":
+          description: Reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HamaCaptureSettings"
   /api/v1/sources/hama/capture/start:
     post:
       operationId: startHamaCapture
@@ -1700,6 +1747,32 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
   schemas:
+    HamaCaptureSettingsValues:
+      type: object
+      properties:
+        inputFormat:
+          type: [string, "null"]
+        width:
+          type: [integer, "null"]
+        height:
+          type: [integer, "null"]
+        frameRate:
+          type: [integer, "null"]
+        videoCodec:
+          type: [string, "null"]
+          enum: [copy, libx264, h264_v4l2m2m, null]
+    HamaCaptureSettingsPatch:
+      $ref: "#/components/schemas/HamaCaptureSettingsValues"
+    HamaCaptureSettings:
+      type: object
+      required: [overrides, effective]
+      properties:
+        overrides:
+          $ref: "#/components/schemas/HamaCaptureSettingsValues"
+        effective:
+          $ref: "#/components/schemas/HamaCaptureSettingsValues"
+        saved:
+          $ref: "#/components/schemas/HamaCaptureSettingsValues"
     HamaCaptureStatus:
       type: object
       required: [enabled, state, demand, idleGraceSeconds]
@@ -1728,6 +1801,10 @@ components:
         width:
           type: [integer, "null"]
         height:
+          type: [integer, "null"]
+        inputFormat:
+          type: [string, "null"]
+        frameRate:
           type: [integer, "null"]
         videoCodec:
           type: [string, "null"]
