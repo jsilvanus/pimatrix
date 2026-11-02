@@ -1,6 +1,6 @@
 # Security and Remote Access Architecture
 
-PiMatrix is designed for AV production environments where low latency and local reliability are paramount, and keeps every remote path closed unless it is opened on purpose. Canva integration moved out to `picanva` (its own service, see its README).
+PiMatrix is designed for AV production environments where low latency and local reliability are paramount, and keeps every remote path closed unless it is opened on purpose. Canva integration moved out to `canva-pieco-app` (its own service, see its README).
 
 > [!TIP]
 > **Interactive Wizard:** Run 
