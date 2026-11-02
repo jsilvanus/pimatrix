@@ -8,3 +8,6 @@ coverage/
 packages/api-client/src/generated/
 
 release/
+
+# Runtime state written by the running service (e.g. hama-settings.json)
+data/
