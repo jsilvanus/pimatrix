@@ -212,6 +212,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     ? new PipgmSourceFeed({
         client: piprogramClient,
         dataDir: path.join(config.compositeDataDir, "pipgm"),
+        publish: config.pipgmFeed !== "publish-off",
         publishers: {
           PiPGM1: pipgmPublisher("PiPGM1"),
           PiPGM2: pipgmPublisher("PiPGM2"),

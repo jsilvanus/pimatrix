@@ -26,6 +26,11 @@ export interface PipgmSourceFeedOptions {
   /** Directory for the PNG handed to each publisher (one file per pipeline). */
   dataDir: string;
   intervalMs?: number;
+  /**
+   * False when piprogram publishes the feeds itself: the snapshots are still read (for the source
+   * list and the multiview), but no frame is fetched and no publisher is touched. Default true.
+   */
+  publish?: boolean;
   onError?: (pipelineId: PiprogramPipelineId, message: string) => void;
 }
 
@@ -79,7 +84,7 @@ export class PipgmSourceFeed {
   }
 
   private async follow(id: PiprogramPipelineId): Promise<void> {
-    if (this.paused) {
+    if (this.paused && this.options.publish !== false) {
       if (this.sent.get(id) !== BLANK) {
         await this.options.publishers[id].stop();
         this.sent.set(id, BLANK);
@@ -95,6 +100,7 @@ export class PipgmSourceFeed {
       return;
     }
     this.snapshots.set(id, snapshot);
+    if (this.options.publish === false) return;
 
     if (snapshot.fadeToBlack || !snapshot.slideFeed.hasSlide) {
       if (this.sent.get(id) !== BLANK) {

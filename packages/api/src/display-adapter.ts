@@ -76,6 +76,9 @@ export interface HardwareDisplayConfig {
   hdmiPlayer?: string;
   hdmi0Device?: string;
   hdmi1Device?: string;
+  /** The player of this output plays the stream's sound (PIMATRIX_HDMI0_AUDIO / _HDMI1_AUDIO). Default: silent. */
+  hdmi0Audio?: boolean;
+  hdmi1Audio?: boolean;
   hdmiSdlVideoDriver?: string;
   hdmiDecoder?: string;
   mediaMtxApiUrl?: string;
@@ -94,9 +97,9 @@ export function createDisplayAdapter(
     const rtspBase = hardware.mediaMtxRtspUrl?.replace(/\/$/, "");
     const resolvePath = hardware.resolvePath ?? ((sourceId: string) => sourceId);
     return new HdmiPlayerAdapter({
-      outputs: new Map<OutputId, { device?: string | undefined }>([
-        ["hdmi0", { device: hardware.hdmi0Device }],
-        ["hdmi1", { device: hardware.hdmi1Device }]
+      outputs: new Map<OutputId, { device?: string | undefined; audio?: boolean | undefined }>([
+        ["hdmi0", { device: hardware.hdmi0Device, audio: hardware.hdmi0Audio }],
+        ["hdmi1", { device: hardware.hdmi1Device, audio: hardware.hdmi1Audio }]
       ]),
       sourceUrl: (sourceId) => (rtspBase ? `${rtspBase}/${resolvePath(sourceId)}` : undefined),
       // The player waits until MediaMTX reports the source path ready (no wait without the API URL).

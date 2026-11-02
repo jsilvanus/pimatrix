@@ -48,6 +48,9 @@ export interface AppConfig {
   hdmiPlayer: string;
   hdmi0Device?: string;
   hdmi1Device?: string;
+  /** Let the player of this output play the stream's sound (PIMATRIX_HDMI0_AUDIO, PIMATRIX_HDMI1_AUDIO). */
+  hdmi0Audio?: boolean;
+  hdmi1Audio?: boolean;
   hdmiSdlVideoDriver?: string;
   /** ffplay hardware decoder (-vcodec), default h264_v4l2m2m; undefined = software decoding. */
   hdmiDecoder?: string;
@@ -55,6 +58,8 @@ export interface AppConfig {
   /** piprogram API base URL; composites with slideSource "piprogram" follow its stage frames. */
   piprogramUrl?: string;
   piprogramApiKey?: string;
+  /** "publish-off": piprogram publishes the PiPGM feeds, pimatrix does not (PIMATRIX_PIPGM_FEED). */
+  pipgmFeed: "publish" | "publish-off";
   /** DRM connector for the HDMI key output of the slide composite (PIMATRIX_COMPOSITE_HDMI_DEVICE). */
   compositeHdmiDevice?: string;
   /** Encoder for the compose1 RTSP publisher. */
@@ -195,6 +200,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const mediaMtxRtspUrl = optionalRtspUrl(env.PIMATRIX_MEDIAMTX_RTSP_URL, "PIMATRIX_MEDIAMTX_RTSP_URL");
   const piprogramUrl = optionalHttpUrl(env.PIMATRIX_PIPROGRAM_URL, "PIMATRIX_PIPROGRAM_URL");
   const piprogramApiKey = env.PIMATRIX_PIPROGRAM_API_KEY?.trim() || undefined;
+  // "publish" (default): pimatrix polls piprogram and publishes PiPGM1-3 to MediaMTX itself.
+  // "publish-off": piprogram publishes them (PIPGM_PUBLISH_RTSP_BASE); pimatrix only keeps the snapshots.
+  const pipgmFeed = env.PIMATRIX_PIPGM_FEED?.trim() || "publish";
+  if (pipgmFeed !== "publish" && pipgmFeed !== "publish-off") {
+    throw new Error('PIMATRIX_PIPGM_FEED must be "publish" or "publish-off"');
+  }
+  const flag = (name: string): boolean | undefined => {
+    const value = env[name]?.trim().toLowerCase();
+    if (value === undefined || value === "") return undefined;
+    if (["1", "true", "yes", "on"].includes(value)) return true;
+    if (["0", "false", "no", "off"].includes(value)) return false;
+    throw new Error(`${name} must be 1 or 0`);
+  };
+  const hdmi0Audio = flag("PIMATRIX_HDMI0_AUDIO");
+  const hdmi1Audio = flag("PIMATRIX_HDMI1_AUDIO");
   const compositeHdmiDevice = env.PIMATRIX_COMPOSITE_HDMI_DEVICE?.trim() || undefined;
   if (compositeHdmiDevice !== undefined && !/^[A-Za-z0-9._:/-]+$/.test(compositeHdmiDevice)) {
     throw new Error("PIMATRIX_COMPOSITE_HDMI_DEVICE must be a DRM connector, device path or display name (letters, digits, . _ : / -), e.g. card1-HDMI-A-2");
@@ -277,6 +297,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     hdmiPlayer,
     ...(hdmi0Device ? { hdmi0Device } : {}),
     ...(hdmi1Device ? { hdmi1Device } : {}),
+    ...(hdmi0Audio !== undefined ? { hdmi0Audio } : {}),
+    ...(hdmi1Audio !== undefined ? { hdmi1Audio } : {}),
+    pipgmFeed,
     ...(hdmiSdlVideoDriver ? { hdmiSdlVideoDriver } : {}),
     ...(hdmiDecoder ? { hdmiDecoder } : {}),
     ...(mediaMtxRtspUrl ? { mediaMtxRtspUrl } : {}),

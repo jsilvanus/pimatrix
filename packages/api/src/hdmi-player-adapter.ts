@@ -59,6 +59,12 @@ export type SpawnPlayer = (
 export interface HdmiOutputConfig {
   /** Device argument for this output (DRM/KMS device or display name). Undefined = not configured. */
   device?: string | undefined;
+  /**
+   * Whether this output's player plays the sound of the stream. Overrides the adapter's `audio`.
+   * Meant for the one output whose HDMI reaches the PA lane (the Atlona takes sound from its
+   * output 1 only); the sound has to ride the feed, the player does not add any.
+   */
+  audio?: boolean | undefined;
 }
 
 export interface HdmiPlayerAdapterOptions {
@@ -127,6 +133,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
   private readonly sourceUrl: (sourceId: SourceId) => string | undefined;
   private readonly player: string;
   private readonly audio: boolean;
+  private readonly outputAudio: Map<OutputId, boolean | undefined>;
   private readonly startupWindowMs: number;
   private readonly stopGraceMs: number;
   private readonly spawnPlayer: SpawnPlayer;
@@ -146,6 +153,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
     this.sourceUrl = options.sourceUrl;
     this.player = options.player ?? "ffplay";
     this.audio = options.audio ?? false;
+    this.outputAudio = new Map([...options.outputs].map(([id, config]) => [id, config.audio]));
     this.startupWindowMs = options.startupWindowMs ?? 2000;
     this.stopGraceMs = options.stopGraceMs ?? 3000;
     this.spawnPlayer = options.spawn ?? defaultSpawn;
@@ -279,7 +287,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
   /** Arguments for one ffplay run. Full screen, no audio unless configured. */
   private playerArgs(outputId: OutputId, url: string, decoder: string | undefined): string[] {
     const args = ["-hide_banner", "-loglevel", "warning", "-fs", "-noborder", "-fflags", "nobuffer"];
-    if (!this.audio) args.push("-an");
+    if (!(this.outputAudio.get(outputId) ?? this.audio)) args.push("-an");
     if (url.startsWith("rtsp:")) args.push("-rtsp_transport", "tcp");
     if (decoder) args.push("-vcodec", decoder);
     args.push("-window_title", `pimatrix-${outputId}`, url);

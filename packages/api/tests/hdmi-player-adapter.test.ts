@@ -502,3 +502,39 @@ test("without a decoder no -vcodec argument is passed", async () => {
   assert.equal(calls[0]?.args.includes("-vcodec"), false);
   await adapter.close();
 });
+
+test("sound is per output: only the output marked audio plays it", async () => {
+  const fake = fakeSpawner();
+  const adapter = new HdmiPlayerAdapter({
+    outputs: new Map<OutputId, HdmiOutputConfig>([
+      ["hdmi0", { device: "0", audio: true }],
+      ["hdmi1", { device: "1" }]
+    ]),
+    sourceUrl,
+    spawn: fake.spawn,
+    startupWindowMs: 1000
+  });
+  try {
+    await adapter.applyRoute("hdmi0", "PiPGM1");
+    await adapter.applyRoute("hdmi1", "PiPGM2");
+    const hdmi0 = fake.calls.find((call) => call.args.includes("pimatrix-hdmi0"))!;
+    const hdmi1 = fake.calls.find((call) => call.args.includes("pimatrix-hdmi1"))!;
+    assert.equal(hdmi0.args.includes("-an"), false, "the audio output keeps the stream's sound");
+    assert.equal(hdmi1.args.includes("-an"), true, "the other output stays silent");
+  } finally {
+    await adapter.close();
+  }
+});
+
+test("loadConfig reads PIMATRIX_HDMIn_AUDIO and PIMATRIX_PIPGM_FEED", () => {
+  const defaults = loadConfig({});
+  assert.equal(defaults.hdmi0Audio, undefined);
+  assert.equal(defaults.hdmi1Audio, undefined);
+  assert.equal(defaults.pipgmFeed, "publish");
+  const set = loadConfig({ PIMATRIX_HDMI0_AUDIO: "1", PIMATRIX_HDMI1_AUDIO: "0", PIMATRIX_PIPGM_FEED: "publish-off" });
+  assert.equal(set.hdmi0Audio, true);
+  assert.equal(set.hdmi1Audio, false);
+  assert.equal(set.pipgmFeed, "publish-off");
+  assert.throws(() => loadConfig({ PIMATRIX_HDMI0_AUDIO: "maybe" }), /PIMATRIX_HDMI0_AUDIO/);
+  assert.throws(() => loadConfig({ PIMATRIX_PIPGM_FEED: "x" }), /PIMATRIX_PIPGM_FEED/);
+});
