@@ -15,6 +15,7 @@ import type { FastifyBaseLogger } from "fastify";
 export type CompositeVideoCodec = "libx264" | "h264_v4l2m2m";
 
 export interface PublishProcess {
+  stdin?: { write(chunk: Buffer): boolean; once(event: "drain", listener: () => void): unknown; end(): void } | null | undefined;
   kill(signal?: NodeJS.Signals): boolean;
   onExit(listener: (code: number | null) => void): void;
   onError(listener: (error: Error) => void): void;
@@ -62,6 +63,30 @@ export function publishArgs(pngPath: string, rtspUrl: string, encoder: Composite
   ];
 }
 
+export function pipePublishArgs(rtspUrl: string, encoder: CompositeVideoCodec, fps = 1): string[] {
+  const encoderArgs =
+    encoder === "h264_v4l2m2m"
+      ? ["-c:v", "h264_v4l2m2m", "-b:v", "1M"]
+      : ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "stillimage"];
+  return [
+    "-hide_banner",
+    "-nostdin",
+    "-loglevel", "warning",
+    "-f", "image2pipe",
+    "-framerate", String(fps),
+    "-c:v", "png",
+    "-i", "-",
+    "-an",
+    "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+    ...encoderArgs,
+    "-r", String(fps),
+    "-g", "2",
+    "-f", "rtsp",
+    "-rtsp_transport", "tcp",
+    rtspUrl
+  ];
+}
+
 /** What a live composite shows: the slide box and the colour around it, from keyPageGeometry. */
 export interface LiveKeyLayout {
   width: number;
@@ -71,12 +96,13 @@ export interface LiveKeyLayout {
 }
 
 /** The filter graph of a live composite: the source filled into the slide box on the key-colour page. */
-export function liveFilterGraph(layout: LiveKeyLayout): string {
+export function liveFilterGraph(layout: LiveKeyLayout, sourceFilter?: string): string {
   const { slide } = layout;
   const colour = `0x${layout.background.slice(1)}`;
+  const prefix = sourceFilter && sourceFilter !== "null" ? `${sourceFilter},` : "";
   return [
     `color=c=${colour}:s=${layout.width}x${layout.height}:r=25,format=yuv420p[bg]`,
-    `[0:v]scale=${slide.width}:${slide.height}:force_original_aspect_ratio=increase,crop=${slide.width}:${slide.height},format=yuv420p[v]`,
+    `[0:v]${prefix}scale=${slide.width}:${slide.height}:force_original_aspect_ratio=increase,crop=${slide.width}:${slide.height},format=yuv420p[v]`,
     `[bg][v]overlay=x=${slide.x}:y=${slide.y}:shortest=0,fps=25,format=yuv420p[out]`
   ].join(";");
 }
@@ -86,13 +112,18 @@ export function liveFilterGraph(layout: LiveKeyLayout): string {
  * stretched) on the key-colour page and published at 25 fps. The video moves on its own, so
  * there is no still and no black gap when the source changes.
  */
-export function liveArgs(sourceUrl: string, layout: LiveKeyLayout, rtspUrl: string, encoder: CompositeVideoCodec): string[] {
-  const { slide } = layout;
+export function liveArgs(
+  sourceUrl: string,
+  layout: LiveKeyLayout,
+  rtspUrl: string,
+  encoder: CompositeVideoCodec,
+  sourceFilter?: string
+): string[] {
   const encoderArgs =
     encoder === "h264_v4l2m2m"
       ? ["-c:v", "h264_v4l2m2m", "-b:v", "4M"]
       : ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency"];
-  const graph = liveFilterGraph(layout);
+  const graph = liveFilterGraph(layout, sourceFilter);
   return [
     "-hide_banner",
     "-nostdin",
@@ -121,6 +152,13 @@ export class KeyPagePublisher {
   private readonly restartBaseMs: number;
   private readonly maxRestarts: number;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private pipeState: {
+    frame: Buffer;
+    width: number | undefined;
+    height: number | undefined;
+    timer: ReturnType<typeof setInterval> | null;
+    draining: boolean;
+  } | null = null;
   private readonly logger: Pick<FastifyBaseLogger, "warn"> | undefined;
   private readonly spawn: SpawnPublisher;
 
@@ -132,7 +170,7 @@ export class KeyPagePublisher {
     this.restartBaseMs = options.restartBaseMs ?? 1000;
     this.maxRestarts = options.maxRestarts ?? 5;
     this.logger = options.logger;
-    this.spawn = options.spawn ?? ((command, args) => nodeSpawn(command, [...args], { stdio: "ignore" }) as unknown as PublishProcess);
+    this.spawn = options.spawn ?? ((command, args) => nodeSpawn(command, [...args], { stdio: ["pipe", "ignore", "ignore"] }) as unknown as PublishProcess);
   }
 
   /** Start (or restart with a new slide) publishing the PNG. Rejects if ffmpeg exits in the start window. */
@@ -143,12 +181,36 @@ export class KeyPagePublisher {
     await this.run(publishArgs(pngPath, this.rtspUrl, this.encoder), true);
   }
 
-  /** Start (or restart) publishing a live source in the slide box. Restarts itself if the source drops. */
-  async showLive(sourceUrl: string, layout: LiveKeyLayout): Promise<void> {
+  /**
+   * Publish PNG frames over a persistent stdin pipe without restarting ffmpeg or dropping RTSP
+   * when only the picture changes. Restarts only when dimensions change or no pipe is running.
+   */
+  async showFrame(png: Buffer, width?: number, height?: number): Promise<void> {
     if (!this.rtspUrl) {
       throw new Error("PIMATRIX_MEDIAMTX_RTSP_URL is not set, so compose1 cannot be published");
     }
-    await this.run(liveArgs(sourceUrl, layout, this.rtspUrl, this.encoder), true);
+    const sameSize =
+      this.pipeState !== null &&
+      this.pipeState.width === width &&
+      this.pipeState.height === height;
+    if (this.process && sameSize && this.pipeState) {
+      this.pipeState.frame = png;
+      this.writePipeFrame();
+      return;
+    }
+    await this.stop();
+    this.pipeState = { frame: png, width, height, timer: null, draining: false };
+    this.pipeState.timer = setInterval(() => this.writePipeFrame(), 1000);
+    this.pipeState.timer.unref();
+    await this.start(pipePublishArgs(this.rtspUrl, this.encoder, 1), true, 0);
+  }
+
+  /** Start (or restart) publishing a live source in the slide box. Restarts itself if the source drops. */
+  async showLive(sourceUrl: string, layout: LiveKeyLayout, sourceFilter?: string): Promise<void> {
+    if (!this.rtspUrl) {
+      throw new Error("PIMATRIX_MEDIAMTX_RTSP_URL is not set, so compose1 cannot be published");
+    }
+    await this.run(liveArgs(sourceUrl, layout, this.rtspUrl, this.encoder, sourceFilter), true);
   }
 
   /**
@@ -164,6 +226,11 @@ export class KeyPagePublisher {
   private async start(args: string[], supervise: boolean, restarts: number): Promise<void> {
     const proc = this.spawn(this.ffmpeg, args);
     this.process = proc;
+    if (this.pipeState) {
+      this.pipeState.draining = false;
+      (proc.stdin as unknown as { on?(event: "error", listener: () => void): void } | null)?.on?.("error", () => undefined);
+      this.writePipeFrame();
+    }
     const startedAt = Date.now();
     let startWindowOver = false;
     await new Promise<void>((resolve, reject) => {
@@ -178,13 +245,21 @@ export class KeyPagePublisher {
         this.logger?.warn({ reason }, "compose1 publisher stopped");
         if (!startWindowOver) {
           clearTimeout(timer);
-          reject(new Error(`compose1 publisher failed: ${reason}`));
-          return;
+          if (restarts === 0 || !supervise) {
+            if (this.pipeState?.timer) clearInterval(this.pipeState.timer);
+            this.pipeState = null;
+            reject(new Error(`compose1 publisher failed: ${reason}`));
+            return;
+          }
+          // During a supervised restart, exiting within startupWindowMs should still schedule backoff retries.
+          resolve();
         }
         if (!supervise) return;
         const ranLong = Date.now() - startedAt >= 10_000;
         const next = ranLong ? 1 : restarts + 1;
         if (next > this.maxRestarts) {
+          if (this.pipeState?.timer) clearInterval(this.pipeState.timer);
+          this.pipeState = null;
           this.logger?.warn({ reason }, "publisher gave up after repeated restarts");
           return;
         }
@@ -199,12 +274,34 @@ export class KeyPagePublisher {
     });
   }
 
+  private writePipeFrame(): void {
+    const stdin = this.process?.stdin;
+    if (!stdin || !this.pipeState || this.pipeState.draining) return;
+    try {
+      if (!stdin.write(this.pipeState.frame)) {
+        this.pipeState.draining = true;
+        stdin.once("drain", () => {
+          if (this.pipeState) this.pipeState.draining = false;
+        });
+      }
+    } catch {
+      // Process exit handler handles restarts if needed.
+    }
+  }
+
   /** Stop publishing. Safe to call when nothing is running. */
   async stop(): Promise<void> {
     if (this.restartTimer) clearTimeout(this.restartTimer);
     this.restartTimer = null;
+    if (this.pipeState?.timer) clearInterval(this.pipeState.timer);
+    this.pipeState = null;
     const proc = this.process;
     this.process = null;
+    try {
+      proc?.stdin?.end();
+    } catch {
+      // already closed
+    }
     proc?.kill("SIGTERM");
   }
 }

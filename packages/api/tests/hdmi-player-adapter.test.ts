@@ -3,6 +3,7 @@ import test from "node:test";
 import { loadConfig } from "../src/config.js";
 import { createDisplayAdapter } from "../src/display-adapter.js";
 import {
+  buildPlayerArgs,
   HdmiPlayerAdapter,
   type HdmiOutputConfig,
   type PlayerProcess,
@@ -537,4 +538,33 @@ test("loadConfig reads PIMATRIX_HDMIn_AUDIO and PIMATRIX_PIPGM_FEED", () => {
   assert.equal(set.pipgmFeed, "publish-off");
   assert.throws(() => loadConfig({ PIMATRIX_HDMI0_AUDIO: "maybe" }), /PIMATRIX_HDMI0_AUDIO/);
   assert.throws(() => loadConfig({ PIMATRIX_PIPGM_FEED: "x" }), /PIMATRIX_PIPGM_FEED/);
+});
+
+test("buildPlayerArgs and resolveVideoFilter push -vf directly to ffplay", async () => {
+  const withFilter = buildPlayerArgs({
+    outputId: "hdmi0",
+    url: "rtsp://127.0.0.1:8554/cam1",
+    audio: false,
+    videoFilter: "crop=608:1080:480:0,transpose=1"
+  });
+  assert.equal(withFilter[withFilter.indexOf("-vf") + 1], "crop=608:1080:480:0,transpose=1");
+  const withoutFilter = buildPlayerArgs({ outputId: "hdmi0", url: "rtsp://127.0.0.1:8554/cam1", audio: false, videoFilter: "null" });
+  assert.equal(withoutFilter.includes("-vf"), false);
+
+  const fake = fakeSpawner();
+  const adapter = new HdmiPlayerAdapter({
+    outputs: outputs({ hdmi0: "card0" }),
+    sourceUrl,
+    resolveVideoFilter: (sourceId) => (sourceId === "cam1" ? "crop=608:1080:480:0" : null),
+    spawn: fake.spawn,
+    startupWindowMs: 1000
+  });
+  try {
+    await adapter.applyRoute("hdmi0", "cam1");
+    assert.equal(fake.calls[0]?.args[fake.calls[0].args.indexOf("-vf") + 1], "crop=608:1080:480:0");
+    await adapter.applyRoute("hdmi0", "cam2");
+    assert.equal(fake.calls[1]?.args.includes("-vf"), false);
+  } finally {
+    await adapter.close();
+  }
 });

@@ -99,9 +99,37 @@ export async function renderKeyPage(options: RenderKeyPageOptions): Promise<Buff
   );
 }
 
+/** The ffmpeg argument list to decode a pre-composited PNG straight to raw RGBA bytes. */
+export function decodePngArgs(): string[] {
+  return [
+    "-hide_banner", "-loglevel", "error", "-nostdin",
+    "-f", "png_pipe", "-i", "pipe:0",
+    "-frames:v", "1",
+    "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"
+  ];
+}
+
+/** Decodes a PNG image straight to raw RGBA bytes without scaling or re-compositing. */
+export async function decodePngToRgba(options: {
+  png: Buffer;
+  ffmpeg?: string;
+  timeoutMs?: number;
+  spawn?: SpawnFfmpeg;
+}): Promise<Buffer> {
+  if (!isPng(options.png)) throw new Error("The slide must be a PNG image");
+  return await runCapture(
+    options.ffmpeg ?? "ffmpeg",
+    decodePngArgs(),
+    options.png,
+    options.timeoutMs ?? 30_000,
+    options.spawn ?? defaultSpawn
+  );
+}
+
 export interface RenderLiveFrameOptions {
   sourceUrl: string;
   layout: LiveKeyLayout;
+  sourceFilter?: string | undefined;
   ffmpeg?: string;
   timeoutMs?: number;
   spawn?: SpawnFfmpeg;
@@ -113,7 +141,7 @@ export async function renderLiveFrame(options: RenderLiveFrameOptions): Promise<
     "-hide_banner", "-loglevel", "error", "-nostdin",
     ...(options.sourceUrl.startsWith("rtsp:") ? ["-rtsp_transport", "tcp"] : []),
     "-i", options.sourceUrl,
-    "-filter_complex", liveFilterGraph(options.layout),
+    "-filter_complex", liveFilterGraph(options.layout, options.sourceFilter),
     "-map", "[out]", "-frames:v", "1",
     "-f", "image2pipe", "-c:v", "png", "pipe:1"
   ];

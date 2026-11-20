@@ -85,6 +85,8 @@ export interface HardwareDisplayConfig {
   mediaMtxRtspUrl?: string;
   /** The MediaMTX path to read for a source (effects may point it at a processed or slate path). Default: the source id. */
   resolvePath?: (sourceId: string) => string;
+  /** Optional video filter (-vf) per source pushed down to ffplay. */
+  resolveVideoFilter?: (sourceId: SourceId) => string | null;
 }
 
 export function createDisplayAdapter(
@@ -111,7 +113,8 @@ export function createDisplayAdapter(
         : {}),
       ...(hardware.hdmiPlayer ? { player: hardware.hdmiPlayer } : {}),
       ...(hardware.hdmiDecoder ? { decoder: hardware.hdmiDecoder } : {}),
-      ...(hardware.hdmiSdlVideoDriver ? { sdlVideoDriver: hardware.hdmiSdlVideoDriver } : {})
+      ...(hardware.hdmiSdlVideoDriver ? { sdlVideoDriver: hardware.hdmiSdlVideoDriver } : {}),
+      ...(hardware.resolveVideoFilter ? { resolveVideoFilter: hardware.resolveVideoFilter } : {})
     });
   }
   return new DisabledDisplayAdapter();

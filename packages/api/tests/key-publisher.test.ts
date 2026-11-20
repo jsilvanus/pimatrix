@@ -1,10 +1,19 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
-import { KeyPagePublisher, liveArgs, publishArgs, type PublishProcess } from "../src/composite/key-publisher.js";
+import { KeyPagePublisher, liveArgs, liveFilterGraph, pipePublishArgs, publishArgs, type PublishProcess } from "../src/composite/key-publisher.js";
 
 class FakeProcess extends EventEmitter implements PublishProcess {
   killed: NodeJS.Signals | null = null;
+  writes: Buffer[] = [];
+  stdin = {
+    write: (chunk: Buffer) => {
+      this.writes.push(chunk);
+      return true;
+    },
+    once: () => undefined,
+    end: () => undefined
+  };
   kill(signal?: NodeJS.Signals): boolean {
     this.killed = signal ?? "SIGTERM";
     this.emit("exit", null);
@@ -150,4 +159,56 @@ test("stop cancels a pending restart", async () => {
   await publisher.stop();
   await new Promise((resolve) => setTimeout(resolve, 80));
   assert.equal(spawned.length, 1);
+});
+
+test("pipePublishArgs uses image2pipe and showFrame swaps frames without restarting ffmpeg", async () => {
+  const args = pipePublishArgs("rtsp://127.0.0.1:8554/PiPGM1", "libx264", 1);
+  assert.ok(args.join(" ").includes("-f image2pipe -framerate 1 -c:v png -i -"));
+  const { publisher, spawned } = harness();
+  await publisher.showFrame(Buffer.from("frame1"), 1920, 1080);
+  await publisher.showFrame(Buffer.from("frame2"), 1920, 1080);
+  assert.equal(spawned.length, 1, "same dimensions reuse the running pipe process");
+  assert.deepEqual(spawned[0]!.proc.writes.map((b) => b.toString()), ["frame1", "frame2"]);
+  await publisher.showFrame(Buffer.from("frame3"), 1080, 1920);
+  assert.equal(spawned.length, 2, "changed dimensions restart ffmpeg");
+  await publisher.stop();
+});
+
+test("liveFilterGraph and liveArgs fuse sourceFilter directly onto [0:v]", () => {
+  const graph = liveFilterGraph(layout, "crop=608:1080:480:0,transpose=1");
+  assert.ok(graph.includes("[0:v]crop=608:1080:480:0,transpose=1,scale=676:1080"));
+  const args = liveArgs("rtsp://127.0.0.1:8554/cam1", layout, "rtsp://127.0.0.1:8554/compose1", "libx264", "crop=608:1080:480:0");
+  assert.ok(args[args.indexOf("-filter_complex") + 1]?.includes("[0:v]crop=608:1080:480:0,scale=676:1080"));
+});
+
+test("supervised restart that exits inside startupWindowMs still retries up to maxRestarts", async () => {
+  const spawned: FakeProcess[] = [];
+  const publisher = new KeyPagePublisher({
+    rtspUrl: "rtsp://127.0.0.1:8554/compose1",
+    startupWindowMs: 40,
+    restartBaseMs: 5,
+    maxRestarts: 2,
+    spawn: () => {
+      const proc = new FakeProcess();
+      spawned.push(proc);
+      return proc;
+    }
+  });
+  await publisher.showLive("rtsp://127.0.0.1:8554/cam1", layout);
+  assert.equal(spawned.length, 1);
+
+  // Initial crash after startupWindowMs schedules restart #1.
+  spawned[0]?.crash(1);
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  assert.equal(spawned.length, 2);
+
+  // Restart #1 crashes immediately (inside startupWindowMs) -> must still schedule restart #2.
+  spawned[1]?.crash(1);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(spawned.length, 3);
+
+  // Restart #2 crashes immediately -> maxRestarts (2) exhausted, no 4th spawn.
+  spawned[2]?.crash(1);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(spawned.length, 3);
 });

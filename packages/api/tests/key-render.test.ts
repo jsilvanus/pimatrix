@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { keyPageArgs, renderKeyPage, isPng } from "../src/composite/key-render.js";
+import { decodePngArgs, decodePngToRgba, keyPageArgs, renderKeyPage, isPng } from "../src/composite/key-render.js";
 import { keyPageGeometry, type KeyPageInput } from "../src/composite/key-page.js";
 
 const hasFfmpeg = spawnSync("ffmpeg", ["-version"]).status === 0;
@@ -87,4 +87,13 @@ test("PNG output is a PNG of the frame size", { skip: !hasFfmpeg && "ffmpeg not 
   assert.ok(isPng(png));
   assert.equal(png.readUInt32BE(16), 1920);
   assert.equal(png.readUInt32BE(20), 1080);
+});
+
+test("decodePngArgs and decodePngToRgba decode a PNG straight to raw RGBA", { skip: !hasFfmpeg && "ffmpeg not installed" }, async () => {
+  const args = decodePngArgs();
+  assert.ok(args.includes("rawvideo") && args.includes("rgba"));
+  assert.equal(args.includes("-filter_complex"), false);
+  const rgba = await decodePngToRgba({ png: bluePng() });
+  assert.equal(rgba.length, 100 * 160 * 4);
+  assertNear(pixel(rgba, 100, 50, 80), [0, 0, 255, 255], "decoded blue pixel");
 });

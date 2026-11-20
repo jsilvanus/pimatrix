@@ -14,6 +14,7 @@ import type { AppConfig } from "./config.js";
 import { createDisplayAdapter, type DisplayAdapter } from "./display-adapter.js";
 import { PiMatrixEventBroker } from "./events.js";
 import {
+  buildFfmpegFilter,
   EffectsStore,
   type AspectRatioPreset,
   type CropPresetAction,
@@ -46,6 +47,7 @@ import { PIPROGRAM_PIPELINE_IDS, type PiprogramPipelineId } from "./composite/co
 import { isIpWhitelisted } from "./ip-whitelist.js";
 import { QuickOptionStore } from "./quick-options/quick-options-store.js";
 import { applySnapshot, registerQuickOptionRoutes, type QuickOptionDeps } from "./quick-options/quick-options-routes.js";
+import { computeFpsBudget, createSystemMetricsSampler, extractFleetWorkers } from "./telemetry.js";
 
 /** Maps a failed camera CGI call to a 502 with a reason, so a bad login is visible in the API. */
 export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): FastifyInstance {
@@ -64,7 +66,15 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   let sourcePath: (sourceId: string) => string = (sourceId) => sourceId;
   const displayAdapter: DisplayAdapter = createDisplayAdapter(config.displayMode, {
     ...config,
-    resolvePath: (sourceId) => sourcePath(sourceId)
+    resolvePath: (sourceId) => sourcePath(sourceId),
+    resolveVideoFilter: (sourceId) => {
+      if (sourceId === "hama") return null;
+      if (sourcePath(sourceId).endsWith("-fx")) return null;
+      const effects = effectsStore.get(sourceId);
+      if (!effects || effects.fadeToBlack) return null;
+      const filter = buildFfmpegFilter(effects.crop, effects.rotation, false);
+      return filter === "null" ? null : filter;
+    }
   });
   // ATEM, cameras and the Atlona matrix live in pigateway; this process passes those API calls on.
   const gateway = config.gatewayUrl ? new GatewayClient(config.gatewayUrl, config.gatewayApiKey, fetchImpl) : null;
@@ -83,6 +93,8 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     // compose1 fades to its key colour, everything else to black.
     fadeColour: (sourceId): string | null => (sourceId === "compose1" ? compositeService.get("compose1").keyColor : null),
     selfApplied: new Set(["hama"]),
+    // hdmi0/hdmi1 (ffplay -vf) and compose1 (liveFilterGraph) apply crop/rotation directly on raw streams.
+    needsRelay: (sourceId) => rtspOutState.streaming && rtspOutState.sourceId === sourceId,
     logger: app.log
   });
   sourcePath = (sourceId) => effectsLayer.pathFor(sourceId);
@@ -90,8 +102,16 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     dataDir: config.compositeDataDir,
     stateFile: path.join(config.compositeDataDir, "composites.json"),
     ffmpeg: config.compositeFfmpeg,
-    // A live composite reads the effects-processed path, so a source's crop applies inside the box.
+    // A live composite reads the raw source (or fade slate) and fuses crop/rotation directly into liveFilterGraph.
     liveSourceUrl: (sourceId): string | undefined => (config.mediaMtxRtspUrl ? `${config.mediaMtxRtspUrl.replace(/\/$/, "")}/${effectsLayer.pathFor(sourceId)}` : undefined),
+    liveSourceFilter: (sourceId): string | undefined => {
+      if (sourceId === "hama") return undefined;
+      if (effectsLayer.pathFor(sourceId).endsWith("-fx")) return undefined;
+      const effects = effectsStore.get(sourceId as SourceId);
+      if (!effects || effects.fadeToBlack) return undefined;
+      const filter = buildFfmpegFilter(effects.crop, effects.rotation, false);
+      return filter === "null" ? undefined : filter;
+    },
     // compose1 is published to MediaMTX, so the route can send it to any Pi HDMI output.
     player: new KeyPagePublisher({
       rtspUrl: config.mediaMtxRtspUrl ? `${config.mediaMtxRtspUrl.replace(/\/$/, "")}/compose1` : undefined,
@@ -110,7 +130,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         piprogramClient,
         {
           composites: () => compositeService.list(),
-          setSlide: (id, png) => compositeService.setFeedSlide(id, png),
+          setSlide: (id, png, slideOptions) => compositeService.setFeedSlide(id, png, slideOptions),
           clearSlide: (id) => compositeService.clearFeedSlide(id),
           reportError: (id, message) => compositeService.reportFeedError(id, message)
         }
@@ -182,14 +202,55 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     const snapshot = await mediaSnapshot();
     return !snapshot.configured ? "not-configured" : snapshot.connected ? "connected" : "unavailable";
   };
-  const fleetStatus = async () => {
-    if (!fleet) return "not-configured";
-    try {
-      await fleet.capabilities();
-      return "connected";
-    } catch {
-      return "unavailable";
+  const sampleSystemMetrics = createSystemMetricsSampler();
+  const fleetDetails = async () => {
+    if (!fleet) {
+      return { status: "not-configured" as const, workers: [], capabilities: null };
     }
+    try {
+      const caps = await fleet.capabilities();
+      let workersBody: unknown = undefined;
+      if (config.fffleetUrl) {
+        try {
+          const headers: Record<string, string> = config.fffleetToken ? { authorization: `Bearer ${config.fffleetToken}` } : {};
+          const res = await fetchImpl(`${config.fffleetUrl.replace(/\/+$/, "")}/v1/workers`, {
+            headers,
+            signal: AbortSignal.timeout(1000)
+          });
+          if (res.ok) workersBody = await res.json().catch(() => undefined);
+        } catch {
+          // Optional endpoint; capabilities() may already carry workers or slots.
+        }
+      }
+      return {
+        status: "connected" as const,
+        workers: extractFleetWorkers(caps, workersBody),
+        capabilities: caps
+      };
+    } catch {
+      return { status: "unavailable" as const, workers: [], capabilities: null };
+    }
+  };
+  const computeCurrentFps = () => {
+    const capture = captureSupervisor.snapshot();
+    const hamaEffects = effectsStore.get("hama");
+    const hamaHasFilter = Boolean(hamaEffects && (hamaEffects.crop.enabled || hamaEffects.fadeToBlack));
+    const eff = hamaConfig();
+    const fxStreams = effectsLayer.activeStreams();
+    return computeFpsBudget({
+      hama: {
+        active: capture.state === "running" || capture.state === "starting",
+        fps: eff.hamaFrameRate,
+        inputFormat: eff.hamaInputFormat,
+        videoCodec: eff.hamaVideoCodec,
+        hasFilter: hamaHasFilter
+      },
+      activePipgmIds: pipgmSources?.activeIds() ?? [],
+      composites: compositeService.list(),
+      effectsRelays: fxStreams.relays,
+      effectsSlates: fxStreams.slates,
+      outputs: outputStore.list()
+    });
   };
   const captureStatus = () => {
     const state = captureSupervisor.snapshot().state;
@@ -486,23 +547,44 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
 
   app.get("/api/v1/status", async () => {
     const visibleSources = await listSources(false);
+    const [media, fffleet] = await Promise.all([mediaStatus(), fleetDetails()]);
     return {
       apiVersion: "v1",
       service: "pimatrix",
       mode: config.mode,
       status: "running",
       integrations: {
-        mediaMtx: await mediaStatus(),
-        fffleet: await fleetStatus(),
+        mediaMtx: media,
+        fffleet: fffleet.status,
         capture: captureStatus(),
         display: displayAdapter.getStatus(),
         gateway: gateway ? "configured" : "not-configured"
       },
       managedStreams: { hama: captureSupervisor.snapshot() },
+      fps: computeCurrentFps(),
+      system: sampleSystemMetrics(),
+      fffleet,
       counts: {
         sources: visibleSources.length,
         outputs: outputStore.list().length,
         pipgmSources: PIPROGRAM_PIPELINE_IDS.filter((id) => pipgmSources?.snapshot(id)).length
+      }
+    };
+  });
+
+  app.get("/api/v1/telemetry", async () => {
+    const [media, fffleet] = await Promise.all([mediaSnapshot(), fleetDetails()]);
+    return {
+      apiVersion: "v1",
+      service: "pimatrix",
+      mode: config.mode,
+      timestamp: new Date().toISOString(),
+      fps: computeCurrentFps(),
+      system: sampleSystemMetrics(),
+      fffleet,
+      mediaMtx: {
+        status: !media.configured ? "not-configured" : media.connected ? "connected" : "unavailable",
+        readyPaths: [...media.readyPaths]
       }
     };
   });
@@ -547,7 +629,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       void captureSupervisor.restart().catch(() => undefined);
     }
     try {
-      if (!(await effectsLayer.sync(sourceId))) return;
+      await effectsLayer.sync(sourceId);
       for (const output of outputStore.list()) {
         if (output.desiredSource === sourceId) await routeOutput(output.id, sourceId);
       }
@@ -662,6 +744,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       });
     }
 
+    const previousSource = rtspOutState.sourceId;
     rtspOutState = {
       ...rtspOutState,
       sourceId: (requestedSource as string | null) ?? "rtmp1",
@@ -677,6 +760,14 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     });
 
     hamaOnDemand.sync();
+    if (rtspOutState.streaming) {
+      if (previousSource && previousSource !== rtspOutState.sourceId && effectsStore.get(previousSource as SourceId)) {
+        void afterEffectsChange(previousSource as SourceId);
+      }
+      if (effectsStore.get(rtspOutState.sourceId as SourceId)) {
+        void afterEffectsChange(rtspOutState.sourceId as SourceId);
+      }
+    }
     return reply.code(200).send(rtspOutState);
   });
 
@@ -702,6 +793,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
             ? !rtspOutState.streaming
             : !rtspOutState.streaming;
 
+      const previousStreaming = rtspOutState.streaming;
       rtspOutState = {
         ...rtspOutState,
         streaming: nextStreaming
@@ -713,6 +805,9 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       });
 
       hamaOnDemand.sync();
+      if (nextStreaming !== previousStreaming && effectsStore.get(rtspOutState.sourceId as SourceId)) {
+        void afterEffectsChange(rtspOutState.sourceId as SourceId);
+      }
       return reply.code(200).send(rtspOutState);
     }
   );

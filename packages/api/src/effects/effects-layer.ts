@@ -42,6 +42,11 @@ export interface EffectsLayerOptions {
   fadeColour?: (sourceId: string) => string | null;
   /** Sources whose effects are applied where they are captured. */
   selfApplied?: ReadonlySet<string>;
+  /**
+   * Whether a consumer needs `<source>-fx` from MediaMTX (e.g. a non-pushdown RTSP consumer).
+   * When omitted, relays run whenever crop/rotation is active.
+   */
+  needsRelay?: ((sourceId: string) => boolean) | undefined;
   logger?: Pick<FastifyBaseLogger, "warn"> | undefined;
   /** Tests replace the process runner. */
   createPublisher?: (rtspUrl: string) => LayerPublisher;
@@ -60,7 +65,7 @@ export function relayArgs(sourceUrl: string, filter: string, outUrl: string, enc
     "-rtsp_transport", "tcp",
     "-fflags", "nobuffer",
     "-i", sourceUrl,
-    "-an",
+    "-c:a", "copy",
     "-vf", `${filter},format=yuv420p`,
     ...encoderArgs,
     "-r", "25", "-g", "50",
@@ -114,6 +119,14 @@ export class EffectsLayer {
     return this.relays.has(sourceId) ? `${sourceId}-fx` : sourceId;
   }
 
+  /** Active relay source IDs and slate paths currently running. */
+  activeStreams(): { relays: string[]; slates: string[] } {
+    return {
+      relays: [...this.relays.keys()],
+      slates: [...this.slates.keys()]
+    };
+  }
+
   /** Bring the processes in line with the source's effects. True when pathFor(sourceId) changed. */
   sync(sourceId: string): Promise<boolean> {
     const run = this.queue.then(() => this.apply(sourceId));
@@ -131,7 +144,8 @@ export class EffectsLayer {
     const before = this.lastPath.get(sourceId) ?? sourceId;
     const effects = this.options.getEffects(sourceId);
     if (this.rtspBase && effects) {
-      const filter = effects.fadeToBlack || this.options.selfApplied?.has(sourceId)
+      const needsRelay = this.options.needsRelay ? this.options.needsRelay(sourceId) : true;
+      const filter = !needsRelay || effects.fadeToBlack || this.options.selfApplied?.has(sourceId)
         ? "null"
         : buildFfmpegFilter(effects.crop, effects.rotation, false);
       await this.syncRelay(sourceId, filter);

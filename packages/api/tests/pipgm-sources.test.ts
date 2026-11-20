@@ -54,3 +54,28 @@ test("with publishing off the snapshots are kept but nothing is fetched or publi
   await feed.setPaused(true);
   assert.deepEqual(calls, [], "pausing does not touch streams that piprogram publishes");
 });
+
+test("when publisher supports showFrame, frames are piped in memory without show(path)", async () => {
+  const piped: Array<{ id: string; bytes: string; width: number | undefined; height: number | undefined }> = [];
+  const client = {
+    snapshot: async (id: string) => snapshot(id),
+    frame: async (id: string) => Buffer.from(`png-${id}`)
+  } as unknown as PiprogramClient;
+  const publisher = (id: string): PipgmSourcePublisher => ({
+    show: async () => {
+      throw new Error("should not call file-based show when showFrame is available");
+    },
+    showFrame: async (png, width, height) => {
+      piped.push({ id, bytes: png.toString(), width, height });
+    },
+    stop: async () => undefined
+  });
+  const feed = new PipgmSourceFeed({
+    client,
+    dataDir: `${process.env.TMPDIR ?? "/tmp"}/pimatrix-pipgm-test`,
+    publishers: { PiPGM1: publisher("PiPGM1"), PiPGM2: publisher("PiPGM2"), PiPGM3: publisher("PiPGM3") }
+  });
+  await feed.tick();
+  assert.equal(piped.length, 3);
+  assert.deepEqual(piped[0], { id: "PiPGM1", bytes: "png-PiPGM1", width: 1920, height: 1080 });
+});

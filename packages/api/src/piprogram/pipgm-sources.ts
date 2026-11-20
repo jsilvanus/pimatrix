@@ -15,6 +15,8 @@ import type { PiprogramClient, PiprogramPipelineSnapshot } from "../composite/pi
 /** What a PiPGM source needs to publish a picture. KeyPagePublisher fits. */
 export interface PipgmSourcePublisher {
   show(pngPath: string): Promise<void>;
+  /** Persistent stdin-pipe publishing: swaps the picture without restarting ffmpeg or dropping RTSP. */
+  showFrame?(png: Buffer, width?: number, height?: number): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -59,6 +61,14 @@ export class PipgmSourceFeed {
   /** The last snapshot of a pipeline, or null when piprogram has not answered. */
   snapshot(pipelineId: PiprogramPipelineId): PiprogramPipelineSnapshot | null {
     return this.snapshots.get(pipelineId) ?? null;
+  }
+
+  /** Pipeline IDs currently publishing a non-blank still feed. */
+  activeIds(): PiprogramPipelineId[] {
+    return PIPROGRAM_PIPELINE_IDS.filter((id) => {
+      const state = this.sent.get(id);
+      return Boolean(state && state !== BLANK);
+    });
   }
 
   start(): void {
@@ -115,12 +125,17 @@ export class PipgmSourceFeed {
     if (this.sent.get(id) === key) return;
     try {
       const png = await this.options.client.frame(id, width, height, { transparent: false });
-      const file = path.join(this.options.dataDir, `${id}.png`);
-      fs.mkdirSync(this.options.dataDir, { recursive: true });
-      const temp = `${file}.${process.pid}.tmp`;
-      fs.writeFileSync(temp, png);
-      fs.renameSync(temp, file);
-      await this.options.publishers[id].show(file);
+      const publisher = this.options.publishers[id];
+      if (publisher.showFrame) {
+        await publisher.showFrame(png, width, height);
+      } else {
+        const file = path.join(this.options.dataDir, `${id}.png`);
+        fs.mkdirSync(this.options.dataDir, { recursive: true });
+        const temp = `${file}.${process.pid}.tmp`;
+        fs.writeFileSync(temp, png);
+        fs.renameSync(temp, file);
+        await publisher.show(file);
+      }
       this.sent.set(id, key);
     } catch (error) {
       // Not recorded as sent: the next tick tries again.

@@ -249,3 +249,135 @@ test("refreshLive re-publishes only enabled composites that show that source", a
   await service.idle();
   assert.equal(recorder.lives.length, 2);
 });
+
+test("precomposited piprogram frame skips renderKeyPage for hdmi-key in apply and previewPng", async () => {
+  const { make, recorder } = setup();
+  const service = await make();
+  await service.update("compose1", { enabled: true, slideSource: "piprogram" });
+  await service.setFeedSlide("compose1", PNG, { precomposited: true });
+  await service.idle();
+
+  assert.equal(recorder.renders.length, 0, "renderKeyPage was skipped for precomposited frame");
+  assert.equal(recorder.shows.length, 1);
+  assert.deepEqual(fs.readFileSync(recorder.shows[0]!), PNG);
+
+  const preview = await service.previewPng("compose1");
+  assert.deepEqual(preview, PNG);
+  assert.equal(recorder.renders.length, 0, "renderKeyPage was skipped in previewPng");
+});
+
+test("live preview caches frames within TTL, coalesces concurrent polls, and passes liveSourceFilter", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pimatrix-comp-live-"));
+  const liveCalls: Array<{ url: string; sourceFilter: string | undefined }> = [];
+  const showLiveCalls: Array<{ url: string; sourceFilter: string | undefined }> = [];
+  let renderCount = 0;
+  const service = new CompositeService({
+    dataDir: dir,
+    player: {
+      show: async () => undefined,
+      stop: async () => undefined,
+      showLive: async (url, _layout, sourceFilter) => {
+        showLiveCalls.push({ url, sourceFilter });
+      }
+    },
+    liveSourceUrl: (id) => `rtsp://127.0.0.1:8554/${id}`,
+    liveSourceFilter: (id) => (id === "cam1" ? "crop=608:1080:480:0" : undefined),
+    livePreviewCacheMs: 2000,
+    atem: {
+      getState: () => ({ connected: false }),
+      uploadStill: async () => undefined,
+      setupDownstreamKey: async () => undefined,
+      setDownstreamKeyOnAir: async () => undefined
+    },
+    renderLive: async ({ sourceUrl, sourceFilter }) => {
+      renderCount += 1;
+      liveCalls.push({ url: sourceUrl, sourceFilter });
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      return PNG;
+    }
+  });
+  await service.update("compose1", { slideSource: "source", sourceId: "cam1", enabled: true });
+  await service.idle();
+  assert.deepEqual(showLiveCalls, [{ url: "rtsp://127.0.0.1:8554/cam1", sourceFilter: "crop=608:1080:480:0" }]);
+
+  // Concurrent previewPng polls share one ffmpeg render and subsequent poll hits cache.
+  const [p1, p2] = await Promise.all([service.previewPng("compose1"), service.previewPng("compose1")]);
+  const p3 = await service.previewPng("compose1");
+  assert.deepEqual(p1, PNG);
+  assert.deepEqual(p2, PNG);
+  assert.deepEqual(p3, PNG);
+  assert.equal(renderCount, 1);
+  assert.deepEqual(liveCalls, [{ url: "rtsp://127.0.0.1:8554/cam1", sourceFilter: "crop=608:1080:480:0" }]);
+});
+
+test("precomposited piprogram frame skips renderKeyPage for atem-media in apply and previewPng", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pimatrix-comp-atem-pre-"));
+  const renders: number[] = [];
+  const decoded: Buffer[] = [];
+  const uploaded: Array<{ slot: number; bytes: number }> = [];
+  const fakeRgba = Buffer.alloc(1920 * 1080 * 4, 7);
+  const service = new CompositeService({
+    dataDir: dir,
+    player: { show: async () => undefined, stop: async () => undefined },
+    atem: {
+      getState: () => ({ connected: true }),
+      uploadStill: async (slot, rgba) => {
+        uploaded.push({ slot, bytes: rgba.length });
+      },
+      setupDownstreamKey: async () => undefined,
+      setDownstreamKeyOnAir: async () => undefined
+    },
+    renderFrame: async () => {
+      renders.push(1);
+      return Buffer.alloc(16);
+    },
+    decodeRgba: async (png) => {
+      decoded.push(png);
+      return fakeRgba;
+    }
+  });
+
+  await service.update("compose2", { enabled: true, slideSource: "piprogram" });
+  await service.setFeedSlide("compose2", PNG, { precomposited: true });
+  await service.idle();
+
+  assert.equal(renders.length, 0, "renderKeyPage was skipped for precomposited atem-media frame");
+  assert.equal(decoded.length, 1);
+  assert.deepEqual(decoded[0], PNG);
+  assert.deepEqual(uploaded, [{ slot: 0, bytes: fakeRgba.length }]);
+
+  const preview = await service.previewPng("compose2");
+  assert.deepEqual(preview, PNG);
+  assert.equal(renders.length, 0, "renderKeyPage was skipped in previewPng for atem-media");
+});
+
+test("livePreviewCache prunes expired entries when inserting a new key", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pimatrix-comp-prune-"));
+  const service = new CompositeService({
+    dataDir: dir,
+    player: {
+      show: async () => undefined,
+      stop: async () => undefined,
+      showLive: async () => undefined
+    },
+    liveSourceUrl: (id) => `rtsp://127.0.0.1:8554/${id}`,
+    livePreviewCacheMs: 15,
+    atem: {
+      getState: () => ({ connected: false }),
+      uploadStill: async () => undefined,
+      setupDownstreamKey: async () => undefined,
+      setDownstreamKeyOnAir: async () => undefined
+    },
+    renderLive: async () => PNG
+  });
+
+  await service.update("compose1", { slideSource: "source", sourceId: "cam1" });
+  await service.previewPng("compose1");
+  const cache = (service as unknown as { livePreviewCache: Map<string, unknown> }).livePreviewCache;
+  assert.equal(cache.size, 1);
+
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  await service.update("compose1", { sourceId: "cam2" });
+  await service.previewPng("compose1");
+  assert.equal(cache.size, 1, "expired cam1 entry was pruned on cam2 insert");
+});

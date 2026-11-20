@@ -92,10 +92,31 @@ export interface HdmiPlayerAdapterOptions {
   readyTimeoutMs?: number;
   /** ffplay decoder (-vcodec), e.g. "h264_v4l2m2m". Undefined = software decoding. */
   decoder?: string;
+  /** Optional video filter (-vf) per source, e.g. crop/transpose pushed down from EffectsStore. */
+  resolveVideoFilter?: ((sourceId: SourceId) => string | null) | undefined;
   /** Player starts per route before the output is marked failed, default 5. Only with a retry. */
   startAttempts?: number;
   /** Delay before the first retry; doubles per retry, default 1000 ms. */
   retryBaseMs?: number;
+}
+
+export interface BuildPlayerArgsOptions {
+  outputId: OutputId;
+  url: string;
+  audio: boolean;
+  decoder?: string | undefined;
+  videoFilter?: string | null | undefined;
+}
+
+/** Arguments for one ffplay run. Full screen, no audio unless configured, optional -vf pushdown. */
+export function buildPlayerArgs(options: BuildPlayerArgsOptions): string[] {
+  const args = ["-hide_banner", "-loglevel", "warning", "-fs", "-noborder", "-fflags", "nobuffer"];
+  if (!options.audio) args.push("-an");
+  if (options.url.startsWith("rtsp:")) args.push("-rtsp_transport", "tcp");
+  if (options.decoder) args.push("-vcodec", options.decoder);
+  if (options.videoFilter && options.videoFilter !== "null") args.push("-vf", options.videoFilter);
+  args.push("-window_title", `pimatrix-${options.outputId}`, options.url);
+  return args;
 }
 
 interface PlayerRecord {
@@ -144,6 +165,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
   private readonly startAttempts: number;
   private readonly retryBaseMs: number;
   private readonly decoder: string | undefined;
+  private readonly resolveVideoFilter: ((sourceId: SourceId) => string | null) | undefined;
   /** The source each output should show now (null = idle). Set synchronously by applyRoute. */
   private readonly desired = new Map<OutputId, SourceId | null>();
   private readonly stateListeners = new Set<(state: DisplayOutputState) => void>();
@@ -164,6 +186,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
     this.startAttempts = Math.max(1, options.startAttempts ?? 5);
     this.retryBaseMs = options.retryBaseMs ?? 1000;
     this.decoder = options.decoder;
+    this.resolveVideoFilter = options.resolveVideoFilter;
     for (const id of this.devices.keys()) {
       this.states.set(id, { id, observedSource: null, state: "unavailable" });
       this.desired.set(id, null);
@@ -245,7 +268,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
 
     // Attempt 1 uses the hardware decoder when one is set; later attempts fall back to software.
     const useDecoder = this.decoder !== undefined && attempt === 1;
-    const args = this.playerArgs(outputId, url, useDecoder ? this.decoder : undefined);
+    const args = this.playerArgs(outputId, sourceId, url, useDecoder ? this.decoder : undefined);
     const env: NodeJS.ProcessEnv = { ...process.env, PIMATRIX_OUTPUT_DEVICE: device };
     if (this.sdlVideoDriver) env.SDL_VIDEODRIVER = this.sdlVideoDriver;
     let proc: PlayerProcess;
@@ -285,13 +308,14 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
   }
 
   /** Arguments for one ffplay run. Full screen, no audio unless configured. */
-  private playerArgs(outputId: OutputId, url: string, decoder: string | undefined): string[] {
-    const args = ["-hide_banner", "-loglevel", "warning", "-fs", "-noborder", "-fflags", "nobuffer"];
-    if (!(this.outputAudio.get(outputId) ?? this.audio)) args.push("-an");
-    if (url.startsWith("rtsp:")) args.push("-rtsp_transport", "tcp");
-    if (decoder) args.push("-vcodec", decoder);
-    args.push("-window_title", `pimatrix-${outputId}`, url);
-    return args;
+  private playerArgs(outputId: OutputId, sourceId: SourceId, url: string, decoder: string | undefined): string[] {
+    return buildPlayerArgs({
+      outputId,
+      url,
+      audio: this.outputAudio.get(outputId) ?? this.audio,
+      decoder,
+      videoFilter: this.resolveVideoFilter?.(sourceId)
+    });
   }
 
   private trackPlayer(outputId: OutputId, proc: PlayerProcess, sourceId: SourceId, attempt: number): void {

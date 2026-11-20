@@ -184,3 +184,49 @@ test("invalid configuration is rejected", () => {
     PIMATRIX_STREAM_RESTART_MAX_MS: "1000"
   }), /PIMATRIX_STREAM_RESTART_MAX_MS/);
 });
+
+test("RTSP Out source and stream routes sync effects without errors when source effects are active", async () => {
+  const app = buildApp(loadConfig({ PIMATRIX_MODE: "simulation" }));
+  try {
+    const cropRes = await app.inject({
+      method: "PUT",
+      url: "/api/v1/sources/cam1/effects/crop",
+      payload: { left: 100, right: 100, top: 0, bottom: 0 }
+    });
+    assert.equal(cropRes.statusCode, 200);
+
+    const srcRes = await app.inject({
+      method: "PUT",
+      url: "/api/v1/outputs/rtsp/source",
+      payload: { sourceId: "cam1" }
+    });
+    assert.equal(srcRes.statusCode, 200);
+    assert.equal(srcRes.json().sourceId, "cam1");
+
+    const streamOn = await app.inject({
+      method: "POST",
+      url: "/api/v1/outputs/rtsp/stream",
+      payload: { streaming: true }
+    });
+    assert.equal(streamOn.statusCode, 200);
+    assert.equal(streamOn.json().streaming, true);
+
+    const switchSrc = await app.inject({
+      method: "PUT",
+      url: "/api/v1/outputs/rtsp/source",
+      payload: { sourceId: "cam2" }
+    });
+    assert.equal(switchSrc.statusCode, 200);
+    assert.equal(switchSrc.json().sourceId, "cam2");
+
+    const streamOff = await app.inject({
+      method: "POST",
+      url: "/api/v1/outputs/rtsp/stream",
+      payload: { streaming: false }
+    });
+    assert.equal(streamOff.statusCode, 200);
+    assert.equal(streamOff.json().streaming, false);
+  } finally {
+    await app.close();
+  }
+});

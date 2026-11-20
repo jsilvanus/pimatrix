@@ -6,7 +6,7 @@
  * piprogram's reads are open; the API key is sent when configured.
  */
 
-import type { CompositeId, CompositeSettings, PiprogramPipelineId } from "./composite-model.js";
+import { renderSignature, type CompositeId, type CompositeSettings, type PiprogramPipelineId } from "./composite-model.js";
 
 export interface PiprogramSlideFeed {
   framePath: string;
@@ -69,6 +69,34 @@ export class PiprogramClient {
     return Buffer.from(await response.arrayBuffer());
   }
 
+  /**
+   * Requests a pre-composited frame from piprogram matching the composite's placement and key settings.
+   * When piprogram returns `x-piprogram-composited: 1`, pimatrix can skip running `renderKeyPage`.
+   */
+  async compositedFrame(
+    pipelineId: PiprogramPipelineId,
+    settings: CompositeSettings
+  ): Promise<{ png: Buffer; precomposited: boolean }> {
+    const keyMode = settings.kind === "atem-media" ? "rgba" : settings.keyMode;
+    const query = new URLSearchParams({
+      width: String(settings.width),
+      height: String(settings.height),
+      side: settings.side,
+      keyMode,
+      slideAspect: settings.slideAspect,
+      slideScale: String(settings.slideScale),
+      offsetX: String(settings.offsetX),
+      offsetY: String(settings.offsetY)
+    });
+    if (keyMode === "chroma") query.set("keyColor", settings.keyColor);
+    if (keyMode === "rgba") query.set("alpha", "1");
+    const response = await this.get(`/api/v1/pipgm/pipelines/${encodeURIComponent(pipelineId)}/frame.png?${query}`);
+    return {
+      png: Buffer.from(await response.arrayBuffer()),
+      precomposited: response.headers.get("x-piprogram-composited") === "1"
+    };
+  }
+
   private async get(pathAndQuery: string): Promise<Response> {
     const headers: Record<string, string> = this.apiKey ? { "x-api-key": this.apiKey } : {};
     const response = await this.fetchImpl(`${this.baseUrl}${pathAndQuery}`, {
@@ -83,7 +111,7 @@ export class PiprogramClient {
 /** What the feed needs from the composite service. */
 export interface PiprogramFeedTargets {
   composites(): CompositeSettings[];
-  setSlide(id: CompositeId, png: Buffer): Promise<void>;
+  setSlide(id: CompositeId, png: Buffer, options?: { precomposited?: boolean }): Promise<void>;
   clearSlide(id: CompositeId): Promise<void>;
   reportError(id: CompositeId, message: string | null): void;
 }
@@ -168,11 +196,19 @@ export class PiprogramFeed {
     }
 
     const { width, height } = snapshot.slideFeed;
-    const key = [settings.pipelineId, snapshot.activeItemId ?? "", snapshot.currentStep, width, height].join("|");
+    const useComposited = typeof this.client.compositedFrame === "function";
+    const key = useComposited
+      ? [settings.pipelineId, snapshot.activeItemId ?? "", snapshot.currentStep, renderSignature(settings)].join("|")
+      : [settings.pipelineId, snapshot.activeItemId ?? "", snapshot.currentStep, width, height].join("|");
     if (this.sent.get(id) === key) return;
     try {
-      const png = await this.client.frame(settings.pipelineId, width, height);
-      await this.targets.setSlide(id, png);
+      if (useComposited) {
+        const { png, precomposited } = await this.client.compositedFrame(settings.pipelineId, settings);
+        await this.targets.setSlide(id, png, { precomposited });
+      } else {
+        const png = await this.client.frame(settings.pipelineId, width, height);
+        await this.targets.setSlide(id, png);
+      }
       this.sent.set(id, key);
       this.targets.reportError(id, null);
     } catch (error) {

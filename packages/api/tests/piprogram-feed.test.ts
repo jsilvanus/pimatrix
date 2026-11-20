@@ -130,3 +130,41 @@ test("composite patches accept slideSource and pipelineId and refuse other value
   assert.equal(parseCompositePatch({ pipelineId: "PiPGM9" }).ok, false);
   assert.equal(defaultCompositeSettings("compose1").pipelineId, "PiPGM1");
 });
+
+test("compositedFrame sends placement/key query params and detects x-piprogram-composited header", async () => {
+  const calls: Array<{ url: string }> = [];
+  const fetchFake = (async (url: string | URL | Request) => {
+    calls.push({ url: String(url) });
+    return new Response(PNG, { status: 200, headers: { "x-piprogram-composited": "1" } });
+  }) as typeof fetch;
+  const client = new PiprogramClient({ baseUrl: "http://pi.local:3200", fetch: fetchFake });
+  const settings = piprogramComposite({ side: "right", keyMode: "chroma", keyColor: "#00ff00", slideAspect: "9:16", slideScale: 0.8, offsetX: 1, offsetY: -0.5 });
+  const res = await client.compositedFrame("PiPGM1", settings);
+  assert.equal(res.precomposited, true);
+  assert.deepEqual(res.png, PNG);
+  const parsed = new URL(calls[0]!.url);
+  assert.equal(parsed.searchParams.get("side"), "right");
+  assert.equal(parsed.searchParams.get("keyMode"), "chroma");
+  assert.equal(parsed.searchParams.get("keyColor"), "#00ff00");
+  assert.equal(parsed.searchParams.get("slideAspect"), "9:16");
+  assert.equal(parsed.searchParams.get("slideScale"), "0.8");
+  assert.equal(parsed.searchParams.get("offsetX"), "1");
+  assert.equal(parsed.searchParams.get("offsetY"), "-0.5");
+});
+
+test("PiprogramFeed passes precomposited flag from compositedFrame to setSlide", async () => {
+  const received: Array<{ id: string; precomposited?: boolean }> = [];
+  const client = {
+    snapshot: async () => snapshot(),
+    frame: async () => PNG,
+    compositedFrame: async () => ({ png: PNG, precomposited: true })
+  } as unknown as PiprogramClient;
+  const feed = new PiprogramFeed(client, {
+    composites: () => [piprogramComposite()],
+    setSlide: async (id, _png, opts) => void received.push({ id, precomposited: opts?.precomposited }),
+    clearSlide: async () => undefined,
+    reportError: () => undefined
+  });
+  await feed.tick();
+  assert.deepEqual(received, [{ id: "compose1", precomposited: true }]);
+});

@@ -14,13 +14,15 @@ import {
 } from "./composite-model.js";
 import { keyPageGeometry } from "./key-page.js";
 import type { LiveKeyLayout } from "./key-publisher.js";
-import { isPng, renderKeyPage, renderLiveFrame, type RenderKeyPageOptions, type RenderLiveFrameOptions } from "./key-render.js";
+import { decodePngToRgba, isPng, renderKeyPage, renderLiveFrame, type RenderKeyPageOptions, type RenderLiveFrameOptions } from "./key-render.js";
 import type { KeyPagePlayer } from "./key-player.js";
 
 /** The part of the HDMI key player the service uses (tests pass a fake). */
 export type CompositePlayer = Pick<KeyPagePlayer, "show" | "stop"> & {
+  /** Persistent stdin-pipe still publishing (avoids RTSP teardown on slide changes). */
+  showFrame?: (png: Buffer, width?: number, height?: number) => Promise<void>;
   /** Live source in the slide box (the RTSP publisher has it; the ffplay still player does not). */
-  showLive?: (sourceUrl: string, layout: LiveKeyLayout) => Promise<void>;
+  showLive?: (sourceUrl: string, layout: LiveKeyLayout, sourceFilter?: string) => Promise<void>;
 };
 
 /** Largest slide accepted, in bytes. A 1080p slide PNG is far below this. */
@@ -77,12 +79,18 @@ export interface CompositeServiceOptions {
   player: CompositePlayer;
   /** RTSP URL of a source, for slideSource "source". Undefined = live sources are unavailable. */
   liveSourceUrl?: (sourceId: string) => string | undefined;
+  /** Optional ffmpeg filter (e.g. crop/transpose) fused directly into compose1's live filter graph. */
+  liveSourceFilter?: (sourceId: string) => string | undefined;
+  /** Cache TTL (ms) for live source preview frames, default 2000 ms. Set 0 to disable. */
+  livePreviewCacheMs?: number;
   /** ATEM adapter; the ATEM output stays idle when it is not connected. */
   atem: CompositeAtem;
   /** ATEM input number of media player 1's fill. */
   atemFillInputBase?: number;
   /** Renders one frame. Tests replace it so no ffmpeg runs. */
   renderFrame?: (options: RenderKeyPageOptions) => Promise<Buffer>;
+  /** Decodes a pre-composited PNG straight to raw RGBA for ATEM upload. Tests replace it. */
+  decodeRgba?: (png: Buffer) => Promise<Buffer>;
   /** Grabs one frame of a live source in the slide box. Tests replace it. */
   renderLive?: (options: RenderLiveFrameOptions) => Promise<Buffer>;
   /** Called on every state change, for the event stream. */
@@ -102,14 +110,21 @@ export class CompositeService {
   /** The manual slide (PUT /composites/slide), used by composites with slideSource "upload". */
   private slide: Buffer | null = null;
   /** The piprogram frame per composite, used by composites with slideSource "piprogram". */
-  private readonly feedSlides = new Map<CompositeId, Buffer>();
+  private readonly feedSlides = new Map<CompositeId, { png: Buffer; precomposited: boolean }>();
   private readonly feedErrors = new Map<CompositeId, string | null>();
+  private readonly livePreviewCache = new Map<string, { png: Buffer; expiresAt: number }>();
+  private readonly livePreviewInflight = new Map<string, Promise<Buffer | null>>();
   private readonly renderFrame: (options: RenderKeyPageOptions) => Promise<Buffer>;
+  private readonly decodeRgba: (png: Buffer) => Promise<Buffer>;
   private readonly fillInputBase: number;
+  private readonly livePreviewCacheMs: number;
 
   constructor(private readonly options: CompositeServiceOptions) {
     this.renderFrame = options.renderFrame ?? renderKeyPage;
+    this.decodeRgba =
+      options.decodeRgba ?? ((png) => decodePngToRgba({ png, ...(options.ffmpeg ? { ffmpeg: options.ffmpeg } : {}) }));
     this.fillInputBase = options.atemFillInputBase ?? DEFAULT_ATEM_FILL_INPUT_BASE;
+    this.livePreviewCacheMs = options.livePreviewCacheMs ?? 2000;
     for (const id of COMPOSITE_IDS) {
       this.settings.set(id, defaultCompositeSettings(id));
       this.runtime.set(id, { state: "stopped", lastError: null, updatedAt: new Date().toISOString() });
@@ -163,8 +178,9 @@ export class CompositeService {
     return this.get(id);
   }
 
-  /** Re-render the live composites that show this source (its MediaMTX path changed). */
+  /** Re-render the live composites that show this source (its MediaMTX path or filter changed). */
   refreshLive(sourceId: string): void {
+    this.livePreviewCache.clear();
     for (const id of COMPOSITE_IDS) {
       const settings = this.requireSettings(id);
       if (settings.enabled && settings.slideSource === "source" && settings.sourceId === sourceId) {
@@ -186,9 +202,9 @@ export class CompositeService {
   }
 
   /** A frame from piprogram for one composite. Refreshes that composite only. */
-  async setFeedSlide(id: CompositeId, png: Buffer): Promise<void> {
+  async setFeedSlide(id: CompositeId, png: Buffer, options?: { precomposited?: boolean }): Promise<void> {
     validatePng(png);
-    this.feedSlides.set(id, png);
+    this.feedSlides.set(id, { png, precomposited: options?.precomposited === true });
     this.feedErrors.set(id, null);
     if (this.requireSettings(id).enabled) this.schedule(id, () => this.apply(id));
   }
@@ -213,10 +229,15 @@ export class CompositeService {
   }
 
   /** The slide a composite uses: the piprogram frame or the manual one. */
+  private slideEntryFor(settings: CompositeSettings): { png: Buffer; precomposited: boolean } | null {
+    if (settings.slideSource === "piprogram") {
+      return this.feedSlides.get(settings.id) ?? null;
+    }
+    return this.slide ? { png: this.slide, precomposited: false } : null;
+  }
+
   private slideFor(settings: CompositeSettings): Buffer | null {
-    return settings.slideSource === "piprogram"
-      ? this.feedSlides.get(settings.id) ?? null
-      : this.slide;
+    return this.slideEntryFor(settings)?.png ?? null;
   }
 
   /** A PNG of what the composite would show now (its key page). Null without a slide. */
@@ -225,22 +246,46 @@ export class CompositeService {
     if (settings.slideSource === "source") {
       const url = this.options.liveSourceUrl?.(settings.sourceId);
       if (!url) return null;
+      const sourceFilter = this.options.liveSourceFilter?.(settings.sourceId);
       const geometry = keyPageGeometry(settings);
-      try {
-        return await (this.options.renderLive ?? renderLiveFrame)({
-          sourceUrl: url,
-          layout: { width: geometry.width, height: geometry.height, background: geometry.background, slide: geometry.slide },
-          ...(this.options.ffmpeg ? { ffmpeg: this.options.ffmpeg } : {})
-        });
-      } catch {
-        return null; // the source has no picture right now
+      const cacheKey = `${url}|${sourceFilter ?? ""}|${geometry.width}x${geometry.height}|${geometry.background}|${geometry.slide.x},${geometry.slide.y},${geometry.slide.width}x${geometry.slide.height}`;
+      const cached = this.livePreviewCache.get(cacheKey);
+      if (this.livePreviewCacheMs > 0 && cached && cached.expiresAt > Date.now()) {
+        return cached.png;
       }
+      const inflight = this.livePreviewInflight.get(cacheKey);
+      if (inflight) return await inflight;
+      const task = (async (): Promise<Buffer | null> => {
+        try {
+          const png = await (this.options.renderLive ?? renderLiveFrame)({
+            sourceUrl: url,
+            layout: { width: geometry.width, height: geometry.height, background: geometry.background, slide: geometry.slide },
+            ...(sourceFilter ? { sourceFilter } : {}),
+            ...(this.options.ffmpeg ? { ffmpeg: this.options.ffmpeg } : {})
+          });
+          if (this.livePreviewCacheMs > 0) {
+            const now = Date.now();
+            for (const [key, cachedEntry] of this.livePreviewCache) {
+              if (cachedEntry.expiresAt <= now) this.livePreviewCache.delete(key);
+            }
+            this.livePreviewCache.set(cacheKey, { png, expiresAt: now + this.livePreviewCacheMs });
+          }
+          return png;
+        } catch {
+          return null; // the source has no picture right now
+        } finally {
+          this.livePreviewInflight.delete(cacheKey);
+        }
+      })();
+      this.livePreviewInflight.set(cacheKey, task);
+      return await task;
     }
-    const slide = this.slideFor(settings);
-    if (!slide) return null;
+    const entry = this.slideEntryFor(settings);
+    if (!entry) return null;
+    if (entry.precomposited) return entry.png;
     return await this.renderFrame({
       geometry: keyPageGeometry(settings),
-      slidePng: slide,
+      slidePng: entry.png,
       format: "png",
       ...(this.options.ffmpeg ? { ffmpeg: this.options.ffmpeg } : {})
     });
@@ -291,12 +336,18 @@ export class CompositeService {
     if (!url || !showLive) throw new Error("Live sources need PIMATRIX_MEDIAMTX_RTSP_URL");
     this.setRuntime(settings.id, "busy", null);
     const geometry = keyPageGeometry(settings);
-    await showLive.call(this.options.player, url, {
-      width: geometry.width,
-      height: geometry.height,
-      background: geometry.background,
-      slide: geometry.slide
-    });
+    const sourceFilter = this.options.liveSourceFilter?.(settings.sourceId);
+    await showLive.call(
+      this.options.player,
+      url,
+      {
+        width: geometry.width,
+        height: geometry.height,
+        background: geometry.background,
+        slide: geometry.slide
+      },
+      sourceFilter
+    );
     this.setRuntime(settings.id, "running", null);
   }
 
@@ -308,8 +359,8 @@ export class CompositeService {
       await this.applyLive(settings);
       return;
     }
-    const slide = this.slideFor(settings);
-    if (!slide) {
+    const entry = this.slideEntryFor(settings);
+    if (!entry) {
       this.setRuntime(id, "waiting", null);
       return;
     }
@@ -318,17 +369,25 @@ export class CompositeService {
     const ffmpeg = this.options.ffmpeg ? { ffmpeg: this.options.ffmpeg } : {};
 
     if (settings.kind === "hdmi-key") {
-      const png = await this.renderFrame({ geometry, slidePng: slide, format: "png", ...ffmpeg });
-      const file = path.join(this.options.dataDir, `${id}-key.png`);
-      this.writeAtomic(file, png);
-      await this.options.player.show(file);
+      const png = entry.precomposited
+        ? entry.png
+        : await this.renderFrame({ geometry, slidePng: entry.png, format: "png", ...ffmpeg });
+      if (this.options.player.showFrame) {
+        await this.options.player.showFrame(png, geometry.width, geometry.height);
+      } else {
+        const file = path.join(this.options.dataDir, `${id}-key.png`);
+        this.writeAtomic(file, png);
+        await this.options.player.show(file);
+      }
       this.setRuntime(id, "running", null);
       return;
     }
 
     const atem = this.options.atem;
     if (!atem.getState().connected) throw new Error("ATEM is not connected");
-    const rgba = await this.renderFrame({ geometry, slidePng: slide, format: "rgba", ...ffmpeg });
+    const rgba = entry.precomposited
+      ? await this.decodeRgba(entry.png)
+      : await this.renderFrame({ geometry, slidePng: entry.png, format: "rgba", ...ffmpeg });
     const stillIndex = settings.atem.mediaSlot - 1;
     const mediaPlayer = settings.atem.mediaPlayer - 1;
     await atem.uploadStill(stillIndex, rgba, `pimatrix-${id}`);

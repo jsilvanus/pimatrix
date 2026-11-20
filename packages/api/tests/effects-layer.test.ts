@@ -113,6 +113,29 @@ test("without a MediaMTX base the layer is a pass-through", async () => {
 });
 
 test("argument builders", () => {
-  assert.equal(relayArgs("rtsp://h/a", "crop=1:1:0:0", "rtsp://h/a-fx", "libx264").at(-1), "rtsp://h/a-fx");
+  const relay = relayArgs("rtsp://h/a", "crop=1:1:0:0", "rtsp://h/a-fx", "libx264");
+  assert.equal(relay.at(-1), "rtsp://h/a-fx");
+  assert.equal(relay[relay.indexOf("-c:a") + 1], "copy");
+  assert.equal(relay.includes("-an"), false);
   assert.ok(slateArgs("#112233", "rtsp://h/fx-key", "h264_v4l2m2m").includes("h264_v4l2m2m"));
+});
+
+test("needsRelay=false skips spawning <source>-fx when consumers push filters down", async () => {
+  const effects = new Map<string, LayerEffects>();
+  const runs: Run[] = [];
+  const layer = new EffectsLayer({
+    rtspBase: "rtsp://127.0.0.1:8554/",
+    getEffects: (id) => effects.get(id),
+    needsRelay: () => false,
+    createPublisher: (url): LayerPublisher => ({
+      async run(args) {
+        runs.push({ url, args, stopped: false });
+      },
+      async stop() {}
+    })
+  });
+  effects.set("cam1", { crop: cropped, rotation: 90, fadeToBlack: false });
+  assert.equal(await layer.sync("cam1"), false);
+  assert.equal(layer.pathFor("cam1"), "cam1");
+  assert.equal(runs.length, 0);
 });
