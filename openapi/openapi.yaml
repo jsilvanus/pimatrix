@@ -1760,7 +1760,7 @@ components:
           type: [integer, "null"]
         videoCodec:
           type: [string, "null"]
-          enum: [copy, libx264, h264_v4l2m2m, null]
+          enum: [copy, auto, libx264, h264_v4l2m2m, null]
     HamaCaptureSettingsPatch:
       $ref: "#/components/schemas/HamaCaptureSettingsValues"
     HamaCaptureSettings:

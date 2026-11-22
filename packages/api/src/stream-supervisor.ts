@@ -1,5 +1,6 @@
 import type { Fleet, JobHandle, JobSnapshot, JobSpecInput } from "fffleet";
 import type { AppConfig, HamaVideoCodec } from "./config.js";
+import { HARDWARE_ENCODER, type Encoder, type EncoderPolicy, type EncoderSetting } from "./encoder.js";
 
 export type ManagedStreamState = "disabled" | "idle" | "starting" | "running" | "degraded" | "failed" | "stopping";
 
@@ -11,22 +12,26 @@ export interface ManagedStreamSnapshot {
   stderrTail: string | null;
 }
 
-type StreamJobFactory = (attempt: number) => JobSpecInput;
+/** Builds the job; `encoder` is what the shared EncoderPolicy picked for this start (undefined without a policy). */
+type StreamJobFactory = (attempt: number, encoder?: Encoder) => JobSpecInput;
 
 /**
  * Encoder arguments for the Hama stream. h264_v4l2m2m is the Pi 4 hardware encoder
- * (V4L2 M2M); libx264 is software and takes about a core at 1080p on a Pi.
+ * (V4L2 M2M); libx264 is software and takes about a core at 1080p on a Pi. `encoder` is the
+ * concrete choice made by EncoderPolicy and wins over the configured codec; without it the
+ * configured codec is used as is (`auto` and `copy` count as libx264 here).
  */
-export function hamaEncoderArgs(codec: HamaVideoCodec | undefined): string[] {
-  if (codec === "h264_v4l2m2m") return ["-c:v", "h264_v4l2m2m", "-b:v", "4M", "-pix_fmt", "yuv420p"];
+export function hamaEncoderArgs(codec: HamaVideoCodec | undefined, encoder?: Encoder): string[] {
+  if ((encoder ?? codec) === HARDWARE_ENCODER) return ["-c:v", "h264_v4l2m2m", "-b:v", "4M", "-pix_fmt", "yuv420p"];
   return ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p"];
 }
 
-export function buildHamaCaptureSpec(config: AppConfig, attempt: number, filter?: string): JobSpecInput {
+export function buildHamaCaptureSpec(config: AppConfig, attempt: number, filter?: string, encoder?: Encoder): JobSpecInput {
   if (!config.hamaRtspUrl) {
     throw new Error("Hama capture requires PIMATRIX_HAMA_RTSP_URL");
   }
 
+  let usedEncoder: Encoder | undefined;
   const args = [
     "-hide_banner",
     "-nostdin",
@@ -43,11 +48,13 @@ export function buildHamaCaptureSpec(config: AppConfig, attempt: number, filter?
 
   if (filter && filter !== "null") {
     args.push("-vf", filter);
-    args.push(...hamaEncoderArgs(config.hamaVideoCodec));
+    usedEncoder = encoder ?? (config.hamaVideoCodec === HARDWARE_ENCODER ? HARDWARE_ENCODER : "libx264");
+    args.push(...hamaEncoderArgs(config.hamaVideoCodec, usedEncoder));
   } else if (config.hamaVideoCodec === "copy") {
     args.push("-c:v", "copy");
-  } else if (config.hamaVideoCodec === "libx264" || config.hamaVideoCodec === "h264_v4l2m2m") {
-    args.push(...hamaEncoderArgs(config.hamaVideoCodec));
+  } else if (config.hamaVideoCodec === "libx264" || config.hamaVideoCodec === "h264_v4l2m2m" || config.hamaVideoCodec === "auto") {
+    usedEncoder = encoder ?? (config.hamaVideoCodec === HARDWARE_ENCODER ? HARDWARE_ENCODER : "libx264");
+    args.push(...hamaEncoderArgs(config.hamaVideoCodec, usedEncoder));
   }
 
   args.push("-f", "rtsp", "-rtsp_transport", "tcp", "{{output:preview}}");
@@ -61,7 +68,8 @@ export function buildHamaCaptureSpec(config: AppConfig, attempt: number, filter?
       application: "pimatrix",
       role: "capture",
       source: "hama",
-      attempt: String(attempt)
+      attempt: String(attempt),
+      ...(usedEncoder ? { encoder: usedEncoder } : {})
     },
     outputs: [{ name: "preview", uri: config.hamaRtspUrl }],
     ffmpeg: { args }
@@ -86,7 +94,15 @@ export class StreamSupervisor {
     private readonly makeSpec: StreamJobFactory,
     private readonly enabled: boolean,
     private readonly restartMinMs: number,
-    private readonly restartMaxMs: number
+    private readonly restartMaxMs: number,
+    /** Shared encoder choice: a hardware-encoder job that dies in its start window is relaunched with libx264. */
+    private readonly encoding?: {
+      policy: EncoderPolicy;
+      /** The configured codec right now (it can change at runtime). */
+      setting: () => EncoderSetting;
+      /** A job that ends sooner than this after it was submitted counts as failed to start, default 5000 ms. */
+      startWindowMs?: number;
+    }
   ) {
     // On demand: an enabled capture waits in "idle" until something asks for it.
     this.currentState = enabled ? "idle" : "disabled";
@@ -113,7 +129,12 @@ export class StreamSupervisor {
     const generation = this.generation;
     this.attempt += 1;
     try {
-      const job = await this.fleet.submit(this.makeSpec(this.attempt));
+      const encoder = this.encoding ? await this.encoding.policy.pick(this.encoding.setting()) : undefined;
+      if (generation !== this.generation || this.stopping) return;
+      const spec = this.makeSpec(this.attempt, encoder);
+      const usedEncoder = spec.labels?.encoder as Encoder | undefined;
+      const job = await this.fleet.submit(spec);
+      const submittedAt = Date.now();
       if (this.stopping || generation !== this.generation) {
         await job.cancel().catch(() => undefined);
         return;
@@ -130,7 +151,7 @@ export class StreamSupervisor {
       job.on("stderr", (tail) => {
         if (this.activeJob === job) this.lastStderr = tail;
       });
-      void this.watch(job);
+      void this.watch(job, usedEncoder, submittedAt);
     } catch (error) {
       if (generation !== this.generation) return;
       this.lastError = error instanceof Error ? error.message : String(error);
@@ -141,7 +162,7 @@ export class StreamSupervisor {
     }
   }
 
-  private async watch(job: JobHandle): Promise<void> {
+  private async watch(job: JobHandle, usedEncoder: Encoder | undefined, submittedAt: number): Promise<void> {
     let result: JobSnapshot;
     try {
       result = await job.done;
@@ -161,6 +182,17 @@ export class StreamSupervisor {
 
     if (this.stopping) {
       this.currentState = "stopping";
+      return;
+    }
+
+    // The hardware encoder dying right after the start: remember it and start again with libx264 at once.
+    const startWindowMs = this.encoding?.startWindowMs ?? 5000;
+    if (
+      this.encoding && usedEncoder && Date.now() - submittedAt < startWindowMs &&
+      this.encoding.policy.noteFailure(usedEncoder, result.error?.message ?? result.stderrTail ?? `job ended in state ${result.state}`)
+    ) {
+      this.currentState = "starting";
+      this.launchPromise = this.launch();
       return;
     }
 

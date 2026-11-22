@@ -34,6 +34,7 @@ function harness(startupWindowMs = 10) {
   const spawned: Array<{ args: readonly string[]; proc: FakeProcess }> = [];
   const publisher = new KeyPagePublisher({
     rtspUrl: "rtsp://127.0.0.1:8554/compose1",
+    encoder: "libx264",
     startupWindowMs,
     spawn: (_command, args) => {
       const proc = new FakeProcess();
@@ -120,6 +121,7 @@ test("a live process that dies after the start window is restarted with a doubli
   const spawned: FakeProcess[] = [];
   const publisher = new KeyPagePublisher({
     rtspUrl: "rtsp://127.0.0.1:8554/compose1",
+    encoder: "libx264",
     startupWindowMs: 5,
     restartBaseMs: 5,
     maxRestarts: 2,
@@ -146,6 +148,7 @@ test("stop cancels a pending restart", async () => {
   const spawned: FakeProcess[] = [];
   const publisher = new KeyPagePublisher({
     rtspUrl: "rtsp://127.0.0.1:8554/compose1",
+    encoder: "libx264",
     startupWindowMs: 5,
     restartBaseMs: 30,
     spawn: () => {

@@ -39,6 +39,7 @@ import {
 } from "./model.js";
 import { renderMultiviewHtml } from "./multiview-html.js";
 import { PipgmSourceFeed } from "./piprogram/pipgm-sources.js";
+import { EncoderPolicy } from "./encoder.js";
 import { buildHamaCaptureSpec, StreamSupervisor } from "./stream-supervisor.js";
 import { HamaOnDemand } from "./hama-on-demand.js";
 import { HamaSettingsStore, parseHamaPatch } from "./hama-settings.js";
@@ -85,10 +86,13 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   const piprogramClient = config.piprogramUrl
     ? new PiprogramClient({ baseUrl: config.piprogramUrl, apiKey: config.piprogramApiKey, fetch: fetchImpl })
     : null;
+  // One encoder choice for every ffmpeg publisher and the Hama capture: a hardware failure seen by one is remembered by all.
+  const encoderPolicy = new EncoderPolicy({ fallback: config.encoderFallback, ffmpeg: config.compositeFfmpeg, logger: app.log });
   const effectsLayer = new EffectsLayer({
     rtspBase: config.mediaMtxRtspUrl,
     ffmpeg: config.compositeFfmpeg,
     encoder: config.compositeVideoCodec,
+    encoderPolicy,
     getEffects: (sourceId) => effectsStore.get(sourceId as SourceId),
     // compose1 fades to its key colour, everything else to black.
     fadeColour: (sourceId): string | null => (sourceId === "compose1" ? compositeService.get("compose1").keyColor : null),
@@ -117,6 +121,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       rtspUrl: config.mediaMtxRtspUrl ? `${config.mediaMtxRtspUrl.replace(/\/$/, "")}/compose1` : undefined,
       ffmpeg: config.compositeFfmpeg,
       encoder: config.compositeVideoCodec,
+      encoderPolicy,
       logger: app.log
     }),
     atem,
@@ -178,17 +183,24 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
 
   const captureSupervisor = new StreamSupervisor(
     localCaptureFleet,
-    (attempt) => {
+    (attempt, encoder) => {
       const hamaEffects = effectsStore.get("hama");
       const filter =
         hamaEffects && (hamaEffects.crop.enabled || hamaEffects.fadeToBlack)
           ? hamaEffects.ffmpegFilter
           : undefined;
-      return buildHamaCaptureSpec(hamaConfig(), attempt, filter);
+      return buildHamaCaptureSpec(hamaConfig(), attempt, filter, encoder);
     },
     config.hamaEnabled,
     config.streamRestartMinMs,
-    config.streamRestartMaxMs
+    config.streamRestartMaxMs,
+    {
+      policy: encoderPolicy,
+      setting: () => {
+        const codec = hamaConfig().hamaVideoCodec;
+        return codec === "copy" || codec === undefined ? "libx264" : codec;
+      }
+    }
   );
 
   // Hama runs only while an output or the RTSP relay uses it, or while someone starts it by hand.
@@ -266,6 +278,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     rtspUrl: `${pipgmRtspBase}/${id}`,
     ffmpeg: config.compositeFfmpeg,
     encoder: config.compositeVideoCodec,
+    encoderPolicy,
     logger: app.log
   });
   const pipgmRtspBase = config.mediaMtxRtspUrl?.replace(/\/$/, "");
