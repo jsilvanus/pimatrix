@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
-import { KeyPagePublisher, liveArgs, liveFilterGraph, pipePublishArgs, publishArgs, type PublishProcess } from "../src/composite/key-publisher.js";
+import { EncoderPolicy } from "../src/encoder.js";
+import { KeyPagePublisher, evenSize, liveArgs, stillConvertArgs, liveFilterGraph, pipePublishArgs, publishArgs, type PublishProcess } from "../src/composite/key-publisher.js";
 
 class FakeProcess extends EventEmitter implements PublishProcess {
   killed: NodeJS.Signals | null = null;
@@ -30,12 +31,13 @@ class FakeProcess extends EventEmitter implements PublishProcess {
   }
 }
 
-function harness(startupWindowMs = 10) {
+function harness(startupWindowMs = 10, extra: Partial<ConstructorParameters<typeof KeyPagePublisher>[0]> = {}) {
   const spawned: Array<{ args: readonly string[]; proc: FakeProcess }> = [];
   const publisher = new KeyPagePublisher({
     rtspUrl: "rtsp://127.0.0.1:8554/compose1",
     encoder: "libx264",
     startupWindowMs,
+    ...extra,
     spawn: (_command, args) => {
       const proc = new FakeProcess();
       spawned.push({ args, proc });
@@ -167,7 +169,7 @@ test("stop cancels a pending restart", async () => {
 test("pipePublishArgs uses image2pipe and showFrame swaps frames without restarting ffmpeg", async () => {
   const args = pipePublishArgs("rtsp://127.0.0.1:8554/PiPGM1", "libx264", 1);
   assert.ok(args.join(" ").includes("-f image2pipe -framerate 1 -c:v png -i -"));
-  const { publisher, spawned } = harness();
+  const { publisher, spawned } = harness(10, { stillInput: "png" });
   await publisher.showFrame(Buffer.from("frame1"), 1920, 1080);
   await publisher.showFrame(Buffer.from("frame2"), 1920, 1080);
   assert.equal(spawned.length, 1, "same dimensions reuse the running pipe process");
@@ -214,4 +216,77 @@ test("supervised restart that exits inside startupWindowMs still retries up to m
   spawned[2]?.crash(1);
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(spawned.length, 3);
+});
+
+test("raw still input: pipePublishArgs reads rawvideo yuv420p and keeps the encoder choice", () => {
+  const args = pipePublishArgs("rtsp://h/compose1", "h264_v4l2m2m", 1, { width: 1920, height: 1080 });
+  assert.ok(args.join(" ").includes("-f rawvideo -pix_fmt yuv420p -s 1920x1080 -framerate 1 -i - -an"));
+  assert.equal(args.includes("image2pipe"), false);
+  assert.equal(args[args.indexOf("-c:v") + 1], "h264_v4l2m2m");
+  assert.equal(evenSize(1081, 607).width, 1080);
+  assert.ok(stillConvertArgs().join(" ").includes("scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p"));
+});
+
+test("raw still input is the default: the PNG is converted once per change, not once per second", async () => {
+  const conversions: Array<[number, number]> = [];
+  const { publisher, spawned } = harness(10, {
+    convertStill: async (png, w, h) => {
+      conversions.push([w, h]);
+      return Buffer.from(`raw:${png.toString()}`);
+    }
+  });
+  await publisher.showFrame(Buffer.from("a"), 1921, 1081);
+  assert.deepEqual(conversions, [[1920, 1080]]);
+  assert.ok(spawned[0]!.args.join(" ").includes("-f rawvideo -pix_fmt yuv420p -s 1920x1080"));
+  await publisher.showFrame(Buffer.from("b"), 1921, 1081);
+  assert.equal(spawned.length, 1, "same size and mode reuse the process");
+  assert.deepEqual(spawned[0]!.proc.writes.map((b) => b.toString()), ["raw:a", "raw:b"]);
+  await publisher.stop();
+});
+
+test("a failed conversion falls back to the PNG input for that picture, with a warning", async () => {
+  const warnings: string[] = [];
+  const { publisher, spawned } = harness(10, {
+    convertStill: async () => null,
+    logger: { warn: ((_o: unknown, m?: string) => void warnings.push(String(m))) as never }
+  });
+  await publisher.showFrame(Buffer.from("png-bytes"), 1920, 1080);
+  assert.ok(spawned[0]!.args.join(" ").includes("-f image2pipe"));
+  assert.deepEqual(spawned[0]!.proc.writes.map((b) => b.toString()), ["png-bytes"]);
+  assert.equal(warnings.length, 1);
+  await publisher.stop();
+});
+
+test("switching between raw and png input restarts ffmpeg; the encoder fallback still applies", async () => {
+  let ok = true;
+  const { publisher, spawned } = harness(10, { convertStill: async () => (ok ? Buffer.from("raw") : null) });
+  await publisher.showFrame(Buffer.from("a"), 1920, 1080);
+  ok = false;
+  await publisher.showFrame(Buffer.from("b"), 1920, 1080);
+  assert.equal(spawned.length, 2);
+  assert.ok(spawned[1]!.args.join(" ").includes("-f image2pipe"));
+  await publisher.stop();
+});
+
+test("raw input with the hardware encoder falls back to libx264 and keeps raw input", async () => {
+  const spawned: Array<{ args: readonly string[]; proc: FakeProcess }> = [];
+  const publisher = new KeyPagePublisher({
+    rtspUrl: "rtsp://127.0.0.1:8554/compose1",
+    encoder: "h264_v4l2m2m",
+    encoderPolicy: new EncoderPolicy({ platform: "linux", probe: async () => true }),
+    startupWindowMs: 50,
+    convertStill: async () => Buffer.from("raw"),
+    spawn: (_c, args) => {
+      const proc = new FakeProcess();
+      spawned.push({ args, proc });
+      if (spawned.length === 1) setTimeout(() => proc.crash(1), 5);
+      return proc;
+    }
+  });
+  await publisher.showFrame(Buffer.from("a"), 1920, 1080);
+  assert.equal(spawned.length, 2);
+  assert.ok(spawned[0]!.args.includes("h264_v4l2m2m"));
+  assert.ok(spawned[1]!.args.includes("libx264"));
+  assert.ok(spawned[1]!.args.join(" ").includes("-f rawvideo"));
+  await publisher.stop();
 });

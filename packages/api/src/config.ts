@@ -61,6 +61,12 @@ export interface AppConfig {
   piprogramApiKey?: string;
   /** "publish-off": piprogram publishes the PiPGM feeds, pimatrix does not (PIMATRIX_PIPGM_FEED). */
   pipgmFeed: "publish" | "publish-off";
+  /** Poll interval of the piprogram snapshot feeds, ms (PIMATRIX_PIPGM_POLL_MS, default 1000). */
+  pipgmPollMs: number;
+  /** MediaMTX path-list cache, ms; 0 = off (PIMATRIX_MEDIAMTX_CACHE_MS, default 1000). */
+  mediaMtxCacheMs: number;
+  /** How a still reaches the compose1/PiPGM publisher: decoded once to raw yuv420p, or as PNG each second (PIMATRIX_STILL_INPUT). */
+  stillInput: "raw" | "png";
   /** DRM connector for the HDMI key output of the slide composite (PIMATRIX_COMPOSITE_HDMI_DEVICE). */
   compositeHdmiDevice?: string;
   /** Encoder for the compose1 RTSP publisher. */
@@ -209,6 +215,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (pipgmFeed !== "publish" && pipgmFeed !== "publish-off") {
     throw new Error('PIMATRIX_PIPGM_FEED must be "publish" or "publish-off"');
   }
+  const pipgmPollMs = positiveInteger(env.PIMATRIX_PIPGM_POLL_MS, 1000, "PIMATRIX_PIPGM_POLL_MS", 60000);
+  const mediaMtxCacheMs = nonNegativeInteger(env.PIMATRIX_MEDIAMTX_CACHE_MS, 1000, "PIMATRIX_MEDIAMTX_CACHE_MS", 60000);
+  const stillInput = env.PIMATRIX_STILL_INPUT?.trim().toLowerCase() || "raw";
+  if (stillInput !== "raw" && stillInput !== "png") {
+    throw new Error('PIMATRIX_STILL_INPUT must be "raw" or "png"');
+  }
   const flag = (name: string): boolean | undefined => {
     const value = env[name]?.trim().toLowerCase();
     if (value === undefined || value === "") return undefined;
@@ -310,6 +322,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(hdmi0Audio !== undefined ? { hdmi0Audio } : {}),
     ...(hdmi1Audio !== undefined ? { hdmi1Audio } : {}),
     pipgmFeed,
+    pipgmPollMs,
+    mediaMtxCacheMs,
+    stillInput,
     ...(hdmiSdlVideoDriver ? { hdmiSdlVideoDriver } : {}),
     ...(hdmiDecoder ? { hdmiDecoder } : {}),
     ...(mediaMtxRtspUrl ? { mediaMtxRtspUrl } : {}),

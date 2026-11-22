@@ -27,7 +27,16 @@ export interface PublishProcess {
 
 export type SpawnPublisher = (command: string, args: readonly string[]) => PublishProcess;
 
+export type StillInput = "raw" | "png";
+
+/** Converts a PNG to raw yuv420p frame bytes of the given (even) size, or null when that fails. */
+export type StillConverter = (png: Buffer, width: number, height: number) => Promise<Buffer | null>;
+
 export interface KeyPagePublisherOptions {
+  /** How showFrame feeds ffmpeg: "raw" (decode the PNG once per change, default) or "png" (the PNG every second). */
+  stillInput?: StillInput | undefined;
+  /** PNG to raw yuv420p conversion; default is a one-shot ffmpeg. Tests inject a fake. */
+  convertStill?: StillConverter | undefined;
   /** RTSP publish URL, e.g. rtsp://127.0.0.1:8554/compose1. Undefined = publishing cannot start. */
   rtspUrl?: string | undefined;
   /** ffmpeg executable, default "ffmpeg". */
@@ -69,7 +78,69 @@ export function publishArgs(pngPath: string, rtspUrl: string, encoder: Encoder):
   ];
 }
 
-export function pipePublishArgs(rtspUrl: string, encoder: Encoder, fps = 1): string[] {
+/** Even dimensions, as the scale=trunc(iw/2)*2 of the PNG path gives. */
+export function evenSize(width: number, height: number): { width: number; height: number } {
+  return { width: Math.floor(width / 2) * 2, height: Math.floor(height / 2) * 2 };
+}
+
+/** One-shot ffmpeg arguments that turn a PNG on stdin into raw yuv420p frame bytes on stdout. */
+export function stillConvertArgs(): string[] {
+  return [
+    "-hide_banner",
+    "-nostdin",
+    "-loglevel", "error",
+    "-f", "image2pipe",
+    "-c:v", "png",
+    "-i", "-",
+    "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+    "-frames:v", "1",
+    "-f", "rawvideo",
+    "-pix_fmt", "yuv420p",
+    "-"
+  ];
+}
+
+/** Default converter: decodes the PNG once in a one-shot ffmpeg. Null on any failure, a timeout or a wrong-sized result. */
+export function ffmpegStillConverter(ffmpeg: string, timeoutMs = 15000): StillConverter {
+  return (png, width, height) =>
+    new Promise<Buffer | null>((resolve) => {
+      const expected = (width * height * 3) / 2;
+      let settled = false;
+      const done = (value: Buffer | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      };
+      let child: ReturnType<typeof nodeSpawn>;
+      const timer = setTimeout(() => {
+        child?.kill("SIGKILL");
+        done(null);
+      }, timeoutMs);
+      try {
+        child = nodeSpawn(ffmpeg, stillConvertArgs(), { stdio: ["pipe", "pipe", "ignore"] });
+      } catch {
+        done(null);
+        return;
+      }
+      const chunks: Buffer[] = [];
+      child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
+      child.stdin?.on("error", () => undefined);
+      child.on("error", () => done(null));
+      child.on("close", (code) => {
+        const out = Buffer.concat(chunks);
+        done(code === 0 && out.length === expected ? out : null);
+      });
+      child.stdin?.end(png);
+    });
+}
+
+export function pipePublishArgs(
+  rtspUrl: string,
+  encoder: Encoder,
+  fps = 1,
+  raw?: { width: number; height: number }
+): string[] {
   const encoderArgs =
     encoder === HARDWARE_ENCODER
       ? ["-c:v", "h264_v4l2m2m", "-b:v", "1M"]
@@ -78,12 +149,9 @@ export function pipePublishArgs(rtspUrl: string, encoder: Encoder, fps = 1): str
     "-hide_banner",
     "-nostdin",
     "-loglevel", "warning",
-    "-f", "image2pipe",
-    "-framerate", String(fps),
-    "-c:v", "png",
-    "-i", "-",
-    "-an",
-    "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+    ...(raw
+      ? ["-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", `${raw.width}x${raw.height}`, "-framerate", String(fps), "-i", "-", "-an"]
+      : ["-f", "image2pipe", "-framerate", String(fps), "-c:v", "png", "-i", "-", "-an", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p"]),
     ...encoderArgs,
     "-r", String(fps),
     "-g", "2",
@@ -165,11 +233,15 @@ export class KeyPagePublisher {
     frame: Buffer;
     width: number | undefined;
     height: number | undefined;
+    /** What the running ffmpeg reads: raw yuv420p frames or PNGs. */
+    raw: boolean;
     timer: ReturnType<typeof setInterval> | null;
     draining: boolean;
   } | null = null;
   private readonly logger: Pick<FastifyBaseLogger, "warn"> | undefined;
   private readonly spawn: SpawnPublisher;
+  private readonly stillInput: StillInput;
+  private readonly convertStill: StillConverter;
 
   constructor(options: KeyPagePublisherOptions = {}) {
     this.rtspUrl = options.rtspUrl;
@@ -180,6 +252,8 @@ export class KeyPagePublisher {
     this.restartBaseMs = options.restartBaseMs ?? 1000;
     this.maxRestarts = options.maxRestarts ?? 5;
     this.logger = options.logger;
+    this.stillInput = options.stillInput ?? "raw";
+    this.convertStill = options.convertStill ?? ffmpegStillConverter(this.ffmpeg);
     this.spawn = options.spawn ?? ((command, args) => nodeSpawn(command, [...args], { stdio: ["pipe", "ignore", "ignore"] }) as unknown as PublishProcess);
   }
 
@@ -200,21 +274,45 @@ export class KeyPagePublisher {
     if (!this.rtspUrl) {
       throw new Error("PIMATRIX_MEDIAMTX_RTSP_URL is not set, so compose1 cannot be published");
     }
+    // Raw mode decodes the PNG once here, so the 1 fps loop only writes bytes; any failure
+    // (or unknown size) falls back to the PNG input for this picture.
+    let frame = png;
+    let raw: { width: number; height: number } | undefined;
+    if (this.stillInput === "raw" && width !== undefined && height !== undefined) {
+      const size = evenSize(width, height);
+      const generation = this.generation;
+      let converted: Buffer | null = null;
+      try {
+        converted = size.width > 0 && size.height > 0 ? await this.convertStill(png, size.width, size.height) : null;
+      } catch {
+        converted = null;
+      }
+      // stop() or a newer show while converting: this one was cancelled.
+      if (generation !== this.generation) return;
+      if (converted) {
+        frame = converted;
+        raw = size;
+      } else {
+        this.logger?.warn({ width, height }, "compose1 still conversion failed, publishing this picture as PNG");
+      }
+    }
+    const isRaw = raw !== undefined;
     const sameSize =
       this.pipeState !== null &&
       this.pipeState.width === width &&
-      this.pipeState.height === height;
+      this.pipeState.height === height &&
+      this.pipeState.raw === isRaw;
     if (this.process && sameSize && this.pipeState) {
-      this.pipeState.frame = png;
+      this.pipeState.frame = frame;
       this.writePipeFrame();
       return;
     }
     await this.stop();
-    this.pipeState = { frame: png, width, height, timer: null, draining: false };
+    this.pipeState = { frame, width, height, raw: isRaw, timer: null, draining: false };
     this.pipeState.timer = setInterval(() => this.writePipeFrame(), 1000);
     this.pipeState.timer.unref();
     const rtspUrl = this.rtspUrl;
-    await this.start((encoder) => pipePublishArgs(rtspUrl, encoder, 1), true, 0);
+    await this.start((encoder) => pipePublishArgs(rtspUrl, encoder, 1, raw), true, 0);
   }
 
   /** Start (or restart) publishing a live source in the slide box. Restarts itself if the source drops. */
