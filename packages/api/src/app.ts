@@ -24,7 +24,7 @@ import {
 } from "./effects/effects-model.js";
 import type { RtspOutState } from "./app-state.js";
 import { EffectsLayer } from "./effects/effects-layer.js";
-import { inspectMediaMtx } from "./media-mtx.js";
+import { createMediaMtxInspector } from "./media-mtx.js";
 import {
   createOutputStore,
   getMultiview,
@@ -84,7 +84,13 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
   const gatewayEvents = gateway ? new GatewayEventRelay(gateway, eventBroker, app.log) : null;
   // One piprogram client for the composite slides and the PiPGM sources.
   const piprogramClient = config.piprogramUrl
-    ? new PiprogramClient({ baseUrl: config.piprogramUrl, apiKey: config.piprogramApiKey, fetch: fetchImpl })
+    ? new PiprogramClient({
+        baseUrl: config.piprogramUrl,
+        apiKey: config.piprogramApiKey,
+        fetch: fetchImpl,
+        // One snapshot per pipeline per poll interval, shared by the composite feed and the PiPGM feed.
+        snapshotCacheMs: Math.round(config.pipgmPollMs * 0.8)
+      })
     : null;
   // One encoder choice for every ffmpeg publisher and the Hama capture: a hardware failure seen by one is remembered by all.
   const encoderPolicy = new EncoderPolicy({ fallback: config.encoderFallback, ffmpeg: config.compositeFfmpeg, logger: app.log });
@@ -122,6 +128,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
       ffmpeg: config.compositeFfmpeg,
       encoder: config.compositeVideoCodec,
       encoderPolicy,
+      stillInput: config.stillInput,
       logger: app.log
     }),
     atem,
@@ -138,7 +145,8 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
           setSlide: (id, png, slideOptions) => compositeService.setFeedSlide(id, png, slideOptions),
           clearSlide: (id) => compositeService.clearFeedSlide(id),
           reportError: (id, message) => compositeService.reportFeedError(id, message)
-        }
+        },
+        config.pipgmPollMs
       )
     : null;
   // The HDMI player moves from "starting" to "active" on a timer, not on a route call,
@@ -209,7 +217,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     relayed: rtspOutState.streaming && rtspOutState.sourceId === "hama"
   }));
 
-  const mediaSnapshot = () => inspectMediaMtx(config.mediaMtxApiUrl, fetchImpl);
+  const mediaSnapshot = createMediaMtxInspector(config.mediaMtxApiUrl, fetchImpl, config.mediaMtxCacheMs);
   const mediaStatus = async () => {
     const snapshot = await mediaSnapshot();
     return !snapshot.configured ? "not-configured" : snapshot.connected ? "connected" : "unavailable";
@@ -279,6 +287,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
     ffmpeg: config.compositeFfmpeg,
     encoder: config.compositeVideoCodec,
     encoderPolicy,
+    stillInput: config.stillInput,
     logger: app.log
   });
   const pipgmRtspBase = config.mediaMtxRtspUrl?.replace(/\/$/, "");
@@ -287,6 +296,7 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         client: piprogramClient,
         dataDir: path.join(config.compositeDataDir, "pipgm"),
         publish: config.pipgmFeed !== "publish-off",
+        intervalMs: config.pipgmPollMs,
         publishers: {
           PiPGM1: pipgmPublisher("PiPGM1"),
           PiPGM2: pipgmPublisher("PiPGM2"),
