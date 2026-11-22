@@ -1,5 +1,6 @@
+import { isEncoderSetting, type EncoderSetting } from "./encoder.js";
 export type RuntimeMode = "simulation" | "production";
-export type HamaVideoCodec = "copy" | "libx264" | "h264_v4l2m2m";
+export type HamaVideoCodec = "copy" | EncoderSetting;
 export type DisplayMode = "simulated" | "hardware" | "disabled";
 
 export interface AppConfig {
@@ -63,7 +64,9 @@ export interface AppConfig {
   /** DRM connector for the HDMI key output of the slide composite (PIMATRIX_COMPOSITE_HDMI_DEVICE). */
   compositeHdmiDevice?: string;
   /** Encoder for the compose1 RTSP publisher. */
-  compositeVideoCodec: "libx264" | "h264_v4l2m2m";
+  compositeVideoCodec: EncoderSetting;
+  /** Retry with libx264 when the hardware encoder fails to start (PIMATRIX_ENCODER_FALLBACK, default on). */
+  encoderFallback: boolean;
   /** Directory for the composite slide, key page files and settings (PIMATRIX_COMPOSITE_DATA_DIR). */
   compositeDataDir: string;
   /** File for the saved quick options (PIMATRIX_QUICK_OPTIONS_FILE). */
@@ -146,7 +149,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const hamaHeight = positiveInteger(env.PIMATRIX_HAMA_HEIGHT, 1080, "PIMATRIX_HAMA_HEIGHT");
   const hamaIdleGraceSeconds = nonNegativeInteger(env.PIMATRIX_HAMA_IDLE_GRACE_SECONDS, 30, "PIMATRIX_HAMA_IDLE_GRACE_SECONDS", 3600);
   const hamaFrameRate = env.PIMATRIX_HAMA_FRAME_RATE === undefined ? undefined : positiveInteger(env.PIMATRIX_HAMA_FRAME_RATE, 1, "PIMATRIX_HAMA_FRAME_RATE");
-  // The Pi 4 hardware encoder: about 60% of a core against about 120% for libx264 at 1080p.
+  // The Pi 4 hardware encoder (falls back to libx264 if it cannot start): about 60% of a core against about 120% for libx264 at 1080p.
   const hamaVideoCodec = (env.PIMATRIX_HAMA_VIDEO_CODEC?.trim() || "h264_v4l2m2m") as HamaVideoCodec;
   const hamaRtspUrl = optionalRtspUrl(env.PIMATRIX_HAMA_RTSP_URL, "PIMATRIX_HAMA_RTSP_URL");
   const streamRestartMinMs = positiveInteger(env.PIMATRIX_STREAM_RESTART_MIN_MS, 1000, "PIMATRIX_STREAM_RESTART_MIN_MS", 300000);
@@ -219,10 +222,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (compositeHdmiDevice !== undefined && !/^[A-Za-z0-9._:/-]+$/.test(compositeHdmiDevice)) {
     throw new Error("PIMATRIX_COMPOSITE_HDMI_DEVICE must be a DRM connector, device path or display name (letters, digits, . _ : / -), e.g. card1-HDMI-A-2");
   }
-  const compositeVideoCodec = env.PIMATRIX_COMPOSITE_VIDEO_CODEC?.trim() || "libx264";
-  if (compositeVideoCodec !== "libx264" && compositeVideoCodec !== "h264_v4l2m2m") {
-    throw new Error('PIMATRIX_COMPOSITE_VIDEO_CODEC must be "libx264" or "h264_v4l2m2m"');
+  // auto = h264_v4l2m2m where it works, libx264 (CPU) otherwise; see src/encoder.ts.
+  const compositeVideoCodecRaw = env.PIMATRIX_COMPOSITE_VIDEO_CODEC?.trim() || "auto";
+  if (!isEncoderSetting(compositeVideoCodecRaw)) {
+    throw new Error('PIMATRIX_COMPOSITE_VIDEO_CODEC must be "auto", "libx264" or "h264_v4l2m2m"');
   }
+  const compositeVideoCodec: EncoderSetting = compositeVideoCodecRaw;
+  const encoderFallbackRaw = env.PIMATRIX_ENCODER_FALLBACK?.trim().toLowerCase() || "on";
+  if (encoderFallbackRaw !== "on" && encoderFallbackRaw !== "off") {
+    throw new Error('PIMATRIX_ENCODER_FALLBACK must be "on" or "off"');
+  }
+  const encoderFallback = encoderFallbackRaw === "on";
   const compositeDataDir = env.PIMATRIX_COMPOSITE_DATA_DIR?.trim() || "./data/composite";
   const quickOptionsFile = env.PIMATRIX_QUICK_OPTIONS_FILE?.trim() || "./data/quick-options.json";
   const compositeFfmpeg = env.PIMATRIX_COMPOSITE_FFMPEG?.trim() || "ffmpeg";
@@ -257,8 +267,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (Boolean(hamaWidth) !== Boolean(hamaHeight)) {
     throw new Error("PIMATRIX_HAMA_WIDTH and PIMATRIX_HAMA_HEIGHT must be set together");
   }
-  if (hamaVideoCodec !== undefined && hamaVideoCodec !== "copy" && hamaVideoCodec !== "libx264" && hamaVideoCodec !== "h264_v4l2m2m") {
-    throw new Error('PIMATRIX_HAMA_VIDEO_CODEC must be "copy", "libx264" or "h264_v4l2m2m"');
+  if (hamaVideoCodec !== undefined && hamaVideoCodec !== "copy" && hamaVideoCodec !== "auto" && hamaVideoCodec !== "libx264" && hamaVideoCodec !== "h264_v4l2m2m") {
+    throw new Error('PIMATRIX_HAMA_VIDEO_CODEC must be "copy", "auto", "libx264" or "h264_v4l2m2m"');
   }
   if (streamRestartMaxMs < streamRestartMinMs) {
     throw new Error("PIMATRIX_STREAM_RESTART_MAX_MS must be greater than or equal to PIMATRIX_STREAM_RESTART_MIN_MS");
@@ -309,6 +319,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     compositeDataDir,
     quickOptionsFile,
     compositeVideoCodec,
+    encoderFallback,
     compositeFfmpeg,
     atemMediaFillInput,
     ...(gatewayUrl ? { gatewayUrl: gatewayUrl.replace(/\/$/, "") } : {}),

@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from "fastify";
-import type { CompositeVideoCodec } from "../composite/key-publisher.js";
+import type { CompositeVideoCodec, PublishArgs } from "../composite/key-publisher.js";
 import { KeyPagePublisher } from "../composite/key-publisher.js";
+import { HARDWARE_ENCODER, type Encoder, type EncoderPolicy } from "../encoder.js";
 import { buildFfmpegFilter, type CropSettings, type RotationDegrees } from "./effects-model.js";
 
 /**
@@ -28,7 +29,7 @@ export interface LayerEffects {
 }
 
 export interface LayerPublisher {
-  run(args: string[], supervise: boolean): Promise<void>;
+  run(args: PublishArgs, supervise: boolean): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -37,6 +38,8 @@ export interface EffectsLayerOptions {
   rtspBase?: string | undefined;
   ffmpeg?: string | undefined;
   encoder?: CompositeVideoCodec | undefined;
+  /** Shared encoder choice and fallback memory (see EncoderPolicy). */
+  encoderPolicy?: EncoderPolicy | undefined;
   getEffects: (sourceId: string) => LayerEffects | undefined;
   /** "#rrggbb" to fade this source to instead of black, or null. */
   fadeColour?: (sourceId: string) => string | null;
@@ -55,9 +58,9 @@ export interface EffectsLayerOptions {
 export const BLACK_SLATE_PATH = "fx-black";
 export const KEY_SLATE_PATH = "fx-key";
 
-export function relayArgs(sourceUrl: string, filter: string, outUrl: string, encoder: CompositeVideoCodec): string[] {
+export function relayArgs(sourceUrl: string, filter: string, outUrl: string, encoder: Encoder): string[] {
   const encoderArgs =
-    encoder === "h264_v4l2m2m"
+    encoder === HARDWARE_ENCODER
       ? ["-c:v", "h264_v4l2m2m", "-b:v", "4M"]
       : ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency"];
   return [
@@ -74,9 +77,9 @@ export function relayArgs(sourceUrl: string, filter: string, outUrl: string, enc
   ];
 }
 
-export function slateArgs(colour: string, outUrl: string, encoder: CompositeVideoCodec): string[] {
+export function slateArgs(colour: string, outUrl: string, encoder: Encoder): string[] {
   const encoderArgs =
-    encoder === "h264_v4l2m2m"
+    encoder === HARDWARE_ENCODER
       ? ["-c:v", "h264_v4l2m2m", "-b:v", "500k"]
       : ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency"];
   return [
@@ -105,10 +108,10 @@ export class EffectsLayer {
 
   constructor(private readonly options: EffectsLayerOptions) {
     this.rtspBase = options.rtspBase?.replace(/\/$/, "");
-    this.encoder = options.encoder ?? "libx264";
+    this.encoder = options.encoder ?? "auto";
     this.makePublisher =
       options.createPublisher ??
-      ((rtspUrl) => new KeyPagePublisher({ rtspUrl, ffmpeg: options.ffmpeg, encoder: this.encoder, logger: options.logger }));
+      ((rtspUrl) => new KeyPagePublisher({ rtspUrl, ffmpeg: options.ffmpeg, encoder: this.encoder, encoderPolicy: options.encoderPolicy, logger: options.logger }));
   }
 
   /** The MediaMTX path a consumer should read for this source right now. */
@@ -169,7 +172,7 @@ export class EffectsLayer {
     const publisher = running?.publisher ?? this.makePublisher(`${this.rtspBase}/${sourceId}-fx`);
     this.relays.set(sourceId, { publisher, filter });
     try {
-      await publisher.run(relayArgs(`${this.rtspBase}/${sourceId}`, filter, `${this.rtspBase}/${sourceId}-fx`, this.encoder), true);
+      await publisher.run((encoder) => relayArgs(`${this.rtspBase}/${sourceId}`, filter, `${this.rtspBase}/${sourceId}-fx`, encoder), true);
     } catch (error) {
       // The consumer falls back to the plain path until the next change; the reason is logged.
       this.relays.delete(sourceId);
@@ -195,7 +198,7 @@ export class EffectsLayer {
       const publisher = running?.publisher ?? this.makePublisher(`${this.rtspBase}/${path}`);
       this.slates.set(path, { publisher, colour });
       try {
-        await publisher.run(slateArgs(colour, `${this.rtspBase}/${path}`, this.encoder), true);
+        await publisher.run((encoder) => slateArgs(colour, `${this.rtspBase}/${path}`, encoder), true);
       } catch (error) {
         this.slates.delete(path);
         this.options.logger?.warn({ path, err: error instanceof Error ? error.message : String(error) }, "fade slate failed");

@@ -20,7 +20,8 @@ function harness() {
     createPublisher: (url): LayerPublisher => {
       let current: Run | null = null;
       return {
-        async run(args) {
+        async run(build) {
+          const args = typeof build === "function" ? build("libx264") : build;
           if (current) current.stopped = true;
           current = { url, args, stopped: false };
           runs.push(current);
@@ -128,7 +129,8 @@ test("needsRelay=false skips spawning <source>-fx when consumers push filters do
     getEffects: (id) => effects.get(id),
     needsRelay: () => false,
     createPublisher: (url): LayerPublisher => ({
-      async run(args) {
+      async run(build) {
+        const args = typeof build === "function" ? build("libx264") : build;
         runs.push({ url, args, stopped: false });
       },
       async stop() {}

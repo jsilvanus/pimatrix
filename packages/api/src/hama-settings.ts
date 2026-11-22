@@ -13,7 +13,7 @@ export interface HamaSettings {
 
 export type HamaSettingsPatch = { [K in keyof HamaSettings]?: HamaSettings[K] | null };
 
-const CODECS: readonly string[] = ["copy", "libx264", "h264_v4l2m2m"];
+const CODECS: readonly string[] = ["copy", "auto", "libx264", "h264_v4l2m2m"];
 const INPUT_FORMAT = /^[A-Za-z0-9_]{1,32}$/;
 
 function dimension(value: unknown, name: string): number {
@@ -50,7 +50,7 @@ export function parseHamaPatch(body: unknown): HamaSettingsPatch {
     const v = input.videoCodec;
     if (v === null) patch.videoCodec = null;
     else if (typeof v === "string" && CODECS.includes(v)) patch.videoCodec = v as HamaVideoCodec;
-    else throw new Error('videoCodec must be "copy", "libx264" or "h264_v4l2m2m"');
+    else throw new Error('videoCodec must be "copy", "auto", "libx264" or "h264_v4l2m2m"');
   }
   return patch;
 }

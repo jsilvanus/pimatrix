@@ -1,5 +1,6 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import type { FastifyBaseLogger } from "fastify";
+import { EncoderPolicy, HARDWARE_ENCODER, type Encoder, type EncoderSetting } from "../encoder.js";
 
 /**
  * Publishes the compose1 key page to MediaMTX as a low-rate RTSP stream, so the
@@ -8,11 +9,14 @@ import type { FastifyBaseLogger } from "fastify";
  *
  * ffmpeg loops the still at 1 fps. A new slide restarts the process with the new
  * PNG (one reconnect, not a black-screen wait on the HDMI side beyond that). The
- * encoder is `h264_v4l2m2m` on a Pi 4 (hardware) or `libx264` (software).
+ * encoder is chosen by EncoderPolicy: `auto` (default) tries `h264_v4l2m2m` (Pi 4
+ * hardware) and starts again with `libx264` (software) when that fails in the start window.
  * Unverified on hardware.
  */
 
-export type CompositeVideoCodec = "libx264" | "h264_v4l2m2m";
+export type CompositeVideoCodec = EncoderSetting;
+/** Argument list, or a function that builds it for the encoder picked at start time (so a fallback can rebuild it). */
+export type PublishArgs = string[] | ((encoder: Encoder) => string[]);
 
 export interface PublishProcess {
   stdin?: { write(chunk: Buffer): boolean; once(event: "drain", listener: () => void): unknown; end(): void } | null | undefined;
@@ -28,8 +32,10 @@ export interface KeyPagePublisherOptions {
   rtspUrl?: string | undefined;
   /** ffmpeg executable, default "ffmpeg". */
   ffmpeg?: string | undefined;
-  /** Encoder, default libx264. */
+  /** Encoder setting, default "auto" (hardware first, libx264 fallback). */
   encoder?: CompositeVideoCodec | undefined;
+  /** Shared encoder choice and fallback memory; a private one is made when omitted. */
+  encoderPolicy?: EncoderPolicy | undefined;
   /** How long a publisher must run before a show counts as started, default 1500 ms. */
   startupWindowMs?: number;
   /** First restart delay of a supervised process, doubled each time, default 1000 ms. */
@@ -40,9 +46,9 @@ export interface KeyPagePublisherOptions {
   spawn?: SpawnPublisher;
 }
 
-export function publishArgs(pngPath: string, rtspUrl: string, encoder: CompositeVideoCodec): string[] {
+export function publishArgs(pngPath: string, rtspUrl: string, encoder: Encoder): string[] {
   const encoderArgs =
-    encoder === "h264_v4l2m2m"
+    encoder === HARDWARE_ENCODER
       ? ["-c:v", "h264_v4l2m2m", "-b:v", "1M"]
       : ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "stillimage"];
   return [
@@ -63,9 +69,9 @@ export function publishArgs(pngPath: string, rtspUrl: string, encoder: Composite
   ];
 }
 
-export function pipePublishArgs(rtspUrl: string, encoder: CompositeVideoCodec, fps = 1): string[] {
+export function pipePublishArgs(rtspUrl: string, encoder: Encoder, fps = 1): string[] {
   const encoderArgs =
-    encoder === "h264_v4l2m2m"
+    encoder === HARDWARE_ENCODER
       ? ["-c:v", "h264_v4l2m2m", "-b:v", "1M"]
       : ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "stillimage"];
   return [
@@ -116,11 +122,11 @@ export function liveArgs(
   sourceUrl: string,
   layout: LiveKeyLayout,
   rtspUrl: string,
-  encoder: CompositeVideoCodec,
+  encoder: Encoder,
   sourceFilter?: string
 ): string[] {
   const encoderArgs =
-    encoder === "h264_v4l2m2m"
+    encoder === HARDWARE_ENCODER
       ? ["-c:v", "h264_v4l2m2m", "-b:v", "4M"]
       : ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency"];
   const graph = liveFilterGraph(layout, sourceFilter);
@@ -145,9 +151,12 @@ export function liveArgs(
 
 export class KeyPagePublisher {
   private process: PublishProcess | null = null;
+  /** Bumped by stop(), so a start still waiting for the encoder probe can tell it was cancelled. */
+  private generation = 0;
   private readonly rtspUrl: string | undefined;
   private readonly ffmpeg: string;
-  private readonly encoder: CompositeVideoCodec;
+  private readonly encoder: EncoderSetting;
+  private readonly policy: EncoderPolicy;
   private readonly startupWindowMs: number;
   private readonly restartBaseMs: number;
   private readonly maxRestarts: number;
@@ -165,7 +174,8 @@ export class KeyPagePublisher {
   constructor(options: KeyPagePublisherOptions = {}) {
     this.rtspUrl = options.rtspUrl;
     this.ffmpeg = options.ffmpeg ?? "ffmpeg";
-    this.encoder = options.encoder ?? "libx264";
+    this.encoder = options.encoder ?? "auto";
+    this.policy = options.encoderPolicy ?? new EncoderPolicy({ ffmpeg: this.ffmpeg, logger: options.logger });
     this.startupWindowMs = options.startupWindowMs ?? 1500;
     this.restartBaseMs = options.restartBaseMs ?? 1000;
     this.maxRestarts = options.maxRestarts ?? 5;
@@ -178,7 +188,8 @@ export class KeyPagePublisher {
     if (!this.rtspUrl) {
       throw new Error("PIMATRIX_MEDIAMTX_RTSP_URL is not set, so compose1 cannot be published");
     }
-    await this.run(publishArgs(pngPath, this.rtspUrl, this.encoder), true);
+    const rtspUrl = this.rtspUrl;
+    await this.run((encoder) => publishArgs(pngPath, rtspUrl, encoder), true);
   }
 
   /**
@@ -202,7 +213,8 @@ export class KeyPagePublisher {
     this.pipeState = { frame: png, width, height, timer: null, draining: false };
     this.pipeState.timer = setInterval(() => this.writePipeFrame(), 1000);
     this.pipeState.timer.unref();
-    await this.start(pipePublishArgs(this.rtspUrl, this.encoder, 1), true, 0);
+    const rtspUrl = this.rtspUrl;
+    await this.start((encoder) => pipePublishArgs(rtspUrl, encoder, 1), true, 0);
   }
 
   /** Start (or restart) publishing a live source in the slide box. Restarts itself if the source drops. */
@@ -210,7 +222,8 @@ export class KeyPagePublisher {
     if (!this.rtspUrl) {
       throw new Error("PIMATRIX_MEDIAMTX_RTSP_URL is not set, so compose1 cannot be published");
     }
-    await this.run(liveArgs(sourceUrl, layout, this.rtspUrl, this.encoder, sourceFilter), true);
+    const rtspUrl = this.rtspUrl;
+    await this.run((encoder) => liveArgs(sourceUrl, layout, rtspUrl, encoder, sourceFilter), true);
   }
 
   /**
@@ -218,12 +231,32 @@ export class KeyPagePublisher {
    * window is started again with a doubling delay (1 s, 2 s, 4 s, ...) up to maxRestarts times
    * in a row; a run that lasts 10 s or more starts the count again.
    */
-  async run(args: string[], supervise: boolean): Promise<void> {
+  async run(args: PublishArgs, supervise: boolean): Promise<void> {
     await this.stop();
     await this.start(args, supervise, 0);
   }
 
-  private async start(args: string[], supervise: boolean, restarts: number): Promise<void> {
+  /**
+   * Starts the process with the encoder the policy picks. If the hardware encoder dies inside the
+   * start window the policy remembers it and the same command is started again with libx264.
+   */
+  private async start(build: PublishArgs, supervise: boolean, restarts: number, afterFallback = false): Promise<void> {
+    const generation = this.generation;
+    const encoder = await this.policy.pick(this.encoder);
+    // stop() or a newer start() while the probe ran: this start was cancelled.
+    if (generation !== this.generation) return;
+    const outcome = await this.attempt(build, encoder, supervise, restarts, afterFallback);
+    if (outcome === "fallback") await this.start(build, supervise, restarts, true);
+  }
+
+  private async attempt(
+    build: PublishArgs,
+    encoder: Encoder,
+    supervise: boolean,
+    restarts: number,
+    afterFallback: boolean
+  ): Promise<"started" | "fallback"> {
+    const args = typeof build === "function" ? build(encoder) : build;
     const proc = this.spawn(this.ffmpeg, args);
     this.process = proc;
     if (this.pipeState) {
@@ -233,10 +266,10 @@ export class KeyPagePublisher {
     }
     const startedAt = Date.now();
     let startWindowOver = false;
-    await new Promise<void>((resolve, reject) => {
+    return new Promise<"started" | "fallback">((resolve, reject) => {
       const timer = setTimeout(() => {
         startWindowOver = true;
-        resolve();
+        resolve("started");
       }, this.startupWindowMs);
       const fail = (reason: string) => {
         // A process that was stopped or replaced on purpose is not a failure.
@@ -245,6 +278,12 @@ export class KeyPagePublisher {
         this.logger?.warn({ reason }, "compose1 publisher stopped");
         if (!startWindowOver) {
           clearTimeout(timer);
+          if (this.policy.noteFailure(encoder, reason)) {
+            if (this.pipeState) this.pipeState.draining = false;
+            resolve("fallback");
+            return;
+          }
+          if (afterFallback && encoder === "libx264") this.policy.revertFallback();
           if (restarts === 0 || !supervise) {
             if (this.pipeState?.timer) clearInterval(this.pipeState.timer);
             this.pipeState = null;
@@ -252,7 +291,7 @@ export class KeyPagePublisher {
             return;
           }
           // During a supervised restart, exiting within startupWindowMs should still schedule backoff retries.
-          resolve();
+          resolve("started");
         }
         if (!supervise) return;
         const ranLong = Date.now() - startedAt >= 10_000;
@@ -266,7 +305,7 @@ export class KeyPagePublisher {
         const delay = this.restartBaseMs * 2 ** (next - 1);
         this.restartTimer = setTimeout(() => {
           this.restartTimer = null;
-          this.start(args, supervise, next).catch(() => undefined);
+          this.start(build, supervise, next).catch(() => undefined);
         }, delay);
       };
       proc.onError((error) => fail(error.message));
@@ -291,6 +330,7 @@ export class KeyPagePublisher {
 
   /** Stop publishing. Safe to call when nothing is running. */
   async stop(): Promise<void> {
+    this.generation += 1;
     if (this.restartTimer) clearTimeout(this.restartTimer);
     this.restartTimer = null;
     if (this.pipeState?.timer) clearInterval(this.pipeState.timer);

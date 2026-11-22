@@ -152,7 +152,7 @@ export function parseArgs(args: string[], env: NodeJS.ProcessEnv = process.env):
       index += 1;
     } else if (arg === "--codec") {
       const value = args[index + 1];
-      if (!value || value.startsWith("--")) throw new Error("--codec requires copy, libx264, h264_v4l2m2m or 'default'");
+      if (!value || value.startsWith("--")) throw new Error("--codec requires copy, auto, libx264, h264_v4l2m2m or 'default'");
       codec = value;
       index += 1;
     } else if (arg?.startsWith("--")) throw new Error(`Unknown option: ${arg}`);

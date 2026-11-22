@@ -96,7 +96,7 @@ async function run(options: CliOptions): Promise<void> {
       "  hama start\n" +
       "  hama stop [--force]\n" +
       "  hama settings\n" +
-      "  hama set [--width N --height N] [--format mjpeg|yuyv422|default] [--fps N|default] [--codec copy|libx264|h264_v4l2m2m|default]\n" +
+      "  hama set [--width N --height N] [--format mjpeg|yuyv422|default] [--fps N|default] [--codec copy|auto|libx264|h264_v4l2m2m|default]\n" +
       "  hama reset\n" +
       "  effects list\n" +
       "  effects show <sourceId>\n" +
