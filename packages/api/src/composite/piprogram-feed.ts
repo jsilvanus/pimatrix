@@ -33,6 +33,14 @@ export interface PiprogramClientOptions {
   apiKey?: string | undefined;
   fetch?: typeof fetch;
   timeoutMs?: number;
+  /**
+   * How long a snapshot is reused, ms (default 0 = no cache). Concurrent requests for the same
+   * pipeline always share one fetch. With a TTL just under the poll interval, every consumer of
+   * the client (composite feed, PiPGM feed) together costs one fetch per pipeline per interval.
+   */
+  snapshotCacheMs?: number;
+  /** Clock for the cache, default Date.now. */
+  now?: () => number;
 }
 
 export class PiprogramClient {
@@ -40,15 +48,42 @@ export class PiprogramClient {
   private readonly apiKey: string | undefined;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
+  private readonly snapshotCacheMs: number;
+  private readonly now: () => number;
+  private readonly snapshotCache = new Map<
+    string,
+    { at: number; value?: PiprogramPipelineSnapshot; pending?: Promise<PiprogramPipelineSnapshot> }
+  >();
 
   constructor(options: PiprogramClientOptions) {
+    this.snapshotCacheMs = options.snapshotCacheMs ?? 0;
+    this.now = options.now ?? Date.now;
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
     this.apiKey = options.apiKey;
     this.fetchImpl = options.fetch ?? fetch;
     this.timeoutMs = options.timeoutMs ?? 5000;
   }
 
+  /** The pipeline snapshot, cached for snapshotCacheMs; callers arriving during a fetch share it. Failures are not cached. */
   async snapshot(pipelineId: PiprogramPipelineId): Promise<PiprogramPipelineSnapshot> {
+    const entry = this.snapshotCache.get(pipelineId);
+    if (entry?.pending) return entry.pending;
+    if (entry?.value && this.now() - entry.at < this.snapshotCacheMs) return entry.value;
+    const pending = this.fetchSnapshot(pipelineId).then(
+      (value) => {
+        this.snapshotCache.set(pipelineId, { at: this.now(), value });
+        return value;
+      },
+      (error: unknown) => {
+        this.snapshotCache.delete(pipelineId);
+        throw error;
+      }
+    );
+    this.snapshotCache.set(pipelineId, { at: entry?.at ?? 0, pending });
+    return pending;
+  }
+
+  private async fetchSnapshot(pipelineId: PiprogramPipelineId): Promise<PiprogramPipelineSnapshot> {
     const response = await this.get(`/api/v1/pipgm/pipelines/${encodeURIComponent(pipelineId)}`);
     return (await response.json()) as PiprogramPipelineSnapshot;
   }
