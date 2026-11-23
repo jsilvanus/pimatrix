@@ -527,6 +527,48 @@ test("sound is per output: only the output marked audio plays it", async () => {
   }
 });
 
+test("each output plays its sound on its own ALSA device, only when it plays audio", async () => {
+  const fake = fakeSpawner();
+  const adapter = new HdmiPlayerAdapter({
+    outputs: new Map<OutputId, HdmiOutputConfig>([
+      ["hdmi0", { device: "0", audio: true, audioDevice: "hdmi:CARD=vc4hdmi0" }],
+      ["hdmi1", { device: "1", audio: true, audioDevice: "hdmi:CARD=vc4hdmi1" }]
+    ]),
+    sourceUrl,
+    spawn: fake.spawn,
+    startupWindowMs: 1000
+  });
+  const silent = new HdmiPlayerAdapter({
+    outputs: new Map<OutputId, HdmiOutputConfig>([["hdmi0", { device: "0", audioDevice: "hdmi:CARD=vc4hdmi0" }]]),
+    sourceUrl,
+    spawn: fake.spawn,
+    startupWindowMs: 1000
+  });
+  try {
+    await adapter.applyRoute("hdmi0", "PiPGM1");
+    await adapter.applyRoute("hdmi1", "PiPGM2");
+    const hdmi0 = fake.calls.find((call) => call.args.includes("pimatrix-hdmi0"))!;
+    const hdmi1 = fake.calls.find((call) => call.args.includes("pimatrix-hdmi1"))!;
+    assert.equal(hdmi0.env.AUDIODEV, "hdmi:CARD=vc4hdmi0");
+    assert.equal(hdmi1.env.AUDIODEV, "hdmi:CARD=vc4hdmi1");
+    assert.equal(hdmi0.env.SDL_AUDIODRIVER, "alsa");
+    const before = fake.calls.length;
+    await silent.applyRoute("hdmi0", "PiPGM1");
+    assert.equal(fake.calls[before]?.env.AUDIODEV, process.env.AUDIODEV, "a silent output sets no audio device");
+  } finally {
+    await adapter.close();
+    await silent.close();
+  }
+});
+
+test("loadConfig reads PIMATRIX_HDMIn_AUDIO_DEVICE", () => {
+  assert.equal(loadConfig({}).hdmi0AudioDevice, undefined);
+  const set = loadConfig({ PIMATRIX_HDMI0_AUDIO_DEVICE: "hdmi:CARD=vc4hdmi0", PIMATRIX_HDMI1_AUDIO_DEVICE: "hdmi:CARD=vc4hdmi1" });
+  assert.equal(set.hdmi0AudioDevice, "hdmi:CARD=vc4hdmi0");
+  assert.equal(set.hdmi1AudioDevice, "hdmi:CARD=vc4hdmi1");
+  assert.throws(() => loadConfig({ PIMATRIX_HDMI0_AUDIO_DEVICE: "bad device; rm" }), /PIMATRIX_HDMI0_AUDIO_DEVICE/);
+});
+
 test("loadConfig reads PIMATRIX_HDMIn_AUDIO and PIMATRIX_PIPGM_FEED", () => {
   const defaults = loadConfig({});
   assert.equal(defaults.hdmi0Audio, undefined);

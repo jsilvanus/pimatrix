@@ -65,6 +65,12 @@ export interface HdmiOutputConfig {
    * output 1 only); the sound has to ride the feed, the player does not add any.
    */
   audio?: boolean | undefined;
+  /**
+   * ALSA device this output's player plays sound on (for example `hdmi:CARD=vc4hdmi0`). Set as AUDIODEV with
+   * SDL_AUDIODRIVER=alsa for that player only; without it ffplay uses the system default (the headphone jack
+   * on a Pi). Only used when the output plays audio.
+   */
+  audioDevice?: string | undefined;
 }
 
 export interface HdmiPlayerAdapterOptions {
@@ -155,6 +161,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
   private readonly player: string;
   private readonly audio: boolean;
   private readonly outputAudio: Map<OutputId, boolean | undefined>;
+  private readonly outputAudioDevice: Map<OutputId, string | undefined>;
   private readonly startupWindowMs: number;
   private readonly stopGraceMs: number;
   private readonly spawnPlayer: SpawnPlayer;
@@ -176,6 +183,7 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
     this.player = options.player ?? "ffplay";
     this.audio = options.audio ?? false;
     this.outputAudio = new Map([...options.outputs].map(([id, config]) => [id, config.audio]));
+    this.outputAudioDevice = new Map([...options.outputs].map(([id, config]) => [id, config.audioDevice]));
     this.startupWindowMs = options.startupWindowMs ?? 2000;
     this.stopGraceMs = options.stopGraceMs ?? 3000;
     this.spawnPlayer = options.spawn ?? defaultSpawn;
@@ -271,6 +279,11 @@ export class HdmiPlayerAdapter implements DisplayAdapter {
     const args = this.playerArgs(outputId, sourceId, url, useDecoder ? this.decoder : undefined);
     const env: NodeJS.ProcessEnv = { ...process.env, PIMATRIX_OUTPUT_DEVICE: device };
     if (this.sdlVideoDriver) env.SDL_VIDEODRIVER = this.sdlVideoDriver;
+    const audioDevice = this.outputAudioDevice.get(outputId);
+    if (audioDevice && (this.outputAudio.get(outputId) ?? this.audio)) {
+      env.SDL_AUDIODRIVER = "alsa";
+      env.AUDIODEV = audioDevice;
+    }
     let proc: PlayerProcess;
     try {
       proc = this.spawnPlayer(this.player, args, { stdio: "ignore", env });
