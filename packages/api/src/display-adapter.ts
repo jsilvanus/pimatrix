@@ -1,5 +1,5 @@
 import type { OutputId, SourceId } from "./model.js";
-import { HdmiPlayerAdapter } from "./hdmi-player-adapter.js";
+import { HdmiPlayerAdapter, type HdmiOutputConfig } from "./hdmi-player-adapter.js";
 import { inspectMediaMtx } from "./media-mtx.js";
 
 export type DisplayAdapterState = "not-configured" | "simulated" | "ready" | "unavailable" | "failed";
@@ -79,6 +79,9 @@ export interface HardwareDisplayConfig {
   /** The player of this output plays the stream's sound (PIMATRIX_HDMI0_AUDIO / _HDMI1_AUDIO). Default: silent. */
   hdmi0Audio?: boolean;
   hdmi1Audio?: boolean;
+  /** ALSA device for each output's sound (PIMATRIX_HDMI0_AUDIO_DEVICE / _HDMI1_AUDIO_DEVICE), e.g. hdmi:CARD=vc4hdmi0. */
+  hdmi0AudioDevice?: string;
+  hdmi1AudioDevice?: string;
   hdmiSdlVideoDriver?: string;
   hdmiDecoder?: string;
   mediaMtxApiUrl?: string;
@@ -99,9 +102,9 @@ export function createDisplayAdapter(
     const rtspBase = hardware.mediaMtxRtspUrl?.replace(/\/$/, "");
     const resolvePath = hardware.resolvePath ?? ((sourceId: string) => sourceId);
     return new HdmiPlayerAdapter({
-      outputs: new Map<OutputId, { device?: string | undefined; audio?: boolean | undefined }>([
-        ["hdmi0", { device: hardware.hdmi0Device, audio: hardware.hdmi0Audio }],
-        ["hdmi1", { device: hardware.hdmi1Device, audio: hardware.hdmi1Audio }]
+      outputs: new Map<OutputId, HdmiOutputConfig>([
+        ["hdmi0", { device: hardware.hdmi0Device, audio: hardware.hdmi0Audio, audioDevice: hardware.hdmi0AudioDevice }],
+        ["hdmi1", { device: hardware.hdmi1Device, audio: hardware.hdmi1Audio, audioDevice: hardware.hdmi1AudioDevice }]
       ]),
       sourceUrl: (sourceId) => (rtspBase ? `${rtspBase}/${resolvePath(sourceId)}` : undefined),
       // The player waits until MediaMTX reports the source path ready (no wait without the API URL).

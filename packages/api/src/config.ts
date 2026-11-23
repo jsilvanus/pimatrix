@@ -52,6 +52,9 @@ export interface AppConfig {
   /** Let the player of this output play the stream's sound (PIMATRIX_HDMI0_AUDIO, PIMATRIX_HDMI1_AUDIO). */
   hdmi0Audio?: boolean;
   hdmi1Audio?: boolean;
+  /** ALSA device for the player's sound on this output (PIMATRIX_HDMI0_AUDIO_DEVICE, PIMATRIX_HDMI1_AUDIO_DEVICE). */
+  hdmi0AudioDevice?: string;
+  hdmi1AudioDevice?: string;
   hdmiSdlVideoDriver?: string;
   /** ffplay hardware decoder (-vcodec), default h264_v4l2m2m; undefined = software decoding. */
   hdmiDecoder?: string;
@@ -230,6 +233,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   };
   const hdmi0Audio = flag("PIMATRIX_HDMI0_AUDIO");
   const hdmi1Audio = flag("PIMATRIX_HDMI1_AUDIO");
+  const hdmi0AudioDevice = env.PIMATRIX_HDMI0_AUDIO_DEVICE?.trim() || undefined;
+  const hdmi1AudioDevice = env.PIMATRIX_HDMI1_AUDIO_DEVICE?.trim() || undefined;
+  for (const [name, value] of [["PIMATRIX_HDMI0_AUDIO_DEVICE", hdmi0AudioDevice], ["PIMATRIX_HDMI1_AUDIO_DEVICE", hdmi1AudioDevice]] as const) {
+    if (value !== undefined && !/^[A-Za-z0-9._:,=/-]+$/.test(value)) {
+      throw new Error(`${name} must be an ALSA device name (letters, digits, . _ : , = / -), e.g. hdmi:CARD=vc4hdmi0`);
+    }
+  }
   const compositeHdmiDevice = env.PIMATRIX_COMPOSITE_HDMI_DEVICE?.trim() || undefined;
   if (compositeHdmiDevice !== undefined && !/^[A-Za-z0-9._:/-]+$/.test(compositeHdmiDevice)) {
     throw new Error("PIMATRIX_COMPOSITE_HDMI_DEVICE must be a DRM connector, device path or display name (letters, digits, . _ : / -), e.g. card1-HDMI-A-2");
@@ -321,6 +331,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(hdmi1Device ? { hdmi1Device } : {}),
     ...(hdmi0Audio !== undefined ? { hdmi0Audio } : {}),
     ...(hdmi1Audio !== undefined ? { hdmi1Audio } : {}),
+    ...(hdmi0AudioDevice ? { hdmi0AudioDevice } : {}),
+    ...(hdmi1AudioDevice ? { hdmi1AudioDevice } : {}),
     pipgmFeed,
     pipgmPollMs,
     mediaMtxCacheMs,
