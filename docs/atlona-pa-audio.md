@@ -21,3 +21,7 @@ Set by Juha 2026-11-02. This is how the church is wired, not something pimatrix 
 
 - How the audio is taken from output 1 (the Atlona's own audio out, the projector, or something else) is not written down here. Confirm it on site before relying on it for anything beyond the rule above.
 - Nothing here has been tried with a real sound from the Pi. The per-output audio setting is only unit tested (ffplay arguments).
+
+## Which Pi HDMI reaches an Atlona output
+
+`GET /api/v1/sound-output` (optionally `?atlonaOutput=N`, default `PIMATRIX_PA_ATLONA_OUTPUT`, 1) looks up the input routed to that Atlona output in pigateway's matrix state and maps it back to a Pi output with `PIMATRIX_ATLONA_INPUTS` (default `hdmi0=3,hdmi1=4`). The answer has `hdmi` (`hdmi0`, `hdmi1` or `null`), `input`, and `outputs` (the same lookup for all five Atlona outputs). pigateway forwards it to piprogram, which plays spoken announcements on that HDMI. Nothing is played by this endpoint, and when the route is unknown (`null`) piprogram refuses to speak.

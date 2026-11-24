@@ -130,6 +130,7 @@ Environment:
 - `PIMATRIX_AMX_TCP_ENABLED`: set to `true` to start the inbound AMX TCP listener.
 - `PIMATRIX_AMX_TCP_HOST`: inbound listener host; defaults to `127.0.0.1`.
 - `PIMATRIX_GATEWAY_URL`, `PIMATRIX_GATEWAY_API_KEY`: [pigateway](https://github.com/jsilvanus/pigateway), which now owns the ATEM, the cameras (VISCA, CGI, FreeD, privacy blur, RTMP) and the Atlona matrix (AMX master). `/api/v1/atem*`, `/api/v1/cameras*` and `/api/v1/matrix*` are passed on to it, so clients keep their base URL; without a URL they answer 503 `GATEWAY_NOT_CONFIGURED`. Composites use it for the ATEM media pool and keyer. Camera, ATEM and AMX master settings (`PIGATEWAY_*`) are documented in the pigateway README.
+- `PIMATRIX_ATLONA_INPUTS` (default `hdmi0=3,hdmi1=4`), `PIMATRIX_PA_ATLONA_OUTPUT` (default `1`, the left projector, the only output taken into the PA): `GET /api/v1/sound-output[?atlonaOutput=N]` reads the matrix routes from pigateway and answers which Pi HDMI output (`hdmi0`/`hdmi1`, or `null` when another source feeds that Atlona output) reaches the PA or the given output. 503 without a gateway, 502 when it is unreachable, 422 for a bad `atlonaOutput`. Read only, plays nothing. See `docs/atlona-pa-audio.md`.
 - `PIMATRIX_AMX_TCP_PORT`: inbound listener port; defaults to `6601`. This is pimatrix's own line listener for the video commands (`SOURCE`, `OUTPUT`, `QUICK`, `PROGRAM`, `STATUS`); the AMX connects to pigateway on 6600, which forwards those commands here.
 - `LOG_LEVEL`: Fastify log level; defaults to `info`.
 

@@ -1,3 +1,4 @@
+import { parseAtlonaInputs, type AtlonaInputs } from "./sound-lanes.js";
 import { isEncoderSetting, type EncoderSetting } from "./encoder.js";
 export type RuntimeMode = "simulation" | "production";
 export type HamaVideoCodec = "copy" | EncoderSetting;
@@ -38,6 +39,10 @@ export interface AppConfig {
   /** pigateway, which owns the ATEM, cameras and the Atlona matrix (PIMATRIX_GATEWAY_URL, PIMATRIX_GATEWAY_API_KEY). */
   gatewayUrl?: string;
   gatewayApiKey?: string;
+  /** Atlona input each Pi HDMI output is wired to (PIMATRIX_ATLONA_INPUTS, default hdmi0=3,hdmi1=4). */
+  atlonaInputs: AtlonaInputs;
+  /** The Atlona output whose sound reaches the PA (PIMATRIX_PA_ATLONA_OUTPUT, default 1). */
+  paAtlonaOutput: number;
   amxAllowedHosts?: string[];
   mediaMtxPassword?: string;
   authAllowedHosts?: string[];
@@ -264,6 +269,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const atemMediaFillInput = validPort(env.PIMATRIX_ATEM_MEDIA_FILL_INPUT, 8010, "PIMATRIX_ATEM_MEDIA_FILL_INPUT");
   const gatewayUrl = optionalHttpUrl(env.PIMATRIX_GATEWAY_URL, "PIMATRIX_GATEWAY_URL");
   const gatewayApiKey = env.PIMATRIX_GATEWAY_API_KEY?.trim() || undefined;
+  const atlonaInputs = parseAtlonaInputs(env.PIMATRIX_ATLONA_INPUTS);
+  const paAtlonaOutput = Number(env.PIMATRIX_PA_ATLONA_OUTPUT?.trim() || 1);
+  if (!Number.isInteger(paAtlonaOutput) || paAtlonaOutput < 1 || paAtlonaOutput > 8) {
+    throw new Error("PIMATRIX_PA_ATLONA_OUTPUT must be a whole number from 1 to 8");
+  }
   if (/\s/.test(hdmiPlayer)) {
     throw new Error("PIMATRIX_HDMI_PLAYER must be a single executable name or path without spaces");
   }
@@ -349,6 +359,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     encoderFallback,
     compositeFfmpeg,
     atemMediaFillInput,
+    atlonaInputs,
+    paAtlonaOutput,
     ...(gatewayUrl ? { gatewayUrl: gatewayUrl.replace(/\/$/, "") } : {}),
     ...(gatewayApiKey ? { gatewayApiKey } : {})
   };
