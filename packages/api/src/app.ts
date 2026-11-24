@@ -6,6 +6,7 @@ import { AmxTcpListener, type AmxControl } from "./amx/amx-listener.js";
 import { GatewayClient } from "./gateway/gateway-client.js";
 import { GatewayEventRelay } from "./gateway/gateway-events.js";
 import { registerGatewayProxy } from "./gateway/gateway-proxy.js";
+import { soundOutputReport } from "./sound-lanes.js";
 import { RemoteAtem } from "./gateway/remote-atem.js";
 import { CompositeService } from "./composite/composite-service.js";
 import { registerCompositeRoutes } from "./composite/composite-routes.js";
@@ -566,6 +567,23 @@ export function buildApp(config: AppConfig, fetchImpl: typeof fetch = fetch): Fa
         display: displayAdapter.getStatus()
       }
     });
+  });
+
+  // Which Pi HDMI output reaches an Atlona output (default: the PA lane, output 1). Routes come from pigateway.
+  app.get<{ Querystring: { atlonaOutput?: string } }>("/api/v1/sound-output", async (request, reply) => {
+    const asked = request.query.atlonaOutput === undefined ? config.paAtlonaOutput : Number(request.query.atlonaOutput);
+    if (!Number.isInteger(asked) || asked < 1 || asked > 8) {
+      return reply.code(422).send({ error: { code: "INVALID_ATLONA_OUTPUT", message: "atlonaOutput must be a whole number from 1 to 8" } });
+    }
+    if (!gateway) {
+      return reply.code(503).send({ error: { code: "GATEWAY_NOT_CONFIGURED", message: "the Atlona route comes from pigateway; set PIMATRIX_GATEWAY_URL" } });
+    }
+    try {
+      const matrix = await gateway.json<{ routes?: Record<string, number | null> }>("GET", "/api/v1/matrix", undefined, 4000);
+      return soundOutputReport(matrix.routes ?? {}, config.atlonaInputs, config.paAtlonaOutput, asked);
+    } catch (err) {
+      return reply.code(502).send({ error: { code: "GATEWAY_UNAVAILABLE", message: err instanceof Error ? err.message : "pigateway request failed" } });
+    }
   });
 
   app.get("/api/v1/status", async () => {
